@@ -983,6 +983,79 @@
   });
 
   add({
+    id: 'codon-optimization', group: 'Optimizing with evolution', title: 'Codon optimization: evolving a gene without changing the protein',
+    analogy: 'Spelling the same word in two languages. "Colour" and "color" read the same to a person, but one is what the local reader expects. The protein is the meaning; the codons are the spelling, and each host has its own preference.',
+    intro: 'Most amino acids can be written with several codons, so a protein has astronomically many possible genes. A genetic algorithm breeds a population of spellings: it keeps the ones that score well, mixes them, and mutates a codon here and there. Drag through the generations below and watch a deliberately badly-spelled gene improve, one objective at a time.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-controls">' + slider('gen', 'Generation', 0, 60, 1, 0) + btn('play', 'Play', 'primary') + '</div>' +
+        '<div data-role="track"></div><p class="demo-read" data-role="read"></p><div class="cols2"><div data-role="plot"></div><div data-role="codons"></div></div>';
+      const CD = window.MLCodon, GA = window.MLGa;
+      // A short gene written with the codons a human cell uses least, plus an EcoRI site.
+      const rnd = GA.rng(11), aas = 'ACDEFGHIKLMNPQRSTVY';
+      let dna = 'ATG';
+      for (let i = 0; i < 59; i++) {
+        const aa = aas[Math.floor(rnd() * aas.length)];
+        dna += CD.SYN[aa].slice().sort((x, y) => CD.TABLES.HEK293.usage[x] - CD.TABLES.HEK293.usage[y])[0];
+      }
+      dna = dna.slice(0, 15) + 'GAATTC' + dna.slice(21) + 'TAA';
+      const job = { dna, host: 'HEK293', gcLow: 0.45, gcHigh: 0.55, avoid: ['EcoRI'], maxRun: 6, popSize: 30, generations: 60, seed: 3 };
+      const run = GA.create(job), w = CD.relativeAdaptiveness('HEK293');
+      /* Record the best sequence at every generation, then let the slider scrub through
+         them. Generation 0 is the gene exactly as it was written: the starting population
+         already contains improved spellings, so showing its best here would skip the point. */
+      const keep = m => ({ dna: m.dna, cai: m.cai, gc: m.gc.overall, viol: m.violations, d: m.d });
+      const snaps = [keep(run.state.baseline)];
+      for (let g = 0; g < 60; g++) { run.step(1); snaps.push(keep(run.state.best.m)); }
+
+      const draw = () => {
+        const g = Number(q(el, 'gen').value), s = snaps[g];
+        setOut(el, 'gen', g);
+        // One cell per codon, shaded by how much this host likes that codon.
+        const n = s.dna.length / 3, cw = 640 / n;
+        let b = '';
+        for (let i = 0; i < n; i++) {
+          const c = s.dna.slice(i * 3, i * 3 + 3);
+          const good = CD.SYN[CD.CODE[c]].length < 2 ? 1 : w[c];
+          const changed = c !== dna.slice(i * 3, i * 3 + 3);
+          b += '<rect x="' + (i * cw) + '" y="8" width="' + Math.max(1, cw - 1) + '" height="26" rx="2" class="' + (good > 0.8 ? 'cell-good' : good > 0.45 ? 'cell-mid' : 'cell-bad') + '"><title>' + h(c) + ' = ' + h(CD.CODE[c]) + ', host preference ' + good.toFixed(2) + '</title></rect>' +
+            (changed ? '<rect x="' + (i * cw) + '" y="36" width="' + Math.max(1, cw - 1) + '" height="3" class="cell-changed"/>' : '');
+        }
+        q(el, 'track').innerHTML = svg(640, 46, 'Codon preference along the gene', b) +
+          C.legend([{ label: 'codon this host likes', cls: 'c3', shape: 'square' }, { label: 'middling', cls: 'c4', shape: 'square' }, { label: 'rare codon', cls: 'c2', shape: 'square' }, { label: 'changed from the original', cls: 'c1', shape: 'square' }]);
+        const f = frame(320, 220, [0, 60], [0, 1], { xLabel: 'Generation', yLabel: 'Overall score' });
+        let p = f.axes + '<path class="curve d3" d="' + pathOf(snaps.slice(0, g + 1).map((x, i) => [i, x.d]), f) + '"/>';
+        p += dot(f.sx(g), f.sy(s.d), 'query', 5);
+        q(el, 'plot').innerHTML = svg(320, 220, 'Score by generation', p);
+        // What the first six codons look like now, versus where they started.
+        let rows = '<table class="mini"><thead><tr><th>Codon</th><th>Started</th><th>Now</th><th>Amino acid</th></tr></thead><tbody>';
+        for (let i = 1; i < 7; i++) {
+          const was = dna.slice(i * 3, i * 3 + 3), now = s.dna.slice(i * 3, i * 3 + 3);
+          rows += '<tr><td>' + (i + 1) + '</td><td>' + h(was) + ' <span class="hint">' + w[was].toFixed(2) + '</span></td><td><b>' + h(now) + '</b> <span class="hint">' + w[now].toFixed(2) + '</span></td><td>' + h(CD.CODE[now]) + '</td></tr>';
+        }
+        q(el, 'codons').innerHTML = rows + '</tbody></table>';
+        const first = snaps[0];
+        q(el, 'read').innerHTML = 'Generation <b>' + g + '</b>: CAI <b>' + s.cai.toFixed(3) + '</b> (started ' + first.cai.toFixed(3) + '), GC <b>' + pct(s.gc) + '</b>, EcoRI sites <b>' + s.viol + '</b>, overall score <b>' + s.d.toFixed(3) + '</b>.<br>' +
+          (g === 0 ? 'This is the gene as written: rare codons nearly everywhere (the red track) and an EcoRI site that has to go. Drag the slider, or press Play.'
+            : s.viol === 0 && s.cai > 0.85 ? 'The protein has not changed by a single amino acid: only the spelling has. Rare codons have been swapped for ones this host reads easily, and the restriction site is gone.'
+              : 'Evolution in progress: the population is still trading CAI against GC and the leftover site.');
+      };
+      q(el, 'gen').oninput = draw;
+      q(el, 'play').onclick = () => {
+        let g = 0;
+        const sl = q(el, 'gen');
+        const tickOn = () => { sl.value = g; draw(); if (g++ < 60) setTimeout(tickOn, 60); };
+        tickOn();
+      };
+      draw();
+    },
+    steps: ['Start from a population of spellings of the same protein: the original, the host’s favourite codon everywhere, and random mixes.', 'Score each one: Codon Adaptation Index (does this host read it easily?), GC content in its window, how much the 5′ end folds, and whether forbidden sites are present.', 'Keep the sequences nothing else beats on all goals at once (the Pareto front), breed them, and mutate the odd codon to a synonym.', 'Repeat for a few hundred generations. Because only synonyms are ever swapped, the protein cannot change.'],
+    when: 'Expressing a gene in a host it did not come from, or cleaning a sequence up before ordering synthesis.',
+    watch: 'Codon tables are averages over a genome, not a promise about your construct. The folding number here is a base-pairing score, not a kcal/mol free energy. Highest CAI is not always best: very fast translation can misfold some proteins. Always have the final sequence reviewed.',
+    where: 'Step 6, "Sequence optimizer": paste a coding sequence, pick a host, and run it.',
+    quiz: { q: 'A codon optimizer changes 60% of the codons in your gene. What should the protein look like afterwards?', options: ['Slightly different, which is normal', 'Exactly the same, every amino acid', 'Shorter, because rare codons are dropped'], answer: 1, why: 'Only synonymous codons are swapped, so the amino acid sequence is identical. If it is not, something is wrong: the tool checks this and reports it.' }
+  });
+
+  add({
     id: 'reading-results', group: 'Using the results', title: 'From charts to actions: reading the action plan',
     analogy: 'A mixing desk: turn one knob while leaving the others alone, and listen. That is what "how each driver moves the result" does with the model.',
     intro: 'The agent turns its model into plain-English actions by asking, for each top driver: if I change only this, holding everything else as it was, what happens to the result? The shape of that curve becomes the action.',

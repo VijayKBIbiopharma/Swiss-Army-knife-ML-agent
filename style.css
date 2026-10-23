@@ -456,3 +456,24 @@ progress { flex: 1; height: 10px; accent-color: var(--steel); }
 .sim-multi { margin-top: 10px; border-top: 1px solid var(--line, #ccc); padding-top: 8px; font-size: .9rem; }
 .dval { white-space: nowrap; }
 .sim-multi > div:not(.lbl) { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; margin: 3px 0; }
+
+/* Sequence optimizer */
+.chart .c4 { fill: var(--s4); }
+.chart .pt.sel { stroke: var(--ink); stroke-width: 2.5; }
+label.full { display: block; margin-top: 10px; font-size: .85rem; font-weight: 600; color: var(--muted); }
+#seq-dna { width: 100%; }
+#seq-extra { width: 100%; margin-top: 4px; }
+.unit { color: var(--muted); font-size: .8rem; margin-left: 3px; }
+.avoid { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px 14px; margin: 14px 0 4px; }
+.avoid legend { font-size: .85rem; font-weight: 600; color: var(--muted); padding: 0 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.chip-check { display: flex; align-items: center; gap: 5px; font-size: .85rem; white-space: nowrap; }
+.chip-check code { font-size: .72rem; color: var(--muted); }
+.prog-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 10px 0 14px; }
+.prog-row progress { flex: 1 1 200px; }
+.prog-row span { font-size: .85rem; color: var(--muted); }
+.seq-text { font: .78rem/1.5 var(--mono); background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; overflow-x: auto; white-space: pre; margin-top: 10px; max-height: 320px; overflow-y: auto; }
+.seq-result h4 { margin: 18px 0 6px; }
+.chart .cell-good { fill: var(--s3); } .chart .cell-mid { fill: var(--s4); } .chart .cell-bad { fill: var(--s2); }
+.chart .cell-changed { fill: var(--s1); }
+table.mini { font-size: .82rem; } table.mini td, table.mini th { padding: 3px 8px; }

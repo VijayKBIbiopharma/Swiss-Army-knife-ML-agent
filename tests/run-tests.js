@@ -188,6 +188,18 @@ test('privacy lint: no network, storage or tracking code', () => {
       if (line.includes('PRIVACY-SELF-TEST')) return;
       // Charts become PDF images from an in-memory copy only: a data: URL, never a web address.
       if (line.includes('PRIVACY-LOCAL-IMAGE') && /\.src = 'data:image\/svg\+xml/.test(line) && !/https?:/.test(line)) return;
+      /* The sequence optimizer runs in a Web Worker. A worker inherits the page's policy, so
+         it can reach no further than the page can, but the file it loads and the messages it
+         exchanges still have to be local: only this site's own relative .js files, and
+         postMessage only between the page and that worker. */
+      if (line.includes('PRIVACY-LOCAL-WORKER')) {
+        const code = line.replace(/\/\/.*$/, '');
+        assert.ok(!/https?:|\/\//.test(code), 'worker line must not reference another origin: ' + line.trim());
+        const paths = [...code.matchAll(/'([^']*\.js)'/g)].map(m => m[1]);
+        for (const q of paths) assert.ok(/^[a-z0-9-]+\.js$/.test(q), 'worker may only load this site\'s own files: ' + q);
+        assert.ok(!/\bfetch\s*\(|XMLHttpRequest|WebSocket|localStorage|document\.cookie/.test(code), 'worker line must not add network or storage: ' + line.trim());
+        return;
+      }
       const code = line.replace(/\/\/.*$/, '').replace(/'http:\/\/www\.w3\.org\/2000\/svg'/, '');
       for (const re of forbidden) if (re.test(code)) hits.push(f + ':' + (i + 1) + ' ' + re + ' → ' + line.trim());
     });
@@ -200,6 +212,20 @@ test('privacy lint: no network, storage or tracking code', () => {
 test('privacy lint: every page locks itself down and loads nothing from other servers', () => {
   for (const page of ['index.html', 'learn.html']) checkPage(page);
 });
+
+/* The pages carry the policy in a meta tag; a server may also send it as a header, and a
+   browser enforces both. If the two ever disagree the stricter one silently wins, which is
+   how a feature works on one host and breaks on another. They must match. */
+test('the server configs send the same policy the pages carry', () => {
+  const page = (fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').match(/http-equiv="Content-Security-Policy" content="([^"]+)"/) || [])[1];
+  const rules = page.split(';').map(r => r.trim()).filter(Boolean);
+  for (const file of ['web.config', 'DEPLOY.md']) {
+    const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    const policies = [...text.matchAll(/"(default-src[^"]*)"/g)].map(m => m[1]);
+    assert.ok(policies.length, file + ' should document the policy');
+    for (const p of policies) for (const rule of rules) assert.ok(p.includes(rule), file + ' is missing "' + rule + '"');
+  }
+});
 function checkPage(page) {
   const html = fs.readFileSync(path.join(ROOT, page), 'utf8');
   const csp = (html.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/) || [])[1] || '';
@@ -207,6 +233,8 @@ function checkPage(page) {
     assert.ok(csp.includes(rule), 'CSP must include ' + rule);
   }
   assert.ok(!/unsafe-inline|unsafe-eval/.test(csp), 'no unsafe CSP keywords');
+  // Workers, where a page allows them at all, may only come from this site.
+  assert.ok(/worker-src '(none|self)'/.test(csp), 'worker-src must be none or self');
   const srcs = [...html.matchAll(/<(?:script|link)[^>]+(?:src|href)="([^"]+)"/g)].map(m => m[1]);
   for (const s of srcs) assert.ok(!/^(https?:)?\/\//.test(s), 'external resource: ' + s);
   assert.ok(!/<script>[^<]/.test(html), 'no inline scripts');
@@ -271,6 +299,11 @@ test('every "learn more" link points to a lesson that exists', () => {
   for (const [k, v] of Object.entries(X.READ)) assert.ok(ids.has(v[2]), 'chart ' + k + ' → ' + v[2]);
   const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8') + fs.readFileSync(path.join(ROOT, 'agent.js'), 'utf8');
   for (const m of app.matchAll(/learnLink\('([a-z-]+)'/g)) assert.ok(ids.has(m[1]), 'link ' + m[1]);
+  // Links written straight into a page must point at a real lesson too.
+  for (const page of ['index.html', 'learn.html']) {
+    const html = fs.readFileSync(path.join(ROOT, page), 'utf8');
+    for (const m of html.matchAll(/href="learn\.html#([a-z-]+)"/g)) assert.ok(ids.has(m[1]), page + ' links to missing lesson ' + m[1]);
+  }
 });
 
 test('columns that copy the target (data leakage) are set aside', async () => {
@@ -524,4 +557,128 @@ test('audit package: SHA-256, zip and xlsx structure, audit trail content', asyn
   const text = Buffer.from(book).toString('latin1');
   for (const part of ['[Content_Types].xml', 'xl/workbook.xml', 'xl/styles.xml', 'xl/worksheets/sheet' + sh.length + '.xml']) assert.ok(text.includes(part), part);
   assert.ok(text.includes('<sheet name="Audit trail"'));
+});
+
+const CD = require(path.join(ROOT, 'codon.js'));
+const GA = require(path.join(ROOT, 'ga.js'));
+
+test('genetic code: translation, synonyms and reverse complement', () => {
+  assert.strictEqual(Object.keys(CD.CODE).length, 64);
+  assert.strictEqual(CD.CODE.ATG, 'M');
+  assert.strictEqual(CD.CODE.TGG, 'W');
+  assert.deepStrictEqual(['TAA', 'TAG', 'TGA'].map(c => CD.CODE[c]), ['*', '*', '*']);
+  assert.strictEqual(CD.translate('ATGGCCTGCGATTAA'), 'MACD*');
+  assert.strictEqual(CD.SYN.L.length, 6);
+  assert.strictEqual(CD.SYN.R.length, 6);
+  assert.strictEqual(CD.SYN.S.length, 6);
+  assert.strictEqual(CD.SYN.M.length, 1);
+  assert.strictEqual(CD.SYN.W.length, 1);
+  // Every codon maps back to the amino acid whose synonym list holds it.
+  for (const c of Object.keys(CD.CODE)) assert.ok(CD.SYN[CD.CODE[c]].includes(c));
+  assert.strictEqual(CD.revComp('GGTCTC'), 'GAGACC');
+  assert.strictEqual(CD.clean('  atg gcc\nu  '), 'ATGGCCT');
+});
+
+test('CAI, GC content and 5-prime folding behave as defined', () => {
+  const w = CD.relativeAdaptiveness('E_coli');
+  // The host's favourite codon for an amino acid scores 1 by definition.
+  assert.strictEqual(w.CTG, 1);
+  assert.strictEqual(w.AAA, 1);
+  assert.ok(w.CTA < 0.1 && w.CTA > 0);
+  // A gene built only from favourite codons has CAI 1; swapping in rare ones drops it.
+  const best = 'ATG' + 'CTG'.repeat(10) + 'AAA'.repeat(10) + 'TAA';
+  const worst = 'ATG' + 'CTA'.repeat(10) + 'AAG'.repeat(10) + 'TAA';
+  assert.ok(Math.abs(CD.cai(best, w) - 1) < 1e-12);
+  assert.ok(CD.cai(worst, w) < 0.4);
+  // Met, Trp and the stop carry no choice, so a gene of only those is undefined, not zero.
+  assert.strictEqual(CD.cai('ATGTGGTAA', w), 0);
+
+  assert.strictEqual(CD.gcOf('GGCC'), 1);
+  assert.strictEqual(CD.gcOf('ATAT'), 0);
+  const p = CD.gcProfile('G'.repeat(50) + 'A'.repeat(50), { gcLow: 0.45, gcHigh: 0.55, gcWindow: 50, gcStep: 50 });
+  assert.strictEqual(p.overall, 0.5);
+  assert.ok(!p.ok, 'two halves at 100% and 0% must fail the window test even though the mean is 50%');
+  assert.ok(Math.abs(p.worstWindow - 0.45) < 1e-9);
+  assert.ok(CD.gcProfile('GCAT'.repeat(25), { gcLow: 0.45, gcHigh: 0.55, gcWindow: 50, gcStep: 10 }).ok);
+
+  // A perfect hairpin pairs with itself far more than a sequence that cannot pair at all.
+  const stem = 'GGGGGGGGGG', loop = 'TTTT';
+  assert.ok(CD.foldScore(stem + loop + CD.revComp(stem)) > CD.foldScore('AAAAAAAAAAAAAAAAAAAAAAAA'));
+  assert.strictEqual(CD.foldScore('AAAAAAAAAAAA'), 0, 'A cannot pair with A');
+});
+
+test('restriction sites are found on both strands, with homopolymer runs', () => {
+  const motifs = CD.motifList(['EcoRI', 'BsaI', 'gaattc']);
+  const dna = 'AAAGAATTCAAA' + 'GGTCTC' + 'TTT' + 'GAGACC' + 'TTT' + 'CCCCCCCC';
+  const hits = CD.findMotifs(dna, motifs, 6);
+  const labels = hits.map(x => x.label);
+  assert.ok(labels.includes('EcoRI'));
+  assert.ok(labels.includes('BsaI'), 'BsaI on the top strand');
+  assert.ok(labels.includes('BsaI (bottom strand)'), 'BsaI is not a palindrome: GAGACC cuts too');
+  assert.ok(labels.some(l => /^C run/.test(l)), 'an 8-base C run is flagged when the limit is 6');
+  assert.strictEqual(CD.findMotifs(dna, motifs, 0).filter(x => /run/.test(x.label)).length, 0, 'runs are off when the limit is 0');
+  assert.strictEqual(CD.findMotifs('ACGTACGT', motifs, 6).length, 0);
+});
+
+test('a sequence that is not a clean coding sequence is refused with a reason', () => {
+  assert.throws(() => GA.plan({ dna: 'ATGGCCT' }), /whole number of codons/);
+  assert.throws(() => GA.plan({ dna: '' }), /No DNA sequence/);
+  assert.throws(() => GA.plan({ dna: 'ATGTAAGCCTAA' }), /stop codon appears at codon 2/);
+  const p = GA.plan({ dna: 'ATGCTGTGGTAA' });
+  assert.deepStrictEqual(p.positions.map(x => x.fixed), [true, false, true, true], 'Met, Trp and the stop have nothing to choose');
+});
+
+test('codon optimization: same protein, higher CAI, sites removed, GC in window', () => {
+  // A gene built from the codons CHO uses least, carrying an EcoRI site and a BsaI site.
+  const r = GA.rng(5), aas = 'ACDEFGHIKLMNPQRSTVY';
+  let dna = 'ATG';
+  for (let i = 0; i < 200; i++) {
+    const aa = aas[Math.floor(r() * aas.length)], syn = CD.SYN[aa].slice().sort((x, y) => CD.TABLES.CHO.usage[x] - CD.TABLES.CHO.usage[y]);
+    dna += syn[0];
+  }
+  dna = dna.slice(0, 30) + 'GAATTC' + dna.slice(36);
+  dna = dna.slice(0, 120) + 'GGTCTC' + dna.slice(126);
+  dna += 'TGA';
+  const job = { dna, host: 'CHO', gcLow: 0.45, gcHigh: 0.55, avoid: ['EcoRI', 'BsaI'], maxRun: 6, popSize: 60, generations: 120, seed: 42 };
+
+  const run = GA.create(job);
+  const before = run.state.baseline;
+  assert.ok(before.violations >= 2, 'the starting sequence carries the planted sites');
+  run.step(120);
+  const res = run.result();
+
+  assert.strictEqual(CD.translate(res.dna), CD.translate(dna), 'the protein must be identical');
+  assert.ok(res.proteinUnchanged);
+  assert.strictEqual(res.dna.length, dna.length);
+  assert.strictEqual(res.dna.slice(-3), 'TGA', 'the stop codon is left as it came in');
+  assert.strictEqual(res.after.violations, 0, 'every forbidden site is gone');
+  assert.ok(res.after.cai > res.before.cai + 0.25, 'CAI ' + res.before.cai + ' -> ' + res.after.cai);
+  assert.ok(res.after.cai > 0.8);
+  assert.ok(res.after.gc >= 0.45 && res.after.gc <= 0.55, 'GC ' + res.after.gc);
+  assert.strictEqual(CD.findMotifs(res.dna, CD.motifList(['EcoRI', 'BsaI']), 6).length, 0);
+  // The Pareto front is a set of genuine trade-offs, sorted best-CAI first.
+  assert.ok(res.front.length > 1);
+  assert.ok(res.front.every(f => f.cai > 0 && f.dna.length === dna.length));
+  assert.ok(res.history.length === res.generations + 1 && res.history[res.history.length - 1].best >= res.history[0].best);
+
+  // Same seed, same answer: a run can be repeated and checked.
+  const again = GA.create(job); again.step(120);
+  assert.strictEqual(again.result().dna, res.dna);
+  // A different host pulls the sequence somewhere else.
+  const ecoli = GA.create(Object.assign({}, job, { host: 'E_coli' })); ecoli.step(120);
+  const eRes = ecoli.result();
+  assert.strictEqual(CD.translate(eRes.dna), CD.translate(dna));
+  assert.notStrictEqual(eRes.dna, res.dna);
+  assert.ok(CD.cai(eRes.dna, CD.relativeAdaptiveness('E_coli')) > CD.cai(res.dna, CD.relativeAdaptiveness('E_coli')),
+    'optimizing for E. coli beats the CHO sequence on the E. coli table');
+});
+
+test('the optimizer never silently keeps a forbidden site it cannot remove', () => {
+  // TGG (Trp) is the only codon for W, so a planted TGGTGG cannot be designed out.
+  const dna = 'ATG' + 'TGGTGG' + 'GCCGCCGCCGCC' + 'TAA';
+  const run = GA.create({ dna, host: 'HEK293', gcLow: 0.4, gcHigh: 0.6, avoid: ['TGGTGG'], maxRun: 6, popSize: 20, generations: 20, seed: 1 });
+  run.step(20);
+  const res = run.result();
+  assert.strictEqual(res.after.violations, 1, 'the impossible site is still reported, not hidden');
+  assert.strictEqual(CD.translate(res.dna), CD.translate(dna));
 });

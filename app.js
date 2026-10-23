@@ -1176,6 +1176,7 @@
     state.table = state.prof = state.report = state.sim = null; state.name = ''; state.sampleTarget = null;
     state.sources = []; state.merge = state.pending = state.original = state.roleTarget = state.multiRows = state.runOptions = state.runAt = null;
     resetMerge(); $('m-preview').textContent = ''; $('m-result').innerHTML = ''; $('multi-table').innerHTML = ''; $('multi').open = false;
+    if (window.MLSeq) window.MLSeq.clear();
     $('sim').innerHTML = ''; $('sim').hidden = true;
     $('paste').value = ''; $('file').value = '';
     ['setup', 'results', 'next', 'progress'].forEach(id => { $(id).hidden = true; });

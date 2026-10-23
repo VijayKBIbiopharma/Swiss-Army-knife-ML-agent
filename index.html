@@ -5,9 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <!-- Privacy lock. The browser enforces this policy: the page may load its own files, and
      nothing else. connect-src 'none' blocks fetch, XHR, WebSocket and beacons; img-src
-     blocks image "pixels" to any server; form-action blocks form posts. Your data has no
-     way out of this tab. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data: blob:; font-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'">
+     blocks image "pixels" to any server; form-action blocks form posts. worker-src 'self'
+     lets the sequence optimizer run in a background thread from this site's own file, and
+     a worker inherits this same policy. Your data has no way out of this tab. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data: blob:; font-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'self'; manifest-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="description" content="A private, in-browser machine learning agent: drop in data and it picks the best algorithm, explains the drivers and designs your next experiment (DOE).">
 <title>ML Agent</title>
@@ -198,6 +199,70 @@
     </div>
   </section>
 
+  <section class="wrap step" id="seq">
+    <div class="step-head"><span class="num">6</span><h2>Sequence optimizer</h2></div>
+    <div class="card">
+      <p class="summary">Codon optimization by genetic algorithm. Paste a coding DNA sequence and it evolves synonymous codons &mdash; same protein, different spelling &mdash; to raise the <b>Codon Adaptation Index</b> for your host, hold <b>GC content</b> inside its window, keep the <b>5' end unfolded</b>, and remove <b>restriction sites</b>. It runs in a background thread, so the page stays responsive. <a class="learn-link" href="learn.html#codon-optimization" target="_blank" rel="noopener noreferrer">Learn how this works &#8599;</a></p>
+      <div class="row-actions">
+        <button class="btn ghost small" id="seq-sample" type="button">Load an example gene</button>
+        <button class="btn ghost small" id="seq-clear" type="button">Clear</button>
+      </div>
+      <label class="full" for="seq-dna">Coding DNA sequence (FASTA or plain letters; must start at the first codon)</label>
+      <textarea id="seq-dna" rows="5" spellcheck="false" placeholder="ATGGGCAGCAGCCATCATCATCATCATCACAGC..."></textarea>
+      <p class="hint" id="seq-read" aria-live="polite"></p>
+      <div class="controls">
+        <label>Expression host
+          <select id="seq-host"></select>
+        </label>
+        <label>GC window low
+          <input id="seq-gc-low" type="number" min="20" max="70" step="1" value="45"><span class="unit">%</span>
+        </label>
+        <label>GC window high
+          <input id="seq-gc-high" type="number" min="30" max="80" step="1" value="55"><span class="unit">%</span>
+        </label>
+        <label>Longest single-base run
+          <input id="seq-maxrun" type="number" min="0" max="12" step="1" value="6">
+        </label>
+        <label>Population
+          <input id="seq-pop" type="number" min="20" max="300" step="10" value="80">
+        </label>
+        <label>Generations
+          <input id="seq-gens" type="number" min="20" max="2000" step="10" value="300">
+        </label>
+      </div>
+      <fieldset class="avoid">
+        <legend>Remove these sites (both strands)</legend>
+        <div id="seq-enzymes" class="chips"></div>
+        <label class="full" for="seq-extra">Other sequences to avoid (comma separated, for example GGTCTC, AAGCTT)</label>
+        <input id="seq-extra" type="text" spellcheck="false" placeholder="GGTCTC, AAGCTT">
+      </fieldset>
+      <div class="controls">
+        <label>Importance: CAI
+          <select id="seq-w-cai" class="wsel"></select>
+        </label>
+        <label>Importance: GC window
+          <select id="seq-w-gc" class="wsel"></select>
+        </label>
+        <label>Importance: 5' folding
+          <select id="seq-w-fold" class="wsel"></select>
+        </label>
+      </div>
+      <div class="row-actions">
+        <button class="btn primary" id="seq-run" type="button">Optimize the sequence</button>
+        <button class="btn" id="seq-stop" type="button" hidden>Stop and keep the best so far</button>
+      </div>
+      <p class="error" id="seq-error" role="alert" hidden></p>
+      <div id="seq-progress" hidden>
+        <div class="prog-row"><progress id="seq-bar" max="100" value="0"></progress><span id="seq-status"></span></div>
+        <div class="cols2">
+          <div><h4>Best and average score</h4><div id="seq-chart-fit"></div></div>
+          <div><h4>Population diversity</h4><div id="seq-chart-div"></div></div>
+        </div>
+      </div>
+      <div id="seq-out"></div>
+    </div>
+  </section>
+
   <section class="wrap step privacy" id="privacy">
     <div class="step-head"><span class="num lock-num" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M4 7V5a4 4 0 1 1 8 0v2h1v8H3V7h1zm2 0h4V5a2 2 0 1 0-4 0v2z"/></svg></span><h2>How your data stays private</h2></div>
     <div class="privacy-grid">
@@ -239,9 +304,12 @@
 <script src="audit.js"></script>
 <script src="agent.js"></script>
 <script src="samples.js"></script>
+<script src="codon.js"></script>
+<script src="ga.js"></script>
 <script src="charts.js"></script>
 <script src="explain.js"></script>
 <script src="pdf.js"></script>
 <script src="app.js"></script>
+<script src="seq.js"></script>
 </body>
 </html>

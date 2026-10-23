@@ -61,12 +61,23 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Switch to **Rows now Gold → Gold or better** to show the retention question.
 - Talking point: *"Same model, different business question, one click. Region doesn't appear at all, because it truly doesn't matter in this data."*
 
+## 4c. Codon optimization by evolution (3 minutes, for biologics and gene-therapy audiences)
+- Go to step 6, **Sequence optimizer**, and press **Load an example gene** (a 238-codon sequence written with poor codons for a mammalian host, carrying an EcoRI site, a BsaI site and a GC-rich run).
+- The line under the box reads the sequence straight away: *238 codons, 237 amino acids, CAI 0.600, GC 43.8%, 4 sites to remove.*
+- Leave the host on **CHO**, the GC window at **45&ndash;55%**, and press **Optimize the sequence**. Scroll the page while it runs: it stays perfectly smooth, because the algorithm is on a background thread.
+- Watch the two live charts: the best and average score climbing, and population diversity falling as the population converges.
+- Expect **CAI 0.60 &rarr; about 0.92**, **GC 43.8% &rarr; about 51%**, **4 sites &rarr; 0**, and a green line confirming the protein is unchanged, every one of the 237 amino acids.
+- Click a point on the **trade-off plot** to see what a higher CAI would cost in GC or folding, then download the **FASTA** and the before-and-after **CSV**.
+- Talking point: *"Same protein, better spelling for this host. Nothing left the laptop, and the before-and-after is on one page a reviewer can sign."*
+- Honest caveat to say out loud: *"The codon tables shipped here are reference values, and the folding number is a base-pairing score, not a kcal/mol free energy. Confirm the table for your host and have the sequence reviewed before synthesis."*
+
 ## 5. Finding groups with no target: penguins (1 minute)
 - Drag `penguins.csv`, choose **Nothing: find groups and patterns**, run.
 - Show the groups chart and profiles: one group is entirely Gentoo penguins on Biscoe island. The agent found the species without being told.
 
 ## 6. Teaching (2 minutes)
 - Switch to the Academy tab, lesson **Random forest**. Click the map and flip through the five trees to show them voting.
+- For a biologics audience, use **Codon optimization** instead: press Play and watch the codon track turn from red to green, generation by generation, while the protein stays identical.
 - Talking point: *"Anyone in the team can learn what the model is doing, with analogies, in their own time."*
 
 ## 7. Close (1 minute)
