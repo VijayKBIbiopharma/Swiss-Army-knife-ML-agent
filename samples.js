@@ -63,6 +63,21 @@
       }
     },
     {
+      id: 'loyalty', title: 'Customer loyalty tiers', kind: 'Classification · 4 classes',
+      blurb: '400 customers in Bronze to Platinum. What moves a customer up a tier?', target: 'Tier',
+      make() {
+        const rand = E.rng(47), rows = [], regions = ['North', 'South', 'East', 'West'];
+        for (let i = 0; i < 400; i++) {
+          const spend = Math.round(40 + 460 * rand() ** 1.4), visits = Math.max(0, Math.round(1 + 9 * rand())), tenure = Math.round(1 + 59 * rand());
+          const app = rand() < 0.45 ? 'Yes' : 'No', tickets = Math.max(0, Math.round(noise(rand) * 1.3 + 1.5)), region = regions[Math.floor(rand() * 4)];
+          const score = 0.006 * spend + 0.28 * visits + 0.035 * tenure + (app === 'Yes' ? 0.9 : 0) - 0.35 * tickets + 0.45 * noise(rand);
+          const tier = score > 5.2 ? 'Platinum' : score > 3.9 ? 'Gold' : score > 2.7 ? 'Silver' : 'Bronze';
+          rows.push(['M' + (2000 + i), spend, visits, tenure, app, tickets, region, tier]);
+        }
+        return toCSV(['MemberID', 'MonthlySpend', 'VisitsPerMonth', 'TenureMonths', 'AppUser', 'SupportTickets', 'Region', 'Tier'], rows);
+      }
+    },
+    {
       id: 'segments', title: 'Customer segments', kind: 'Unsupervised · clustering',
       blurb: '240 customers, no outcome column. What groups exist?', target: '__none__',
       make() {

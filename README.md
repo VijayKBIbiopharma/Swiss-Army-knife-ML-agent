@@ -13,6 +13,7 @@ Drop in a CSV and it:
    - DOE: effects, t and p values (or Lenth's method for saturated designs), aliasing, curvature from center points, main-effect and interaction plots, and the best settings.
 4. **Explains the result** in plain language:
    - an **action plan**, such as "Raise Pressure toward 98", "Keep MeltTemp near 217 (sweet spot)" or "Use Resin C, not Resin B", ranked by impact with a confidence level;
+   - for categories, a **Target outcome** and **Starting from** selector that re-aims the plan instantly (no re-training), answering questions like "what moves a Bronze customer to Silver or better?" or "how do we keep Gold customers at Gold?". Ranked labels (Bronze < Silver < Gold < Platinum, Low < Medium < High) are treated as "that tier or better";
    - "how each driver moves the result" curves, a what-if simulator, and a **peek inside the model** (a readable decision tree trained on your data, real trees from the forest or boosting chain, or the recipe of a linear model);
    - a "How to read this" note with an analogy on every chart, linked to the matching lesson;
    - warnings about small samples, gaps, imbalance and overfitting.

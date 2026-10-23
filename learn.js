@@ -796,7 +796,7 @@
         C.lines(d, [{ name: s[0], points: range(9).map(i => { const x = -1 + i / 4; return { x, y: s[1](x) }; }) }], { yDomain: [38, 62], xLabel: s[0], xTicks: [-1, 0, 1], xTickFmt: v => (v < 0 ? 'low' : v > 0 ? 'high' : 'typical'), width: 260, height: 180, label: s[0] });
       });
     },
-    steps: ['For each top driver, set it to each value across its range for every row, and average the predictions.', 'Rising curve: increase it. Falling: decrease it. Hump: aim for the peak. Flat: it barely matters here.', 'Gain = best point on the curve minus your typical value. Levers are ranked by how much their curve swings.', '"All together" applies every lever at once to past rows and compares averages.'],
+    steps: ['For each top driver, set it to each value across its range for every row, and average the predictions.', 'Rising curve: increase it. Falling: decrease it. Hump: aim for the peak. Flat: it barely matters here.', 'Gain = best point on the curve minus your typical value. Levers are ranked by how much their curve swings.', '"All together" applies every lever at once to past rows and compares averages.', 'For categories, pick a Target outcome and a Starting from group above the plan, for example "Rows now Bronze" to "Silver or better". Ranked tiers (Bronze < Silver < Gold) mean that tier or better.'],
     when: 'To turn a model into a short list of changes to try.',
     watch: 'From historical data these are hypotheses, not proof. Make one change at a time or run the pre-filled DOE. Stay inside the ranges you have run.',
     where: 'The action plan at the top of the results, and the "How each driver moves" panel.',

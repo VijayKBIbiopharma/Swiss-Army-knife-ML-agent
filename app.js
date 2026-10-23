@@ -142,7 +142,8 @@
     const el = d.firstElementChild; parent.appendChild(el); return el;
   }
 
-  function renderResults(rep) {
+  // quiet: re-draw in place (after changing the target class) without scrolling or redoing the DOE.
+  function renderResults(rep, quiet) {
     const tiles = [];
     if (rep.task === 'clustering') {
       const c = rep.clustering;
@@ -173,15 +174,39 @@
 
     $('next-steps').innerHTML = rep.nextSteps.map(s => '<li class="p-' + s.phase + '"><span class="phase">' + h(s.phase) + '</span><b>' + h(s.title) + '</b><p>' + h(s.text) + '</p></li>').join('');
     $('next').hidden = false;
+    if (quiet) return;
     if (rep.doeRecommendation && rep.doeRecommendation.factors.length) prefillDOE(rep);
     $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  // Target outcome and starting class, for classification. Changing them re-aims the plan.
+  function planControls(rep) {
+    if (rep.task !== 'classification' || !rep.classes || rep.classes.length < 2 || !rep.pdFor) return '';
+    const order = A.classOrder(rep.classes);
+    const counts = rep.classes.map((_, k) => rep.actual.filter(v => v === k).length);
+    // For ranked tiers, "lowest tier or better" is everyone, so it is not offered as a target.
+    const targets = rep.ordinal ? order.slice(0, -1) : order;
+    return '<div class="plan-controls"><label>Target outcome <select id="plan-target">' +
+      targets.map(k => '<option value="' + k + '"' + (k === rep.favorable ? ' selected' : '') + '>' + h(rep.classes[k]) + (rep.ordinal && k !== order[0] ? ' or better' : '') + '</option>').join('') +
+      '</select></label><label>Starting from <select id="plan-from"><option value="">All rows</option>' +
+      order.map(k => '<option value="' + k + '"' + (k === rep.fromClass ? ' selected' : '') + '>Rows now ' + h(rep.classes[k]) + ' (' + counts[k] + ')</option>').join('') +
+      '</select></label><span class="hint">Re-aims the plan, the driver curves and the model peek. ' + (rep.ordinal ? 'Tiers are ranked, so a target means that tier or better.' : '') + '</span></div>';
+  }
+  function retargetFrom(changedId) {
+    const rep = state.report; if (!rep) return;
+    const from = $('plan-from').value;
+    A.retarget(rep, Number($('plan-target').value), from === '' ? null : Number(from));
+    renderResults(rep, true);
+    const opt = Array.from($('goal').options).find(o => o.value === rep.goal);
+    if (opt) $('goal').value = rep.goal;
+    $(changedId).focus();
+  }
+
   function renderPlan(rep) {
     const p = rep.actionPlan, el = $('plan');
-    if (!p || !p.items.length) { el.innerHTML = '<h3>Action plan</h3><p>No clear levers stood out in this data. See the findings below, and consider collecting the drivers the team believes matter.</p>'; return; }
+    if (!p || !p.items.length) { el.innerHTML = planControls(rep) + '<h3>Action plan</h3><p>No clear levers stood out' + (rep.fromClass !== null && rep.fromClass !== undefined ? ' for this combination' : ' in this data') + '. See the findings below, and consider collecting the drivers the team believes matter.</p>'; return; }
     const confText = { high: 'high confidence', medium: 'medium confidence', low: 'low confidence: treat as hints' }[p.confidence];
-    el.innerHTML = '<h3>Action plan in plain English <span class="conf ' + p.confidence + '">' + confText + '</span></h3>' +
+    el.innerHTML = planControls(rep) + '<h3>Action plan in plain English <span class="conf ' + p.confidence + '">' + confText + '</span></h3>' +
       '<p class="sub-head">' + h(p.headline) + '</p><ol class="plan-list">' +
       p.items.map(i => '<li><span class="verb ' + i.verb + '">' + h(i.verb) + '</span><div><b>' + h(i.text) + '</b>' + (i.impactText ? '<span class="impact">' + h(i.impactText) + '</span>' : '') + '</div></li>').join('') + '</ol>' +
       (p.quiet && p.quiet.length ? '<p><b>Little effect:</b> ' + h(p.quiet.join(', ')) + '. In the range you have run, these barely move the result, so set them for cost, speed or convenience.</p>' : '') +
@@ -227,7 +252,7 @@
   function renderPD(rep, blocks) {
     if (!rep.pd || !rep.pd.length) return;
     const cls = rep.task === 'classification';
-    const what = cls ? 'chance of ' + rep.classes[rep.favorable] : rep.target;
+    const what = cls ? 'chance of ' + A.classLabel(rep) + (rep.fromClass !== null && rep.fromClass !== undefined ? ' for rows now ' + rep.classes[rep.fromClass] : '') : rep.target;
     const c = append(blocks, card('How each driver moves ' + rep.target, 'Model-expected ' + h(what) + ' as one driver changes, with everything else as it was. Same scale on every panel; the large dot is your typical value.', '<div class="me-grid pd-grid"></div>', 'pd'));
     const grid = c.querySelector('.pd-grid');
     const all = rep.pd.reduce((s, p) => s.concat(p.ys), []);
@@ -262,7 +287,7 @@
     (function walk(n) { if (n.leaf) leafVals.push(n.value); else { walk(n.left); walk(n.right); } })(ex.tree);
     const lo = Math.min(...leafVals), hi = Math.max(...leafVals), up = rep.goal !== 'min';
     const leafClass = node => {
-      if (cls) return node.value.indexOf(Math.max(...node.value)) === rep.favorable ? 'good' : 'bad';
+      if (cls) return (rep.favorableSet || [rep.favorable]).includes(node.value.indexOf(Math.max(...node.value))) ? 'good' : 'bad';
       const r = hi > lo ? (node.value - lo) / (hi - lo) : 0.5, score = up ? r : 1 - r;
       return score >= 0.67 ? 'good' : score <= 0.33 ? 'bad' : '';
     };
@@ -318,7 +343,7 @@
       const out = rep.predict(vals);
       if (out.proba) {
         $('wi-out').innerHTML = '<div class="lbl">Most likely</div><div class="big">' + h(out.label) + '</div><div class="proba">' +
-          rep.classes.map((c, k) => '<div><span>' + h(c) + '</span><progress max="1" value="' + out.proba[k] + '"></progress><span>' + pct(out.proba[k]) + '</span></div>').join('') + '</div>';
+          A.classOrder(rep.classes).map(k => [rep.classes[k], k]).map(([c, k]) => '<div' + ((rep.favorableSet || [rep.favorable]).includes(k) ? ' class="tgt"' : '') + '><span>' + h(c) + '</span><progress max="1" value="' + out.proba[k] + '"></progress><span>' + pct(out.proba[k]) + '</span></div>').join('') + '</div>';
       } else {
         $('wi-out').innerHTML = '<div class="lbl">Predicted ' + h(rep.target) + '</div><div class="big">' + fmt(out.value) + '</div><div class="hint">Typical error ±' + fmt(rep.best.metrics.rmse) + '</div>';
       }
@@ -711,6 +736,7 @@
     $('download-report').addEventListener('click', () => state.report && download('ml-agent-report.html', reportHTML(state.report), 'text/html'));
     $('print').addEventListener('click', () => window.print());
     $('save-pdf').addEventListener('click', savePDF);
+    $('plan').addEventListener('change', e => { if (e.target.id === 'plan-target' || e.target.id === 'plan-from') retargetFrom(e.target.id); });
     window.addEventListener('beforeprint', beforePrint);
     window.addEventListener('afterprint', afterPrint);
     $('self-test').addEventListener('click', selfTest);

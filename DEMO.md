@@ -31,6 +31,12 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Expect **Random forest**, about **45% explained**, flagged as **weak**.
 - Talking point: *"It tells us when the data isn't good enough. Taste depends on things not in this file. A tool that always sounds confident is dangerous; this one isn't."*
 
+## 4b. Moving customers up a tier (1 minute)
+- Click the practice dataset **Customer loyalty tiers**, run.
+- Above the action plan, set **Starting from: Rows now Bronze** and **Target outcome: Silver or better**. The plan re-aims instantly: raise spend, visits and tenure, cut support tickets, get them on the app.
+- Switch to **Rows now Gold → Gold or better** to show the retention question.
+- Talking point: *"Same model, different business question, one click. Region doesn't appear at all, because it truly doesn't matter in this data."*
+
 ## 5. Finding groups with no target: penguins (1 minute)
 - Drag `penguins.csv`, choose **Nothing: find groups and patterns**, run.
 - Show the groups chart and profiles: one group is entirely Gentoo penguins on Biscoe island. The agent found the species without being told.

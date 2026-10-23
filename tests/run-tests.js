@@ -149,7 +149,7 @@ test('DOE analysis flags aliasing in a half fraction', () => {
 });
 
 test('the agent picks the right task for each practice dataset', async () => {
-  const expect = { molding: 'regression', factorial: 'regression', batches: 'classification', segments: 'clustering' };
+  const expect = { molding: 'regression', factorial: 'regression', batches: 'classification', loyalty: 'classification', segments: 'clustering' };
   for (const s of S) {
     const rep = await A.run(E.parseCSV(s.make()), { target: s.target });
     assert.strictEqual(rep.task, expect[s.id], s.id);
@@ -304,4 +304,30 @@ test('PDF writer produces a well-formed file', () => {
   assert.ok(/\/Count [2-9]/.test(s), 'long content flows onto more pages');
   assert.ok(s.includes('R\xb2 explains'), 'superscript two kept in WinAnsi');
   assert.ok(!/[\u0100-\uffff]/.test(s), 'single-byte text only');
+});
+
+test('target outcome selector: ranked tiers, starting class and no re-training', async () => {
+  const rep = await A.run(E.parseCSV(S.find(s => s.id === 'loyalty').make()), { target: 'Tier' });
+  const ci = n => rep.classes.indexOf(n);
+  assert.strictEqual(rep.classes[rep.favorable], 'Platinum', 'top tier is the default target');
+  assert.deepStrictEqual(A.classOrder(rep.classes).map(k => rep.classes[k]), ['Platinum', 'Gold', 'Silver', 'Bronze']);
+  const best = rep.best;
+  A.retarget(rep, ci('Silver'), ci('Bronze'));
+  assert.strictEqual(rep.best, best, 'same model, no re-training');
+  assert.deepStrictEqual(rep.favorableSet.map(k => rep.classes[k]).sort(), ['Gold', 'Platinum', 'Silver'], 'Silver means Silver or better');
+  const plan = rep.actionPlan;
+  assert.ok(/now Tier = Bronze to Silver or better/.test(plan.headline));
+  const spend = plan.items.find(i => i.factor === 'MonthlySpend');
+  assert.strictEqual(spend.verb, 'Increase');
+  assert.ok(/typical Bronze level/.test(spend.text));
+  assert.ok(!plan.items.some(i => i.factor === 'Region'), 'Region has no real effect');
+  const m = plan.combined.match(/average (\d+)% instead of (\d+)%/);
+  assert.ok(m && Number(m[1]) > Number(m[2]), 'levers together help rather than overshoot');
+  A.retarget(rep, ci('Gold'), ci('Gold'));
+  assert.ok(/keep rows that are now Tier = Gold at Gold or better/.test(rep.actionPlan.headline));
+  // Unranked classes keep the exact class.
+  const pen = await A.run(E.parseCSV(fs.readFileSync(path.join(ROOT, 'demo-data', 'penguins.csv'), 'utf8')), { target: 'species' });
+  A.retarget(pen, pen.classes.indexOf('Chinstrap'), pen.classes.indexOf('Adelie'));
+  assert.deepStrictEqual(pen.favorableSet, [pen.classes.indexOf('Chinstrap')]);
+  assert.ok(/to Chinstrap,/.test(pen.actionPlan.headline));
 });

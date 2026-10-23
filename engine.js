@@ -769,12 +769,17 @@
     }).sort((a, b) => b.importance - a.importance);
   }
 
+  // Probability of one class, or of any class in a list (e.g. "Silver or better").
+  function pickProb(p, cls) { return Array.isArray(cls) ? cls.reduce((s, k) => s + p[k], 0) : p[cls]; }
+
   /* Partial dependence: set one column to each value on a grid for every row, and average
      the model's prediction. Shows how the result moves with that column, other things equal.
-     For classifiers it tracks the probability of class `cls`. */
-  function partialDependence(full, data, col, cls) {
+     For classifiers it tracks the probability of class `cls`. `subset` (optional) limits the
+     averaging and the "typical" value to some rows, e.g. only customers now in Bronze; the
+     grid still spans every row, because moving up usually means going beyond today's range. */
+  function partialDependence(full, data, col, cls, subset) {
     const { enc, fitted } = full;
-    const raw = data.rows;
+    const raw = data.rows, rows = subset && subset.length ? subset : raw;
     let grid;
     if (col.kind === 'numeric') {
       const vals = raw.map(r => col.values[r]).filter(v => v !== null).sort((a, b) => a - b);
@@ -787,16 +792,18 @@
       grid = Object.keys(counts).sort((a, b) => counts[b] - counts[a]).slice(0, 10);
     }
     // Score on a sample of rows to keep it fast.
-    const sample = raw.length > 400 ? raw.filter((_, i) => i % Math.ceil(raw.length / 400) === 0) : raw;
+    const sample = rows.length > 400 ? rows.filter((_, i) => i % Math.ceil(rows.length / 400) === 0) : rows;
     const getRow = r => { const o = {}; for (const p of enc.parts) o[p.col.name] = p.col.values[r]; return o; };
     const base = sample.map(getRow);
     const ys = grid.map(g => {
       const X = base.map(o => { const c = Object.assign({}, o); c[col.name] = g; return enc.encodeValues(c); });
-      const pr = fitted.predictProba ? fitted.predictProba(X).map(p => p[cls]) : fitted.predict(X);
+      const pr = fitted.predictProba ? fitted.predictProba(X).map(p => pickProb(p, cls)) : fitted.predict(X);
       return mean(pr);
     });
-    const vals = raw.map(r => col.values[r]).filter(v => v !== null);
-    const typical = col.kind === 'numeric' ? median(vals) : col.levels[0];
+    const vals = rows.map(r => col.values[r]).filter(v => v !== null);
+    let typical;
+    if (col.kind === 'numeric') typical = median(vals);
+    else { const c = {}; vals.forEach(v => { c[v] = (c[v] || 0) + 1; }); typical = Object.keys(c).sort((a, b) => c[b] - c[a])[0] || col.levels[0]; }
     return { name: col.name, kind: col.kind, grid, ys, typical };
   }
 
@@ -904,7 +911,7 @@
     rng, shuffle, range, mean, sd, variance, quantile, median, pearson, tTestP, invert, gram,
     parseCSV, profile, isUsableFeature, toNumber, fitEncoder, fitRidgeCore, fitLasso, buildTree,
     MODELS, makeFolds, crossValidate, fitFull, regressionMetrics, classificationMetrics,
-    supervisedData, permutationImportance, partialDependence, treePredictRow, kmeans, silhouette, pca
+    supervisedData, permutationImportance, partialDependence, pickProb, treePredictRow, kmeans, silhouette, pca
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLEngine;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

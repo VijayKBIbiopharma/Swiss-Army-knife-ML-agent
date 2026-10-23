@@ -208,21 +208,31 @@
       let fav = g.indexOf('class:') === 0 ? data.classes.indexOf(g.slice(6)) : -1;
       if (fav < 0) fav = guessFavorable(data.classes);
       report.favorable = fav;
+      report.ordinal = !!ladderRank(data.classes);
+      report.favorableSet = targetSet(report, fav);
     }
-    // How the result moves with each top driver, other things equal.
-    report.pd = [];
-    for (const imp of report.importance.filter(v => v.share >= 0.03).slice(0, 6)) {
-      const col = features.find(c => c.name === imp.name);
-      const pdv = col && E.partialDependence(full, data, col, report.favorable);
-      if (pdv) { pdv.share = imp.share; report.pd.push(pdv); }
-    }
+    // How the result moves with each top driver, other things equal. For classification,
+    // `from` limits it to rows currently in one class ("what moves Bronze to Silver?").
+    report.fromClass = null;
+    const subsetOf = from => (from === null || from === undefined ? null : data.rows.filter((_, i) => data.y[i] === from));
+    report.pdFor = (cls, from) => {
+      const out = [], subset = subsetOf(from);
+      for (const imp of report.importance.filter(v => v.share >= 0.03).slice(0, 6)) {
+        const col = features.find(c => c.name === imp.name);
+        const pdv = col && E.partialDependence(full, data, col, cls, subset);
+        if (pdv) { pdv.share = imp.share; out.push(pdv); }
+      }
+      return out;
+    };
+    report.pd = report.pdFor(report.favorableSet || report.favorable, null);
     await tick();
     explainModel(report, full, data, best, task, K);
     // Average prediction over past rows with some columns overridden (the "apply all" estimate).
-    const sample = data.rows.filter((_, i) => i % Math.max(1, Math.ceil(data.rows.length / 400)) === 0);
     report.averageWith = overrides => {
+      const pool = subsetOf(report.fromClass) || data.rows;
+      const sample = pool.filter((_, i) => i % Math.max(1, Math.ceil(pool.length / 400)) === 0);
       const X = sample.map(r => { const o = {}; for (const p of full.enc.parts) o[p.col.name] = p.col.values[r]; return full.enc.encodeValues(Object.assign(o, overrides)); });
-      const pr = full.fitted.predictProba ? full.fitted.predictProba(X).map(q => q[report.favorable]) : full.fitted.predict(X);
+      const pr = full.fitted.predictProba ? full.fitted.predictProba(X).map(q => E.pickProb(q, report.favorableSet)) : full.fitted.predict(X);
       return E.mean(pr);
     };
     report.actual = data.y;
@@ -407,7 +417,24 @@
 
   const GOOD_CLASS = /^(pass|passed|good|yes|y|true|1|success|successful|ok|accept|accepted|approved|win|won|on ?time|in ?spec|conforming|compliant|retained|active)$/i;
   const BAD_CLASS = /(fail|bad|^no$|^n$|false|^0$|defect|reject|late|scrap|churn|lost|out ?of ?spec|nonconform|error|delay)/i;
+  // Ordered labels, best first, so tiers sort sensibly and "best" is the top tier.
+  const LADDERS = [['diamond', 'platinum', 'gold', 'silver', 'bronze', 'basic'], ['excellent', 'very good', 'good', 'fair', 'poor', 'very poor'],
+    ['very high', 'high', 'medium', 'low', 'very low'], ['a', 'b', 'c', 'd', 'e', 'f']];
+  function ladderRank(classes) {
+    for (const L of LADDERS) {
+      const r = classes.map(c => L.indexOf(String(c).trim().toLowerCase()));
+      if (r.every(v => v >= 0)) return r;
+    }
+    return null;
+  }
+  // Class indices ordered best first when the labels form a known ladder, else as given.
+  function classOrder(classes) {
+    const r = ladderRank(classes), idx = classes.map((_, i) => i);
+    return r ? idx.sort((a, b) => r[a] - r[b]) : idx;
+  }
   function guessFavorable(classes) {
+    const lr = ladderRank(classes);
+    if (lr) return lr.indexOf(Math.min(...lr));
     const g = classes.findIndex(c => GOOD_CLASS.test(String(c).trim()));
     if (g >= 0) return g;
     if (classes.length === 2) { const b = classes.findIndex(c => BAD_CLASS.test(String(c))); if (b >= 0) return 1 - b; }
@@ -450,7 +477,12 @@
     if (!rep.pd) return null;
     const cls = rep.task === 'classification';
     const maximize = cls || rep.goal !== 'min';
-    const outcome = cls ? 'the chance of ' + rep.target + ' = ' + rep.classes[rep.favorable] : rep.target;
+    const favLabel = cls ? classLabel(rep) : '';
+    const outcome = cls ? 'the chance of ' + rep.target + ' = ' + favLabel : rep.target;
+    const from = cls && rep.fromClass !== null && rep.fromClass !== undefined ? rep.classes[rep.fromClass] : null;
+    const fromTyp = v => (from ? 'from the typical ' + from + ' level of ' + v : 'from its typical ' + v);
+    const yourTyp = v => (from ? 'the typical ' + from + ' row (' + v + ')' : 'your typical ' + v);
+    const vsTyp = from ? 'Expected change for a typical ' + from + ' row: ' : 'Expected change vs typical: ';
     const better = (a, b) => (maximize ? a > b : a < b);
     const show = d => {
       if (cls ? Math.abs(d) < 0.005 : Math.abs(d) < 0.02 * (rep.targetSD || 1)) return 'about the same';
@@ -475,27 +507,30 @@
         const last = p.grid.length - 1, close = Math.abs(gain) < 0.2 * span, typ = fmt(r3(p.typical)), to = fmt(r3(p.grid[bi]));
         if (bi >= last - 1) {
           verb = close ? 'Hold' : 'Increase';
-          text = close ? 'Higher ' + p.name + ' is better, and your typical ' + typ + ' is already near the top of its useful range. Keep it there; lowering it would hurt ' + outcome + '.'
-            : 'Raise ' + p.name + ' from its typical ' + typ + ' toward ' + to + ', the high end of what your data covers.';
+          text = close ? 'Higher ' + p.name + ' is better, and ' + yourTyp(typ) + ' is already near the top of its useful range. Keep it there; lowering it would hurt ' + outcome + '.'
+            : 'Raise ' + p.name + ' ' + fromTyp(typ) + ' toward ' + to + ', the high end of what your data covers.';
         } else if (bi <= 1) {
           verb = close ? 'Hold' : 'Decrease';
-          text = close ? 'Lower ' + p.name + ' is better, and your typical ' + typ + ' is already near the bottom of its useful range. Keep it there; raising it would hurt ' + outcome + '.'
-            : 'Lower ' + p.name + ' from its typical ' + typ + ' toward ' + to + ', the low end of what your data covers.';
+          text = close ? 'Lower ' + p.name + ' is better, and ' + yourTyp(typ) + ' is already near the bottom of its useful range. Keep it there; raising it would hurt ' + outcome + '.'
+            : 'Lower ' + p.name + ' ' + fromTyp(typ) + ' toward ' + to + ', the low end of what your data covers.';
         } else {
           verb = 'Target';
-          text = 'Keep ' + p.name + ' near ' + to + '. That is a sweet spot: going higher or lower both make ' + outcome + ' worse.' + (close ? ' Your typical ' + typ + ' is already close.' : '');
+          text = 'Keep ' + p.name + ' near ' + to + '. That is a sweet spot: going higher or lower both make ' + outcome + ' worse.' + (close ? ' ' + yourTyp(typ).replace(/^./, c => c.toUpperCase()) + ' is already close.' : '');
         }
       } else {
         let wi = 0; p.ys.forEach((v, i) => { if (better(p.ys[wi], v)) wi = i; });
         verb = 'Choose';
         text = 'Use ' + p.name + ' = ' + p.grid[bi] + ' where you can' + (p.grid[wi] !== p.grid[bi] ? '; ' + p.grid[wi] + ' gives the worst ' + (cls ? 'odds' : 'results') : '') + '.';
-        if (Math.abs(gain) < 0.2 * span) { verb = 'Hold'; text = 'Keep using ' + p.name + ' = ' + p.grid[bi] + ' (already the most common choice)' + (p.grid[wi] !== p.grid[bi] ? ' and avoid ' + p.grid[wi] : '') + '.'; }
+        if (Math.abs(gain) < 0.2 * span) { verb = 'Hold'; text = 'Keep using ' + p.name + ' = ' + p.grid[bi] + ' (already the most common choice' + (from ? ' among ' + from + ' rows' : '') + ')' + (p.grid[wi] !== p.grid[bi] ? ' and avoid ' + p.grid[wi] : '') + '.'; }
       }
-      items.push({ verb, factor: p.name, text, impact: gain, impactText: 'Expected change vs typical: ' + (cls ? 'chance of ' + rep.target + ' = ' + rep.classes[rep.favorable] + ' ' : rep.target + ' ') + show(gain), span });
+      items.push({ verb, factor: p.name, text, impact: gain, impactText: vsTyp + (cls ? 'chance of ' + rep.target + ' = ' + favLabel + ' ' : rep.target + ' ') + show(gain), span });
     }
     items.sort((a, b) => b.span - a.span);
     const plan = {
-      headline: (cls ? 'To raise the chance of ' + rep.target + ' = ' + rep.classes[rep.favorable] : (maximize ? 'To increase ' : 'To decrease ') + rep.target) + ', starting with the strongest lever:',
+      headline: (cls ? (from === null ? 'To raise the chance of ' + rep.target + ' = ' + favLabel
+        : from === rep.classes[rep.favorable] ? 'To keep rows that are now ' + rep.target + ' = ' + from + (rep.favorableSet.length > 1 ? ' at ' + favLabel : ' where they are')
+          : 'To move rows that are now ' + rep.target + ' = ' + from + ' to ' + favLabel)
+        : (maximize ? 'To increase ' : 'To decrease ') + rep.target) + ', starting with the strongest lever:',
       items: items.slice(0, 5), quiet,
       confidence: confidence(rep)
     };
@@ -504,12 +539,15 @@
       const tuned = {};
       for (const it of levers) tuned[it.factor] = best[it.factor];
       const now = rep.averageWith({}), after = rep.averageWith(tuned);
-      plan.combined = 'If every past row had used these settings, the model estimates ' + (cls
-        ? 'the chance of ' + rep.target + ' = ' + rep.classes[rep.favorable] + ' would average ' + pct(after) + ' instead of ' + pct(now) + '.'
+      plan.combined = 'If every ' + (from ? from + ' row' : 'past row') + ' had used these settings, the model estimates ' + (cls
+        ? 'the chance of ' + rep.target + ' = ' + favLabel + ' would average ' + pct(after) + ' instead of ' + pct(now) + '.'
         : rep.target + ' would average ' + fmt(after) + ' instead of ' + fmt(now) + '.');
+      // Each lever was tuned on its own; together they can overshoot (e.g. past the target into another class).
+      if ((after - now) * (maximize ? 1 : -1) < 0) plan.combined += ' Applied all at once, these settings overshoot and make things worse, so change one lever at a time and check the result after each.';
       plan.settings = levers.map(it => ({ name: it.factor, value: unitOf(tuned[it.factor]) }));
     }
-    plan.caveat = 'These come from patterns in past data, which show what moves together, not what causes what. Make one change at a time or, better, confirm with the DOE pre-filled below before changing the process. Stay inside the ranges you have run before.';
+    const nFrom = from ? rep.actual.filter(v => v === rep.fromClass).length : 0;
+    plan.caveat = (from && nFrom < 30 ? 'Only ' + nFrom + ' rows are ' + from + ' now, so this plan is a rough guide. ' : '') + 'These come from patterns in past data, which show what moves together, not what causes what. Make one change at a time or, better, confirm with the DOE pre-filled below before changing the process. Stay inside the ranges you have run before.';
     return plan;
   }
   function confidence(rep) {
@@ -561,6 +599,29 @@
     return { headline: 'What to do with these groups:', items, quiet: [], confidence: c.silhouette >= 0.5 ? 'high' : c.silhouette >= 0.25 ? 'medium' : 'low', caveat: 'Groups describe the data; they do not explain it. Name them with people who know the process.' };
   }
 
-  root.MLAgent = { run, guessTarget, decideTask, guessFavorable, fmt, pct, MAX_ROWS };
+  /* Re-aims the action plan and driver curves at another outcome class, optionally only for
+     rows currently in `fromIdx` (null = all rows). Needs no re-training: the model is reused. */
+  // For ranked labels (Bronze < Silver < Gold), aiming at a class means "that class or better".
+  function targetSet(rep, clsIdx) {
+    const r = ladderRank(rep.classes);
+    return r ? rep.classes.map((_, i) => i).filter(i => r[i] <= r[clsIdx]) : [clsIdx];
+  }
+  function classLabel(rep) {
+    const set = rep.favorableSet || [rep.favorable];
+    return rep.classes[rep.favorable] + (set.length > 1 ? ' or better' : '');
+  }
+
+  function retarget(rep, clsIdx, fromIdx) {
+    if (rep.task !== 'classification' || !rep.pdFor) return rep;
+    rep.favorable = clsIdx;
+    rep.favorableSet = targetSet(rep, clsIdx);
+    rep.fromClass = fromIdx === undefined ? null : fromIdx;
+    rep.goal = 'class:' + rep.classes[clsIdx];
+    rep.pd = rep.pdFor(rep.favorableSet, rep.fromClass);
+    rep.actionPlan = actionPlan(rep);
+    return rep;
+  }
+
+  root.MLAgent = { run, retarget, classOrder, classLabel, guessTarget, decideTask, guessFavorable, fmt, pct, MAX_ROWS };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLAgent;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
