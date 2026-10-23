@@ -151,7 +151,7 @@ test('DOE analysis flags aliasing in a half fraction', () => {
 
 test('the agent picks the right task for each practice dataset', async () => {
   const expect = { molding: 'regression', factorial: 'regression', batches: 'classification', loyalty: 'classification', segments: 'clustering' };
-  for (const s of S) {
+  for (const s of S.filter(x => !x.files)) {
     const rep = await A.run(E.parseCSV(s.make()), { target: s.target });
     assert.strictEqual(rep.task, expect[s.id], s.id);
     assert.ok(rep.insights.length > 0 && rep.nextSteps.length > 0);
@@ -277,11 +277,11 @@ test('columns that copy the target (data leakage) are set aside', async () => {
   const rand = E.rng(12), rows = [];
   for (let i = 0; i < 200; i++) {
     const t = 150 + rand() * 100, pass = (t > 190 && rand() > 0.2) ? 'Pass' : 'Fail';
-    rows.push([t.toFixed(1), (rand() * 10).toFixed(2), pass === 'Pass' ? 'released' : 'scrapped', pass]);
+    rows.push([t.toFixed(1), (rand() * 10).toFixed(2), pass === 'Pass' ? 'green' : 'red', pass]);
   }
-  const rep = await A.run({ columns: ['Temp', 'Noise', 'Disposition', 'Result'], rows }, { target: 'Result' });
-  assert.ok(rep.dropped.some(d => d.name === 'Disposition' && /copy of the result/.test(d.reason)));
-  assert.ok(!rep.features.includes('Disposition') && rep.features.includes('Temp'));
+  const rep = await A.run({ columns: ['Temp', 'Noise', 'Tag', 'Result'], rows }, { target: 'Result' });
+  assert.ok(rep.dropped.some(d => d.name === 'Tag' && /copy of the result/.test(d.reason)));
+  assert.ok(!rep.features.includes('Tag') && rep.features.includes('Temp'));
   assert.ok(rep.best.metrics.balancedAccuracy < 0.99, 'no fake perfect score');
   // A real but strong driver is not flagged.
   const reg = await A.run(E.parseCSV(S.find(s => s.id === 'molding').make()), { target: 'Yield' });
@@ -391,4 +391,137 @@ test('neural network learns non-linear patterns, stops early and is reproducible
   assert.ok(rep.nn && rep.nn.history.length > 5 && rep.nn.sizes[1] === 32 && rep.nn.sizes[2] === 16);
   const tiny = await A.run(E.parseCSV(S.find(s => s.id === 'factorial').make()), { target: 'Yield' });
   assert.ok(!tiny.leaderboard.some(b => b.id === 'mlp') && !tiny.nn, 'skipped on tiny data');
+});
+
+const M = require(path.join(ROOT, 'merge.js'));
+const AU = require(path.join(ROOT, 'audit.js'));
+const bioFiles = () => { const s = S.find(x => x.id === 'bioqc'); return s.files.map(f => E.parseCSV(f.make())); };
+const joinBio = () => { const [log, qc] = bioFiles(); return M.join(log, qc, { leftKey: 'BatchID', rightKey: 'Batch ID', how: 'inner', bName: 'QC' }); };
+
+test('key-based merge: suggested keys, replicate averaging and unmatched IDs', () => {
+  const [log, qc] = bioFiles();
+  const sug = M.suggestKeys(log, qc);
+  assert.strictEqual(sug[0].left, 'BatchID');
+  assert.strictEqual(sug[0].right, 'Batch ID');
+  assert.ok(!sug.some(s => /Titer|HMW/.test(s.left + s.right)), 'measured decimals are never suggested as keys');
+  const { table, stats } = joinBio();
+  assert.strictEqual(stats.matchedKeys, 60);
+  assert.strictEqual(stats.outputRows, 60);
+  assert.deepStrictEqual(stats.unmatchedLeft, ['B1061', 'B1062', 'B1063', 'B1064']);
+  assert.deepStrictEqual(stats.unmatchedRight, ['B1065', 'B1066']);
+  assert.deepStrictEqual(stats.droppedReplicateColumns, ['Lane']);
+  assert.ok(!table.columns.includes('Lane'));
+  // Averaging: the joined purity for B1001 is the mean of its two lanes.
+  const lanes = qc.rows.filter(r => r[0] === 'B1001').map(r => Number(r[2]));
+  const row = table.rows.find(r => r[0] === 'B1001');
+  assert.ok(Math.abs(Number(row[table.columns.indexOf('Purity_Pct')]) - (lanes[0] + lanes[1]) / 2) < 1e-9);
+  assert.strictEqual(row[table.columns.indexOf('Analyst')], 'A.R. | J.K.');
+  assert.strictEqual(row[table.columns.indexOf('Replicates (QC)')], '2');
+  // Keys match after trimming and ignoring case; a left join keeps unmatched rows.
+  const a = { columns: ['Lot', 'x'], rows: [[' lot-1 ', '1'], ['LOT-2', '2'], ['LOT-3', '3']] }, b = { columns: ['lot', 'y'], rows: [['LOT-1', '5'], ['lot-2', '6']] };
+  assert.strictEqual(M.join(a, b, { leftKey: 'Lot', rightKey: 'lot', how: 'inner' }).table.rows.length, 2);
+  const left = M.join(a, b, { leftKey: 'Lot', rightKey: 'lot', how: 'left' });
+  assert.strictEqual(left.table.rows.length, 3);
+  assert.strictEqual(left.table.rows[2][2], '');
+});
+
+test('column roles: analytical results, measurements, record info and dates', () => {
+  const p = E.profile({ columns: ['BatchID', 'Temp', 'Time', 'VisitsPerMonth', 'Purity', 'HMW_Pct', 'LMW_Pct', 'RetentionTime', 'MolecularWeight', 'MainBand_kDa', 'Analyst', 'RunDate', 'Yield'],
+    rows: Array.from({ length: 30 }, (_, i) => ['B' + i, String(30 + i % 7), String(10 + i % 4), String(i % 9), String(95 + (i % 5) / 2), String(1 + i % 3), String(0.5 + i % 2), String(12 + (i % 4) / 10), String(148 + i % 3), String(150 + i % 2), i % 2 ? 'AB' : 'CD', '2024-01-' + String(1 + i % 28).padStart(2, '0'), String(80 + i % 6)]) });
+  const r = A.columnRoles(p);
+  const role = n => r[n].role;
+  assert.strictEqual(role('Purity'), 'result');
+  assert.strictEqual(role('HMW_Pct'), 'result');
+  assert.strictEqual(r.HMW_Pct.label, 'result: impurity');
+  assert.strictEqual(role('LMW_Pct'), 'result');
+  assert.strictEqual(role('Yield'), 'result');
+  assert.strictEqual(role('RetentionTime'), 'measurement');
+  assert.strictEqual(role('MolecularWeight'), 'measurement');
+  assert.strictEqual(role('MainBand_kDa'), 'measurement');
+  assert.strictEqual(role('Analyst'), 'meta');
+  assert.strictEqual(role('RunDate'), 'time');
+  assert.strictEqual(role('Temp'), 'input');
+  assert.strictEqual(role('Time'), 'input', 'a numeric Time column is a process setting');
+  assert.strictEqual(role('VisitsPerMonth'), 'input');
+  assert.strictEqual(A.guessTarget(p), 'Purity');
+  assert.deepStrictEqual(A.otherResults(p, 'Purity').sort(), ['Analyst', 'HMW_Pct', 'LMW_Pct', 'MainBand_kDa', 'MolecularWeight', 'RetentionTime', 'RunDate', 'Yield'].sort());
+});
+
+test('merged QC data: other results are set aside, so purity is not leaked', async () => {
+  const { table } = joinBio();
+  const rep = await A.run(table, { target: 'Purity_Pct' });
+  assert.ok(!rep.features.includes('HMW_Pct') && !rep.features.includes('LMW_Pct') && !rep.features.includes('Titer_g_L'));
+  assert.ok(rep.features.includes('Temp_C'));
+  assert.ok(rep.best.metrics.r2 > 0.8 && rep.best.metrics.r2 < 0.999, 'R² ' + rep.best.metrics.r2);
+  // Aggregates (HMW) rise with agitation and temperature, fragments (LMW) with harvest day.
+  assert.deepStrictEqual(rep.importance.slice(0, 3).map(v => v.name).sort(), ['Agitation_rpm', 'HarvestDay', 'Temp_C']);
+});
+
+test('QC spec limits: one-sided LSL on purity', async () => {
+  const { table } = joinBio();
+  const rep = await A.run(table, { target: 'Purity_Pct', sixSigma: { lsl: 95, usl: null, target: 97, timeOrdered: true } });
+  const c = rep.spc.capability;
+  assert.strictEqual(c.Cp, null, 'no Cp without both limits');
+  assert.strictEqual(c.Pp, null);
+  assert.ok(c.Cpk !== null && Math.abs(c.Cpk - c.Cpl) < 1e-12, 'Cpk is the lower side only');
+  assert.ok(c.pAbove === 0 && c.ppm > 0);
+  assert.ok(c.loss !== null && c.loss > 0, 'Taguchi loss uses the target');
+  assert.ok(rep.spc.taguchi && rep.spc.taguchi.type === 'nominal');
+});
+
+test('desirability: scores, overall D and a better compromise on the QC data', async () => {
+  assert.strictEqual(A.dScore({ goal: 'max', low: 90, high: 98 }, 94), 0.5);
+  assert.strictEqual(A.dScore({ goal: 'min', low: 1, high: 3 }, 3.5), 0);
+  assert.strictEqual(A.dScore({ goal: 'target', low: 10, high: 20, target: 12 }, 11), 0.5);
+  assert.strictEqual(A.dScore({ goal: 'target', low: 10, high: 20, target: 12 }, 16), 0.5);
+  assert.strictEqual(A.dOverall([1, 0], [1, 1]), 0, 'one failing result makes D zero');
+  assert.ok(Math.abs(A.dOverall([0.25, 1], [1, 1]) - 0.5) < 1e-12);
+  assert.ok(Math.abs(A.dOverall([0.25, 1], [2, 1]) - Math.pow(0.25, 2 / 3)) < 1e-12, 'weights tilt the geometric mean');
+  const { table } = joinBio();
+  const multi = { responses: [
+    { name: 'Purity_Pct', goal: 'max', low: 94, high: 97.5, weight: 3 },
+    { name: 'Titer_g_L', goal: 'max', low: 2, high: 3.5, weight: 2 },
+    { name: 'LMW_Pct', goal: 'min', low: 0.6, high: 1.6, weight: 1 }
+  ] };
+  const rep = await A.run(table, { target: 'Purity_Pct', multi });
+  const d = rep.desirability;
+  assert.ok(d && d.specs.length === 3);
+  assert.ok(!rep.features.includes('Titer_g_L') && !rep.features.includes('LMW_Pct'), 'optimized results are never inputs');
+  assert.ok(d.best.D > d.typical.D + 0.1, 'D ' + d.typical.D + ' → ' + d.best.D);
+  assert.ok(Number.isInteger(d.best.values.HarvestDay) && Number.isInteger(d.best.values.Agitation_rpm), 'whole-number inputs stay whole');
+  const again = d.evaluate(d.best.values);
+  assert.ok(Math.abs(again.D - d.best.D) < 1e-9);
+  assert.ok(rep.nextSteps.some(s => /compromise/.test(s.title)));
+  await assert.rejects(A.run(table, { target: 'Purity_Pct', multi: { responses: [{ name: 'Purity_Pct', goal: 'max', low: 98, high: 94 }, { name: 'Titer_g_L', goal: 'max', low: 2, high: 3 }] } }), /low value must be below/);
+});
+
+test('audit package: SHA-256, zip and xlsx structure, audit trail content', async () => {
+  assert.strictEqual(AU.sha256(''), 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+  assert.strictEqual(AU.sha256('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  assert.strictEqual(AU.sha256('a'.repeat(1000)), require('node:crypto').createHash('sha256').update('a'.repeat(1000)).digest('hex'));
+  const z = AU.zip([{ name: 'a.txt', data: 'hello' }, { name: 'b/c.txt', data: 'world!' }]);
+  const dv = new DataView(z.buffer);
+  assert.strictEqual(dv.getUint32(0, true), 0x04034b50);
+  assert.strictEqual(dv.getUint32(z.length - 22, true), 0x06054b50);
+  assert.strictEqual(dv.getUint16(z.length - 12, true), 2, 'two entries');
+  assert.strictEqual(dv.getUint32(14, true), AU.crc32(AU.utf8('hello')));
+
+  const [log, qc] = bioFiles();
+  const { table, stats } = joinBio();
+  const opts = { target: 'Purity_Pct', sixSigma: { lsl: 95, usl: null, target: null, timeOrdered: true }, multi: { responses: [{ name: 'Purity_Pct', goal: 'max', low: 94, high: 97.5, weight: 1 }, { name: 'LMW_Pct', goal: 'min', low: 0.6, high: 1.6, weight: 1 }] } };
+  const rep = await A.run(table, opts);
+  const src = (name, t) => ({ name, bytes: 100, rows: t.rows.length, cols: t.columns.length, sha256: AU.sha256(name) });
+  const ctx = { sources: [src('log.csv', log), src('qc.csv', qc)], merge: Object.assign({ left: 'log.csv', right: 'qc.csv', leftKey: 'BatchID', rightKey: 'Batch ID' }, stats), options: opts, when: new Date(Date.UTC(2026, 0, 2)), table };
+  const tr = AU.trail(rep, ctx), txt = AU.trailText(tr);
+  for (const want of ['Input files', 'Merge (join)', 'Analysis settings', 'Agent log', 'Data handling', 'Review and approval', 'SHA-256 ' + AU.sha256('qc.csv'), 'Lane', 'B1065', 'cross-validation', 'Not a validated GxP system', 'LSL 95', 'Random seed']) assert.ok(txt.includes(want), 'audit trail mentions ' + want);
+  const sh = AU.sheets(rep, ctx), names = sh.map(s => s.name);
+  for (const n of ['Summary', 'Audit trail', 'Columns', 'Models', 'Drivers', 'Capability', 'Control chart', 'Desirability', 'Data analyzed']) assert.ok(names.includes(n), 'sheet ' + n);
+  const models = sh.find(s => s.name === 'Models').rows;
+  assert.strictEqual(typeof models[1][1], 'number', 'scores stay numbers');
+  assert.strictEqual(sh.find(s => s.name === 'Data analyzed').rows.length, table.rows.length + 1);
+  const book = AU.xlsx(sh, { title: 'Test' });
+  assert.strictEqual(new DataView(book.buffer).getUint32(0, true), 0x04034b50);
+  const text = Buffer.from(book).toString('latin1');
+  for (const part of ['[Content_Types].xml', 'xl/workbook.xml', 'xl/styles.xml', 'xl/worksheets/sheet' + sh.length + '.xml']) assert.ok(text.includes(part), part);
+  assert.ok(text.includes('<sheet name="Audit trail"'));
 });

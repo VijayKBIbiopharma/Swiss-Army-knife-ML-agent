@@ -8,7 +8,10 @@
   const $ = id => document.getElementById(id);
   const IDLE_MS = 30 * 60 * 1000;
 
-  const state = { table: null, prof: null, name: '', report: null, sampleTarget: null, factors: null, design: null };
+  const state = { table: null, prof: null, name: '', report: null, sampleTarget: null, factors: null, design: null, sources: [], merge: null, pending: null, roleTarget: null };
+  const M = window.MLMerge, AU = window.MLAudit;
+  // What was loaded, for the audit trail: file name, size, rows, columns and SHA-256 fingerprint.
+  const sourceInfo = (name, text, table) => ({ name, bytes: AU.utf8(text).length, rows: table.rows.length, cols: table.columns.length, sha256: AU.sha256(text) });
   const DEFAULT_FACTORS = () => [{ name: 'Temperature', low: 150, high: 180 }, { name: 'Time', low: 30, high: 60 }, { name: 'Catalyst', low: 'Type A', high: 'Type B' }];
 
   // ---------- Loading ----------
@@ -21,7 +24,9 @@
     if (!table.columns.length || !table.rows.length) return showError('load-error', 'No data found. The first row should hold column names, with one row per observation below it.');
     if (table.columns.length < 2) return showError('load-error', 'Only one column found. If your file uses another separator, try pasting the cells from Excel instead.');
     state.table = table; state.name = name; state.sampleTarget = sampleTarget || null;
+    state.sources = [sourceInfo(name, text, table)]; state.merge = null; state.pending = null; state.roleTarget = null; state.original = table;
     state.prof = E.profile(table);
+    resetMerge();
     state.report = state.sim = null;
     $('sim').innerHTML = ''; $('sim').hidden = true;
     $('results').hidden = true; $('next').hidden = true; $('progress').hidden = true; showError('run-error', '');
@@ -75,7 +80,10 @@
 
   function renderProfile() {
     const target = $('target').value;
-    const excluded = new Set(Array.from(document.querySelectorAll('#profile input[data-col]')).filter(i => !i.checked).map(i => i.getAttribute('data-col')));
+    const roles = A.columnRoles(state.prof);
+    let excluded = new Set(Array.from(document.querySelectorAll('#profile input[data-col]')).filter(i => !i.checked).map(i => i.getAttribute('data-col')));
+    // A new target resets the defaults: other measured results start unchecked.
+    if (state.roleTarget !== target) { excluded = new Set(target === '__none__' ? [] : A.otherResults(state.prof, target)); state.roleTarget = target; }
     const rows = state.prof.columns.map(c => {
       const isT = c.name === target;
       const usable = E.isUsableFeature(c);
@@ -84,16 +92,108 @@
       else if (c.levels) detail = c.levels.slice(0, 4).map(h).join(', ') + (c.levels.length > 4 ? ', …' : '');
       const chip = isT ? '<span class="chip target">target</span>' : usable ? '<span class="chip">' + KIND_LABEL[c.kind] + '</span>' : '<span class="chip off">' + KIND_LABEL[c.kind] + ', set aside</span>';
       const box = usable && !isT ? '<input type="checkbox" aria-label="Use ' + h(c.name) + '" data-col="' + h(c.name) + '"' + (excluded.has(c.name) ? '' : ' checked') + '>' : '';
-      return '<tr' + (usable ? '' : ' class="dim"') + '><td>' + box + '</td><td><b>' + h(c.name) + '</b></td><td>' + chip + '</td><td class="num-cell">' + (c.missing ? c.missing + ' (' + pct(c.missing / c.n) + ')' : '0') + '</td><td class="num-cell">' + c.unique + '</td><td>' + detail + '</td></tr>';
+      const r = roles[c.name], roleChip = '<span class="role role-' + r.role + '">' + h(r.label) + '</span>' + (usable && !isT && excluded.has(c.name) && ['result', 'measurement'].includes(r.role) ? '<small class="role-why">off: another measured result</small>' : '');
+      return '<tr' + (usable ? '' : ' class="dim"') + '><td>' + box + '</td><td><b>' + h(c.name) + '</b></td><td>' + chip + '</td><td>' + roleChip + '</td><td class="num-cell">' + (c.missing ? c.missing + ' (' + pct(c.missing / c.n) + ')' : '0') + '</td><td class="num-cell">' + c.unique + '</td><td>' + detail + '</td></tr>';
     });
-    $('profile').innerHTML = '<thead><tr><th>Use</th><th>Column</th><th>Type</th><th class="num-cell">Missing</th><th class="num-cell">Distinct</th><th>Range or values</th></tr></thead><tbody>' + rows.join('') + '</tbody>';
+    $('profile').innerHTML = '<thead><tr><th>Use</th><th>Column</th><th>Type</th><th>Role</th><th class="num-cell">Missing</th><th class="num-cell">Distinct</th><th>Range or values</th></tr></thead><tbody>' + rows.join('') + '</tbody>';
     const col = state.prof.columns.find(c => c.name === target);
     const task = col && A.decideTask(col, $('task').value);
     renderGoal(col, task);
     renderSpcPanel(col, task);
+    renderMulti(col, task, roles);
     $('target-hint').textContent = !col ? 'No target: the agent will look for natural groups (clustering), main directions of variation (PCA) and unusual rows.'
       : task === 'regression' ? '"' + target + '" is a number, so the agent will run regression models and check whether the data is a designed experiment.'
         : '"' + target + '" is a category, so the agent will run classification models.';
+    const tr = col && roles[col.name];
+    if (tr && tr.role === 'result' && tr.priority <= 5 && !sigmaMode() && task === 'regression') $('target-hint').textContent += ' This looks like a QC or release result: switch on Six Sigma mode below to check it against your specification (for example LSL 95.0 for purity).';
+  }
+
+  // ---------- Several results at once (setup) ----------
+  function multiDefaults(col, roles, isPrimary) {
+    const v = col.values.filter(x => x !== null).sort((a, b) => a - b), q = p => Number(E.quantile(v, p).toPrecision(4));
+    const r = roles[col.name] || {};
+    const goal = isPrimary ? ($('goal').value === 'min' ? 'min' : 'max') : r.label === 'result: impurity' || /defect|scrap|cost|time|waste|reject/i.test(col.name) ? 'min' : r.role === 'measurement' ? 'target' : 'max';
+    return { name: col.name, on: isPrimary || r.role === 'result', goal, low: q(0.1), high: q(0.9), target: goal === 'target' ? q(0.5) : null, weight: isPrimary ? 3 : 2 };
+  }
+  function renderMulti(col, task, roles) {
+    const tbl = $('multi-table');
+    if (!col || task !== 'regression') { tbl.innerHTML = '<tbody><tr><td>Multi-result optimization needs a numeric target. Pick one above.</td></tr></tbody>'; $('multi-add').disabled = true; state.multiRows = null; return; }
+    $('multi-add').disabled = false;
+    const prev = state.multiRows && state.multiRows.primary === col.name ? state.multiRows.rows : null;
+    if (!prev) {
+      const others = state.prof.columns.filter(c => c !== col && c.kind === 'numeric' && ['result', 'measurement'].includes(roles[c.name].role));
+      state.multiRows = { primary: col.name, rows: [multiDefaults(col, roles, true)].concat(others.map(c => multiDefaults(c, roles, false))) };
+    }
+    drawMulti(roles);
+  }
+  function drawMulti(roles) {
+    const rows = state.multiRows.rows;
+    const num = (i, k, v, dis) => '<input type="number" step="any" data-m="' + i + '" data-k="' + k + '" value="' + (v === null || v === undefined ? '' : v) + '"' + (dis ? ' disabled' : '') + ' aria-label="' + k + '">';
+    $('multi-table').innerHTML = '<thead><tr><th>Use</th><th>Result</th><th>Goal</th><th>Low</th><th>High</th><th>Target</th><th>Importance</th></tr></thead><tbody>' +
+      rows.map((r, i) => '<tr><td><input type="checkbox" data-m="' + i + '" data-k="on"' + (r.on ? ' checked' : '') + (i === 0 ? ' disabled' : '') + ' aria-label="Use ' + h(r.name) + '"></td><td><b>' + h(r.name) + '</b>' + (i === 0 ? ' <span class="chip target">target</span>' : '') + '</td>' +
+        '<td><select data-m="' + i + '" data-k="goal">' + [['max', 'Maximize'], ['min', 'Minimize'], ['target', 'Hit a target']].map(([v, l]) => '<option value="' + v + '"' + (r.goal === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select></td>' +
+        '<td>' + num(i, 'low', r.low) + '</td><td>' + num(i, 'high', r.high) + '</td><td>' + num(i, 'target', r.target, r.goal !== 'target') + '</td>' +
+        '<td><select data-m="' + i + '" data-k="weight">' + [1, 2, 3, 4, 5].map(w => '<option' + (r.weight === w ? ' selected' : '') + '>' + w + '</option>').join('') + '</select></td></tr>').join('') + '</tbody>';
+    const inTable = new Set(rows.map(r => r.name));
+    const extra = state.prof.columns.filter(c => c.kind === 'numeric' && !inTable.has(c.name));
+    $('multi-add').innerHTML = '<option value="">Choose a column…</option>' + extra.map(c => '<option>' + h(c.name) + '</option>').join('');
+  }
+  function readMulti() {
+    if (!$('multi').open || !state.multiRows) return null;
+    const on = state.multiRows.rows.filter(r => r.on);
+    if (on.length < 2) return null;
+    return { responses: on.map(r => ({ name: r.name, goal: r.goal, low: r.low, high: r.high, target: r.goal === 'target' ? r.target : null, weight: r.weight })) };
+  }
+
+  // ---------- Joining a second file ----------
+  function resetMerge() {
+    $('merge').open = false; $('merge-config').hidden = true; $('m-result').hidden = true; $('file2').value = '';
+  }
+  function stageSecond(text, name) {
+    let t;
+    try { t = E.parseCSV(text); } catch (e) { return showError('load-error', 'Could not read the second file: ' + e.message); }
+    if (!t.rows.length || t.columns.length < 2) return showError('load-error', 'The second file has no usable rows.');
+    const base = state.original || state.table;
+    state.pending = { text, name, table: t };
+    const sug = M.suggestKeys(base, t);
+    $('m-left-name').textContent = state.sources[0].name; $('m-right-name').textContent = name;
+    $('m-left').innerHTML = base.columns.map(c => '<option' + (sug[0] && sug[0].left === c ? ' selected' : '') + '>' + h(c) + '</option>').join('');
+    $('m-right').innerHTML = t.columns.map(c => '<option' + (sug[0] && sug[0].right === c ? ' selected' : '') + '>' + h(c) + '</option>').join('');
+    $('merge-config').hidden = false; $('m-result').hidden = true; $('merge').open = true;
+    previewJoin(sug.length ? '' : 'No column pair with matching values was found automatically. Pick the key columns yourself.');
+  }
+  function previewJoin(note) {
+    const p = state.pending; if (!p) return;
+    let r;
+    try { r = M.join(state.original || state.table, p.table, { leftKey: $('m-left').value, rightKey: $('m-right').value, how: $('m-how').value, bName: shortName(p.name) }); }
+    catch (e) { $('m-preview').textContent = e.message; return; }
+    const s = r.stats, ex = a => a.slice(0, 4).join(', ') + (a.length > 4 ? '…' : '');
+    $('m-preview').textContent = (note ? note + ' ' : '') + s.matchedKeys + ' IDs match. ' +
+      (s.unmatchedLeft.length ? s.unmatchedLeft.length + ' only in ' + state.sources[0].name + ' (' + ex(s.unmatchedLeft) + '). ' : '') +
+      (s.unmatchedRight.length ? s.unmatchedRight.length + ' only in ' + p.name + ' (' + ex(s.unmatchedRight) + '). ' : '') +
+      (s.repeatedKeys ? s.repeatedKeys + ' IDs have repeated rows in ' + p.name + ': numbers are averaged' + (s.droppedReplicateColumns.length ? ', ' + s.droppedReplicateColumns.join(', ') + ' dropped' : '') + '. ' : '') +
+      'Result: ' + s.outputRows + ' rows × ' + r.table.columns.length + ' columns.';
+    $('m-join').disabled = !s.matchedKeys;
+  }
+  const shortName = n => String(n).replace(/\.(csv|tsv|txt)$/i, '').slice(0, 24);
+  function doJoin() {
+    const p = state.pending; if (!p) return;
+    const left = state.original || state.table;
+    const r = M.join(left, p.table, { leftKey: $('m-left').value, rightKey: $('m-right').value, how: $('m-how').value, bName: shortName(p.name) });
+    state.sources = [state.sources[0], sourceInfo(p.name, p.text, p.table)];
+    state.merge = Object.assign({ leftKey: $('m-left').value, rightKey: $('m-right').value, left: state.sources[0].name, right: p.name }, r.stats);
+    state.table = r.table; state.name = state.sources[0].name + ' + ' + p.name;
+    state.prof = E.profile(r.table); state.roleTarget = null; state.report = null;
+    state.pending = null;
+    renderSetup();
+    $('merge').open = true; $('merge-config').hidden = true;
+    $('m-result').hidden = false;
+    $('m-result').innerHTML = '✓ Joined on ' + h(state.merge.leftKey) + ' = ' + h(state.merge.rightKey) + ': ' + state.merge.outputRows + ' rows. ' + h($('m-preview').textContent.replace(/^.*?IDs match\. /, '')) + ' <button type="button" class="btn ghost small" id="m-undo">Undo the join</button>';
+  }
+  function undoJoin() {
+    state.table = state.original; state.name = state.sources[0].name; state.sources = [state.sources[0]]; state.merge = null;
+    state.prof = E.profile(state.table); state.roleTarget = null; state.report = null;
+    renderSetup(); resetMerge();
   }
 
   // ---------- Six Sigma mode (setup) ----------
@@ -138,7 +238,11 @@
       showError('spc-error', e.message); $('progress').hidden = true; btn.disabled = false; btn.textContent = 'Run the agent'; return;
     }
     try {
-      const rep = await A.run(state.table, { target: $('target').value, task: $('task').value, goal: $('goal').value, exclude, sixSigma }, p => {
+      const others = new Set($('target').value === '__none__' ? [] : A.otherResults(state.prof, $('target').value));
+      const multi = readMulti();
+      const opts = { target: $('target').value, task: $('task').value, goal: $('goal').value, exclude, roleExclude: exclude.filter(n => others.has(n)), sixSigma, multi };
+      state.runOptions = opts; state.runAt = new Date();
+      const rep = await A.run(state.table, opts, p => {
         if (p.log) $('agent-log').innerHTML = p.log.map(l => '<li class="log-' + l.kind + '">' + h(l.text) + '</li>').join('');
         if (p.total) { $('progress-bar').value = 5 + 90 * p.done / p.total; $('progress-text').textContent = 'Testing ' + p.model + ' (' + (p.done + 1) + ' of ' + p.total + ')'; }
         if (p.nn) {
@@ -216,6 +320,7 @@
     const blocks = $('result-blocks');
     blocks.innerHTML = '';
     $('results').hidden = false;
+    if (rep.desirability) renderDesirability(rep, blocks);
     if (rep.spc) renderSPC(rep, blocks);
     if (rep.doe) renderDOE(rep, blocks);
     if (rep.task === 'clustering') renderClusters(rep, blocks);
@@ -470,6 +575,29 @@
     }
   }
 
+  // ---------- Multi-result best compromise ----------
+  const goalText = sp => (sp.goal === 'max' ? 'Maximize (≥ ' + fmt(sp.high) + ' is ideal, ≤ ' + fmt(sp.low) + ' fails)' : sp.goal === 'min' ? 'Minimize (≤ ' + fmt(sp.low) + ' is ideal, ≥ ' + fmt(sp.high) + ' fails)' : 'Hit ' + fmt(sp.target) + ' (fails outside ' + fmt(sp.low) + ' to ' + fmt(sp.high) + ')');
+  // A 0 to 1 bar drawn as SVG (the page's security policy blocks inline styles).
+  const dBar = d => '<span class="dval"><svg class="dbar" viewBox="0 0 60 8" aria-hidden="true"><rect class="track" width="60" height="8" rx="4"/><rect class="fill" width="' + (60 * d).toFixed(1) + '" height="8" rx="4"/></svg> ' + d.toFixed(2) + '</span>';
+  function renderDesirability(rep, blocks) {
+    const d = rep.desirability, b = d.best, t = d.typical;
+    const rows = d.specs.map((sp, j) => '<tr><td><b>' + h(sp.name) + '</b><div class="hint">' + h(goalText(sp)) + (sp.weight !== 1 ? ' · weight ' + sp.weight : '') + '</div></td><td class="num-cell">' + h(fmt(t.ys[j])) + '</td><td>' + dBar(t.ds[j]) + '</td><td class="num-cell"><b>' + h(fmt(b.ys[j])) + '</b></td><td>' + dBar(b.ds[j]) + '</td><td>' + h(d.models[j].model) + ' · R² ' + Math.max(0, d.models[j].r2).toFixed(2) + '</td></tr>').join('');
+    const changes = d.vars.filter(v => b.values[v.name] !== t.values[v.name]).map(v => '<tr><td>' + h(v.name) + '</td><td class="num-cell">' + h(v.kind === 'num' ? fmt(t.values[v.name]) : t.values[v.name]) + '</td><td class="num-cell"><b>' + h(v.kind === 'num' ? fmt(b.values[v.name]) : b.values[v.name]) + '</b></td><td class="hint">' + (v.kind === 'num' ? 'searched ' + h(fmt(v.lo)) + ' to ' + h(fmt(v.hi)) : 'levels seen in your data') + '</td></tr>').join('');
+    const inner = '<div class="tiles mini"><div class="tile"><div class="lbl">Typical settings</div><div class="val">D ' + t.D.toFixed(2) + '</div></div><div class="tile hero-tile"><div class="lbl">Best compromise</div><div class="val">D ' + b.D.toFixed(2) + '</div><div class="sub">0 = some result fails, 1 = all fully met</div></div></div>' +
+      '<div class="table-scroll"><table><thead><tr><th>Result and goal</th><th class="num-cell">Typical</th><th>d</th><th class="num-cell">Compromise</th><th>d</th><th>Model</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      (changes ? '<h4>Settings that change</h4><div class="table-scroll"><table><thead><tr><th>Input</th><th class="num-cell">Typical</th><th class="num-cell">Compromise</th><th>Search range</th></tr></thead><tbody>' + changes + '</tbody></table></div>' : '<p>Typical settings already give the best balance found.</p>') +
+      '<div class="row-actions"><button class="btn primary" type="button" id="des-apply">Load the compromise into the what-if desk</button></div>';
+    const el = append(blocks, card('Best compromise across ' + d.specs.length + ' results', 'Like tuning a car for speed, fuel and comfort at once: pushing one result to its limit usually hurts another, so each result gets a 0 to 1 score (d) and the overall score D is their geometric mean, which drops to 0 if any single result fails.', inner, 'desirability'));
+    el.querySelector('#des-apply').onclick = () => { applyCompromise(); $('sim').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  }
+  function applyCompromise() {
+    const sim = state.sim, rep = state.report; if (!sim || !rep || !rep.desirability) return;
+    const best = rep.desirability.best.values;
+    sim.base = Object.assign({}, best);
+    sim.drivers.forEach(d => { if (best[d.name] !== undefined) sim.values[d.name] = best[d.name]; });
+    syncKnobs(); scheduleSim();
+  }
+
   // ---------- What-if mixing desk ----------
   // One knob per top driver. Each move re-scores the current settings plus a short sweep
   // along every knob (the curve under it), in a single batch, so it feels instant.
@@ -509,8 +637,13 @@
     let sim = state.sim;
     if (!sim || sim.rep !== rep) sim = state.sim = { rep, values: {}, pinned: [], shown: null };
     sim.drivers = drivers;
+    // Columns without a knob: their typical values, or the best compromise once it is loaded.
+    sim.typicalBase = rep.desirability ? Object.assign({}, rep.desirability.typical.values) : {};
+    // Same starting point as the best-compromise card, so the two always agree.
+    drivers.forEach(d => { if (sim.typicalBase[d.name] !== undefined) d.typical = sim.typicalBase[d.name]; });
     drivers.forEach(d => { if (sim.values[d.name] === undefined) sim.values[d.name] = d.typical; });
     sim.typical = {}; drivers.forEach(d => { sim.typical[d.name] = d.typical; });
+    if (!sim.base) sim.base = Object.assign({}, sim.typicalBase);
     const cls = rep.task === 'classification';
     const what = cls ? 'Chance of ' + rep.target + ' = ' + A.classLabel(rep) : 'Predicted ' + rep.target;
     const plan = rep.actionPlan && rep.actionPlan.settings && rep.actionPlan.settings.length;
@@ -519,7 +652,7 @@
       '<div class="sim-layout"><div class="sim-readout" aria-live="polite"><div class="lbl">' + h(what) + '</div><div class="sim-big" id="sim-big">–</div><div class="sim-delta" id="sim-delta"></div><div id="sim-extra"></div></div>' +
       '<div class="sim-knobs">' + drivers.map((d, i) => knobHtml(d, i, sim.values[d.name])).join('') + '</div></div>' +
       '<p class="sim-warn" id="sim-warn" hidden></p>' +
-      '<div class="row-actions sim-actions">' + (plan ? '<button class="btn" type="button" id="sim-plan">Apply the action plan</button>' : '') +
+      '<div class="row-actions sim-actions">' + (rep.desirability ? '<button class="btn" type="button" id="sim-des">Apply the best compromise</button>' : '') + (plan ? '<button class="btn" type="button" id="sim-plan">Apply the action plan</button>' : '') +
       '<button class="btn ghost" type="button" id="sim-reset">Reset to typical</button><button class="btn primary" type="button" id="sim-pin">Pin this scenario</button></div>' +
       '<div id="sim-pins"></div>' + howTo('whatif');
     const setKnob = (i, raw) => {
@@ -531,12 +664,13 @@
     el.onclick = e => {
       const b = e.target.closest('button'); if (!b) return;
       if (b.hasAttribute('data-level')) { setKnob(Number(b.getAttribute('data-knob')), b.getAttribute('data-level')); syncKnobs(); return; }
-      if (b.id === 'sim-reset') { Object.assign(sim.values, sim.typical); syncKnobs(); scheduleSim(); }
+      if (b.id === 'sim-reset') { Object.assign(sim.values, sim.typical); sim.base = Object.assign({}, sim.typicalBase); syncKnobs(); scheduleSim(); }
+      if (b.id === 'sim-des') applyCompromise();
       if (b.id === 'sim-plan') {
         rep.actionPlan.settings.forEach(st => { const d = drivers.find(x => x.name === st.name); if (d) sim.values[d.name] = d.kind === 'numeric' ? Math.min(d.max, Math.max(d.min, Number(String(st.value).replace(/,/g, '')))) : st.value; });
         syncKnobs(); scheduleSim();
       }
-      if (b.id === 'sim-pin') { sim.pinned.push({ values: Object.assign({}, sim.values) }); renderPins(); }
+      if (b.id === 'sim-pin') { sim.pinned.push({ values: Object.assign({}, sim.values), base: Object.assign({}, sim.base) }); renderPins(); }
       if (b.hasAttribute('data-unpin')) { sim.pinned.splice(Number(b.getAttribute('data-unpin')), 1); renderPins(); }
     };
     sim.shown = null;
@@ -558,8 +692,8 @@
     const sim = state.sim; if (!sim || !state.report) return;
     const rep = sim.rep, ds = sim.drivers, cur = sim.values;
     // One batch: typical settings, current settings, then a sweep along each knob.
-    const batch = [Object.assign({}, sim.typical), Object.assign({}, cur)];
-    ds.forEach(d => d.grid.forEach(g => batch.push(Object.assign({}, cur, { [d.name]: g }))));
+    const batch = [Object.assign({}, sim.typicalBase, sim.typical), Object.assign({}, sim.base, cur)];
+    ds.forEach(d => d.grid.forEach(g => batch.push(Object.assign({}, sim.base, cur, { [d.name]: g }))));
     const outs = rep.predictMany(batch), sc = outs.map(o => simScore(rep, o));
     const base = sc[0], now = sc[1], nowOut = outs[1];
     let k = 2;
@@ -586,6 +720,11 @@
         const out = c.lsl !== null && now < c.lsl ? 'below LSL ' + fmt(c.lsl) : c.usl !== null && now > c.usl ? 'above USL ' + fmt(c.usl) : null;
         extra += '<span class="verdict ' + (out ? 'not' : 'capable') + '">' + (out ? h(out) : 'inside spec') + '</span>';
       }
+    }
+    if (rep.desirability) {
+      const des = rep.desirability, ev = des.evaluate(Object.assign({}, sim.base, cur));
+      extra += '<div class="sim-multi"><div class="lbl">All results · overall D <b>' + ev.D.toFixed(2) + '</b> (best found ' + des.best.D.toFixed(2) + ')</div>' +
+        des.specs.map((sp, j) => '<div><span>' + h(sp.name) + '</span><b>' + h(fmt(ev.ys[j])) + '</b>' + dBar(ev.ds[j]) + '</div>').join('') + '</div>';
     }
     $('sim-extra').innerHTML = extra;
     const outside = ds.filter(d => d.kind === 'numeric' && (cur[d.name] < d.lo || cur[d.name] > d.hi)).map(d => d.name);
@@ -620,12 +759,13 @@
     const sim = state.sim; if (!sim) return;
     const rep = sim.rep, ds = sim.drivers;
     if (!sim.pinned.length) { $('sim-pins').innerHTML = ''; return; }
-    const rows = [{ name: 'Typical settings', values: sim.typical }].concat(sim.pinned.map((p, i) => ({ name: 'Scenario ' + (i + 1), values: p.values, i })));
-    const scores = rep.predictMany(rows.map(r => Object.assign({}, r.values))).map(o => simScore(rep, o));
-    sim.pinRows = rows.map((r, j) => ({ name: r.name, values: r.values, score: scores[j] }));
-    $('sim-pins').innerHTML = '<h4>Pinned scenarios</h4><div class="table-scroll"><table class="pins"><thead><tr><th>Scenario</th>' + ds.map(d => '<th class="num-cell">' + h(d.name) + '</th>').join('') + '<th class="num-cell">' + h(rep.task === 'classification' ? 'Chance of ' + A.classLabel(rep) : 'Predicted ' + rep.target) + '</th><th></th></tr></thead><tbody>' +
+    const rows = [{ name: 'Typical settings', values: sim.typical }].concat(sim.pinned.map((p, i) => ({ name: 'Scenario ' + (i + 1), values: p.values, base: p.base, i })));
+    const scores = rep.predictMany(rows.map((r, j) => Object.assign({}, j ? r.base : sim.typicalBase, r.values))).map(o => simScore(rep, o));
+    const des = rep.desirability, Ds = des ? rows.map((r, j) => des.evaluate(Object.assign({}, j ? r.base : sim.typicalBase, r.values)).D) : null;
+    sim.pinRows = rows.map((r, j) => ({ name: r.name, values: r.values, score: scores[j], D: Ds ? Ds[j] : null }));
+    $('sim-pins').innerHTML = '<h4>Pinned scenarios</h4><div class="table-scroll"><table class="pins"><thead><tr><th>Scenario</th>' + ds.map(d => '<th class="num-cell">' + h(d.name) + '</th>').join('') + '<th class="num-cell">' + h(rep.task === 'classification' ? 'Chance of ' + A.classLabel(rep) : 'Predicted ' + rep.target) + '</th>' + (Ds ? '<th class="num-cell">Overall D</th>' : '') + '<th></th></tr></thead><tbody>' +
       rows.map((r, j) => '<tr' + (j ? '' : ' class="dim"') + '><td>' + h(r.name) + '</td>' + ds.map(d => { const v = r.values[d.name]; const changed = j && v !== sim.typical[d.name]; return '<td class="num-cell">' + (changed ? '<b>' : '') + h(d.kind === 'numeric' ? fmt(v) : v) + (changed ? '</b>' : '') + '</td>'; }).join('') +
-        '<td class="num-cell"><b>' + h(simFmt(rep, scores[j])) + '</b></td><td>' + (j ? '<button type="button" class="icon-btn" data-unpin="' + r.i + '" aria-label="Remove ' + h(r.name) + '">✕</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>';
+        '<td class="num-cell"><b>' + h(simFmt(rep, scores[j])) + '</b></td>' + (Ds ? '<td class="num-cell">' + Ds[j].toFixed(2) + '</td>' : '') + '<td>' + (j ? '<button type="button" class="icon-btn" data-unpin="' + r.i + '" aria-label="Remove ' + h(r.name) + '">✕</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>';
   }
 
   function tCritical(df) {
@@ -853,6 +993,15 @@
   async function savePDF() {
     const rep = state.report; if (!rep) return;
     const btn = $('save-pdf'); btn.disabled = true; btn.textContent = 'Building PDF…';
+    try {
+      download('ml-agent-report.pdf', await buildPDF(rep), 'application/pdf');
+    } catch (e) {
+      showError('run-error', 'Could not build the PDF: ' + (e.message || e) + '. Use Print and choose "Save as PDF" instead.');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Save as PDF';
+    }
+  }
+  async function buildPDF(rep) {
     const restore = withLightTheme();
     try {
       const P = window.MLPdf.create({ title: 'ML Agent report: ' + state.name, footer: 'ML Agent report · ' + state.name + ' · computed in the browser, no data left the device' });
@@ -880,8 +1029,8 @@
         const rows = sim.pinRows || [];
         P.h2('What-if scenarios');
         P.muted('From the what-if mixing desk. Columns not listed stay at their typical value. ' + (rep.task === 'classification' ? 'Values are the chance of ' + rep.target + ' = ' + A.classLabel(rep) + '.' : 'Values are the predicted ' + rep.target + ' (typical error ±' + fmt(rep.best.metrics.rmse) + ').'));
-        const cur = rep.predictMany([Object.assign({}, sim.values)]).map(o => simScore(rep, o))[0];
-        const all = (rows.length ? rows : [{ name: 'Typical settings', values: sim.typical, score: rep.predictMany([Object.assign({}, sim.typical)]).map(o => simScore(rep, o))[0] }]).concat([{ name: 'Current desk settings', values: sim.values, score: cur }]);
+        const cur = rep.predictMany([Object.assign({}, sim.base, sim.values)]).map(o => simScore(rep, o))[0];
+        const all = (rows.length ? rows : [{ name: 'Typical settings', values: sim.typical, score: rep.predictMany([Object.assign({}, sim.typicalBase, sim.typical)]).map(o => simScore(rep, o))[0] }]).concat([{ name: 'Current desk settings', values: sim.values, score: cur }]);
         P.table([['Scenario'].concat(sim.drivers.map(d => d.name)).concat(['Prediction'])].concat(all.map(r => [r.name].concat(sim.drivers.map(d => (d.kind === 'numeric' ? fmt(r.values[d.name]) : String(r.values[d.name])))).concat([simFmt(rep, r.score)]))));
       }
       P.h2('What the agent found');
@@ -928,11 +1077,55 @@
       }
       P.h2('Glossary');
       P.table([['Term', 'Meaning']].concat(X.GLOSSARY));
-      download('ml-agent-report.pdf', P.output(), 'application/pdf');
-    } catch (e) {
-      showError('run-error', 'Could not build the PDF: ' + (e.message || e) + '. Use Print and choose "Save as PDF" instead.');
+      P.pageBreak().h1('Audit trail');
+      P.muted('What was analyzed, how, and with which settings, so a reviewer can retrace this report.');
+      AU.trail(rep, auditContext()).forEach(sec => { if (sec.rows.length) { P.keep(90).h2(sec.title); P.table([['Item', 'Detail']].concat(sec.rows.map(r => [String(r[0]), String(r[1])]))); } });
+      return P.output();
     } finally {
-      restore(); btn.disabled = false; btn.textContent = 'Save as PDF';
+      restore();
+    }
+  }
+
+  // ---------- Audit-ready exports ----------
+  function scenarioTable() {
+    const sim = state.sim, rep = state.report;
+    if (!sim || !sim.drivers || !sim.drivers.length || sim.rep !== rep) return null;
+    renderPins();
+    const rows = (sim.pinRows || []).slice();
+    const cur = rep.predictMany([Object.assign({}, sim.base, sim.values)]).map(o => simScore(rep, o))[0];
+    rows.push({ name: 'Current desk settings', values: sim.values, score: cur, D: rep.desirability ? rep.desirability.evaluate(Object.assign({}, sim.base, sim.values)).D : null });
+    const header = ['Scenario'].concat(sim.drivers.map(d => d.name), [rep.task === 'classification' ? 'Chance of ' + A.classLabel(rep) : 'Predicted ' + rep.target], rep.desirability ? ['Overall D'] : []);
+    return { header, rows: rows.map(r => [r.name].concat(sim.drivers.map(d => r.values[d.name]), [Number(r.score.toPrecision(6))], rep.desirability ? [Number(r.D.toPrecision(4))] : [])) };
+  }
+  const auditContext = () => ({ sources: state.sources, merge: state.merge, options: state.runOptions, when: state.runAt, scenarios: scenarioTable(), design: state.design, table: state.table });
+  const workbook = rep => AU.xlsx(AU.sheets(rep, auditContext()), { title: 'ML Agent results: ' + state.name });
+  function saveExcel() {
+    const rep = state.report; if (!rep) return;
+    try { download('ml-agent-results.xlsx', workbook(rep), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); }
+    catch (e) { showError('run-error', 'Could not build the workbook: ' + (e.message || e)); }
+  }
+  async function saveAuditPackage() {
+    const rep = state.report; if (!rep) return;
+    const btn = $('save-audit'); btn.disabled = true; btn.textContent = 'Building package…';
+    try {
+      const ctx = auditContext(), when = new Date();
+      const files = [{ name: 'report.pdf', data: await buildPDF(rep) }, { name: 'results.xlsx', data: workbook(rep) }, { name: 'audit-trail.txt', data: AU.trailText(AU.trail(rep, ctx)) }];
+      if (state.design) files.push({ name: 'doe-run-sheet.csv', data: D.toCSV(state.design.design, state.design.factors, state.design.response) });
+      const manifest = files.map(f => AU.sha256(typeof f.data === 'string' ? AU.utf8(f.data) : f.data) + '  ' + f.name).join('\n') + '\n';
+      files.push({ name: 'SHA256SUMS.txt', data: manifest });
+      files.push({ name: 'README.txt', data: 'ML Agent audit package\nCreated ' + when.toISOString() + ' from ' + state.name + '\n\n' +
+        'report.pdf        The full report: results, charts, explanations and the audit trail.\n' +
+        'results.xlsx      Every number behind the report, one sheet per topic, plus the data analyzed.\n' +
+        'audit-trail.txt   Input file fingerprints (SHA-256), merge details, settings, exclusions and the agent log.\n' +
+        (state.design ? 'doe-run-sheet.csv The recommended experiment, ready to fill in.\n' : '') +
+        'SHA256SUMS.txt    Fingerprints of the files above. Check one with: sha256sum -c SHA256SUMS.txt\n\n' +
+        'Everything was computed in the browser. No data was sent to any server or AI service, and nothing was stored by the tool.\n' +
+        'This package is your own file: keep or delete it as your data policy requires.\n' });
+      download('ml-agent-audit-package.zip', AU.zip(files, when), 'application/zip');
+    } catch (e) {
+      showError('run-error', 'Could not build the audit package: ' + (e.message || e));
+    } finally {
+      btn.disabled = false; btn.textContent = 'Download audit package (.zip)';
     }
   }
 
@@ -981,6 +1174,8 @@
     const had = !!state.table;
     clearTimeout(idleTimer);
     state.table = state.prof = state.report = state.sim = null; state.name = ''; state.sampleTarget = null;
+    state.sources = []; state.merge = state.pending = state.original = state.roleTarget = state.multiRows = state.runOptions = state.runAt = null;
+    resetMerge(); $('m-preview').textContent = ''; $('m-result').innerHTML = ''; $('multi-table').innerHTML = ''; $('multi').open = false;
     $('sim').innerHTML = ''; $('sim').hidden = true;
     $('paste').value = ''; $('file').value = '';
     ['setup', 'results', 'next', 'progress'].forEach(id => { $(id).hidden = true; });
@@ -1010,6 +1205,7 @@
     $('samples').addEventListener('click', e => {
       const b = e.target.closest('[data-sample]'); if (!b) return;
       const s = window.MLSamples.find(x => x.id === b.getAttribute('data-sample'));
+      if (s.files) { loadText(s.files[0].make(), s.files[0].name, s.target); stageSecond(s.files[1].make(), s.files[1].name); return; }
       loadText(s.make(), s.title + ' (practice data)', s.target);
     });
     $('file').addEventListener('change', e => readFile(e.target.files[0]));
@@ -1020,12 +1216,32 @@
     $('use-paste').addEventListener('click', () => { const t = $('paste').value; if (t.trim()) { $('paste').value = ''; loadText(t, 'Pasted data'); } else showError('load-error', 'Paste some data first.'); });
     ['clear', 'delete-top', 'delete-bottom'].forEach(id => $(id).addEventListener('click', () => deleteData()));
     $('target').addEventListener('change', renderProfile);
+    $('multi-table').addEventListener('input', e => {
+      const i = e.target.getAttribute('data-m'); if (i === null || !state.multiRows) return;
+      const r = state.multiRows.rows[Number(i)], k = e.target.getAttribute('data-k');
+      if (k === 'on') r.on = e.target.checked;
+      else if (k === 'goal') { r.goal = e.target.value; if (r.goal === 'target' && (r.target === null || r.target === '')) r.target = Number(((r.low + r.high) / 2).toPrecision(4)); drawMulti(); }
+      else if (k === 'weight') r.weight = Number(e.target.value);
+      else r[k] = e.target.value === '' ? null : Number(e.target.value);
+    });
+    $('multi-table').addEventListener('change', e => { if (e.target.tagName === 'SELECT') e.target.dispatchEvent(new Event('input', { bubbles: true })); });
+    $('multi-add').addEventListener('change', e => {
+      const c = state.prof.columns.find(x => x.name === e.target.value); if (!c || !state.multiRows) return;
+      const d = multiDefaults(c, A.columnRoles(state.prof), false); d.on = true;
+      state.multiRows.rows.push(d); drawMulti();
+    });
+    $('file2').addEventListener('change', e => { const f = e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => stageSecond(String(rd.result), f.name); rd.readAsText(f); });
+    ['m-left', 'm-right', 'm-how'].forEach(id => $(id).addEventListener('change', () => previewJoin()));
+    $('m-join').addEventListener('click', doJoin);
+    $('m-result').addEventListener('click', e => { if (e.target.id === 'm-undo') undoJoin(); });
     document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', () => { if (state.prof) renderProfile(); }));
     $('task').addEventListener('change', renderProfile);
     $('run').addEventListener('click', runAgent);
     $('download-report').addEventListener('click', () => state.report && download('ml-agent-report.html', reportHTML(state.report), 'text/html'));
     $('print').addEventListener('click', () => window.print());
     $('save-pdf').addEventListener('click', savePDF);
+    $('save-excel').addEventListener('click', saveExcel);
+    $('save-audit').addEventListener('click', saveAuditPackage);
     $('plan').addEventListener('change', e => { if (e.target.id === 'plan-target' || e.target.id === 'plan-from') retargetFrom(e.target.id); });
     window.addEventListener('beforeprint', beforePrint);
     window.addEventListener('afterprint', afterPrint);

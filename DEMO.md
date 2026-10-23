@@ -45,6 +45,16 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Show the I-MR chart (one signal), box plots by Material (Resin C is tightest), and the Taguchi table.
 - Talking point: *"Same data, two lenses: machine learning finds the levers, and classical capability tells us how far we are from the customer's spec."*
 
+## 3d. Two files, several results: bioreactor + QC (3 minutes, for biopharma / QC audiences)
+- Click the practice dataset **Bioreactor log + densitometer QC**. It loads the process log and stages the QC report. (The same two files are in `demo-data/`: load `bioreactor-process-log.csv`, then add `densitometer-qc-report.csv` under **Add a second file**.)
+- The join panel suggests **BatchID = Batch ID**: 60 IDs match, 4 batches have no QC result, 2 QC results have no batch, and the two lanes per batch are averaged. Press **Join the files**.
+- Show the **Role** column: Purity is the target; Titer, HMW, LMW and MainBand_kDa are recognized as other results and switched off as inputs; Analyst is record info.
+- Turn on **⚙ Six Sigma & process control**, enter LSL 95, target 97 (no USL: purity is one-sided). Open **Optimize several results together**: Purity, Titer, HMW and LMW are pre-filled with sensible goals. Run.
+- Expect about 98% of purity variation explained, Cpk around 0.2 against LSL 95, and a **best compromise** that lifts overall desirability from about 0.5 to about 0.9: higher temperature and dissolved oxygen, more feed, lower agitation, earlier harvest.
+- Press **Load the compromise into the what-if desk** and move Temp_C: purity, titer and aggregates move together, and the overall score shows the trade-off.
+- Press **Download audit package (.zip)**. Open `audit-trail.txt`: both files' SHA-256 fingerprints, the join, every excluded column and why, the models and the seed.
+- Talking point: *"Purity, yield and aggregates fight each other. This finds the settings where none of them fails, and hands QA a package they can retrace."*
+
 ## 4b. Moving customers up a tier (1 minute)
 - Click the practice dataset **Customer loyalty tiers**, run.
 - Above the action plan, set **Starting from: Rows now Bronze** and **Target outcome: Silver or better**. The plan re-aims instantly: raise spend, visits and tenure, cut support tickets, get them on the app.

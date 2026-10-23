@@ -31,6 +31,7 @@
   const rgb = c => c.map(v => (v / 255).toFixed(3)).join(' ');
 
   function wrap(text, size, bold, maxW) {
+    maxW = Math.max(maxW, size); // always room for at least one character
     const lines = [];
     for (const para of ansi(text).split('\n')) {
       let line = '';
@@ -121,8 +122,13 @@
         const size = o.size || 8.5, lh = size * 1.3, pad = 4, n = Math.max(...rows.map(r => r.length));
         const natural = range(n).map(c => Math.max(24, ...rows.map(r => width(ansi(r[c] || ''), size, true) + 2 * pad)));
         const total = natural.reduce((a, b) => a + b, 0);
-        let cw = natural.map(v => v / total * CW);
+        let cw;
         if (total < CW) cw = natural.map(v => v + (CW - total) / n);
+        else {
+          // Short columns keep their width (up to 80 pt); long text shares what is left.
+          const floor = natural.map(v => Math.min(v, 80)), spare = CW - floor.reduce((a, b) => a + b, 0), extra = total - floor.reduce((a, b) => a + b, 0);
+          cw = natural.map((v, c) => (spare > 0 ? floor[c] + (v - floor[c]) / (extra || 1) * spare : v / total * CW));
+        }
         const drawRow = (r, head) => {
           const cells = range(n).map(c => wrap(r[c] || '', size, head, cw[c] - 2 * pad));
           const h = Math.max(...cells.map(l => l.length)) * lh + 2 * pad;

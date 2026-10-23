@@ -68,6 +68,22 @@
     <div class="step-head"><span class="num">2</span><h2>Check the data and choose the goal</h2></div>
     <div class="card">
       <p id="data-summary" class="summary"></p>
+      <details class="merge" id="merge">
+        <summary>Join a second file on a shared ID (for example a process log and a QC report)</summary>
+        <div class="merge-body">
+          <label class="drop small" id="drop2"><input type="file" id="file2" accept=".csv,.tsv,.txt,text/csv,text/plain"><b>Choose the second file</b><span>Its rows are matched to this file on a key column such as BatchID or LotNumber. Repeated rows per key (replicate lanes) are averaged.</span></label>
+          <div id="merge-config" hidden>
+            <div class="controls">
+              <label>Key in <span id="m-left-name">file 1</span> <select id="m-left"></select></label>
+              <label>Key in <span id="m-right-name">file 2</span> <select id="m-right"></select></label>
+              <label>Keep <select id="m-how"><option value="inner">Only IDs found in both files</option><option value="left">Every row of the first file</option></select></label>
+            </div>
+            <p class="hint" id="m-preview"></p>
+            <div class="row-actions"><button class="btn primary" type="button" id="m-join">Join the files</button></div>
+          </div>
+          <p class="merge-done" id="m-result" hidden></p>
+        </div>
+      </details>
       <div class="controls">
         <label>What do you want to predict?
           <select id="target"></select>
@@ -99,6 +115,14 @@
         </div>
         <p class="error" id="spc-error" role="alert" hidden></p>
       </div>
+      <details class="multi" id="multi">
+        <summary>Optimize several results together (desirability)</summary>
+        <div class="multi-body">
+          <p class="hint" id="multi-intro">Balance competing results, such as higher purity and titer with lower HMW. For each one, say what is acceptable. <b>Maximize:</b> at or below Low is unacceptable, at or above High is fully met. <b>Minimize:</b> at or below Low is fully met, at or above High is unacceptable. <b>Hit a target:</b> outside Low to High is unacceptable, exactly on target is best. Importance weights the trade-off.</p>
+          <div class="table-scroll"><table class="multi-table" id="multi-table"></table></div>
+          <label class="multi-add">Add another numeric result <select id="multi-add"></select></label>
+        </div>
+      </details>
       <div class="table-scroll">
         <table class="profile" id="profile"></table>
       </div>
@@ -136,6 +160,8 @@
     <div class="row-actions">
       <button class="btn primary" id="save-pdf" type="button">Save as PDF</button>
       <button class="btn" id="print" type="button">Print</button>
+      <button class="btn" id="save-excel" type="button">Download Excel (.xlsx)</button>
+      <button class="btn" id="save-audit" type="button">Download audit package (.zip)</button>
       <button class="btn ghost" id="download-report" type="button">Download as web page (.html)</button>
       <button class="btn danger" id="delete-bottom" type="button">Finish and delete my data</button>
     </div>
@@ -209,6 +235,8 @@
 <script src="engine.js"></script>
 <script src="doe.js"></script>
 <script src="spc.js"></script>
+<script src="merge.js"></script>
+<script src="audit.js"></script>
 <script src="agent.js"></script>
 <script src="samples.js"></script>
 <script src="charts.js"></script>

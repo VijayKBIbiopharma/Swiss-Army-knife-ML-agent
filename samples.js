@@ -78,6 +78,11 @@
       }
     },
     {
+      id: 'bioqc', title: 'Bioreactor log + densitometer QC', kind: 'Two files · join · QC',
+      blurb: 'Process log and purity report for 64 batches. Join on BatchID, then find what drives purity.', target: 'Purity_Pct',
+      files: [{ name: 'bioreactor-process-log.csv', make: () => bioqc().log }, { name: 'densitometer-qc-report.csv', make: () => bioqc().qc }]
+    },
+    {
       id: 'segments', title: 'Customer segments', kind: 'Unsupervised · clustering',
       blurb: '240 customers, no outcome column. What groups exist?', target: '__none__',
       make() {
@@ -98,6 +103,36 @@
       }
     }
   ];
+
+  /* Two linked files: a bioreactor process log (one row per batch) and a densitometer
+     QC report (two replicate lanes per batch, a few batches only in one file). Warmer
+     runs make more product (titer) but more aggregate (HMW), which lowers purity. */
+  let bioCache = null;
+  function bioqc() {
+    if (bioCache) return bioCache;
+    const rand = E.rng(83), log = [], qc = [], truth = {};
+    for (let i = 0; i < 64; i++) {
+      const id = 'B' + (1001 + i);
+      const temp = r2(36 + 1.6 * rand()), ph = r2(6.8 + 0.4 * rand()), dO = r1(30 + 30 * rand()), feed = r1(8 + 8 * rand()), agit = Math.round(90 + 60 * rand()), harvest = 12 + Math.floor(rand() * 5);
+      const br = ['BR-1', 'BR-2', 'BR-3'][i % 3];
+      const titer = 2 + 0.9 * (temp - 36) + 0.08 * (feed - 8) + 0.12 * (harvest - 12) - 6 * (ph - 7) ** 2 + 0.12 * noise(rand);
+      log.push([id, br, temp, ph, dO, feed, agit, harvest, r2(titer)]);
+      truth[id] = { hmw: 1.2 + 1.1 * (temp - 36) + 0.04 * (agit - 90) - 0.02 * (dO - 30), lmw: 0.8 + 0.35 * (harvest - 12) };
+    }
+    const qcIds = Object.keys(truth).slice(0, 60).concat(['B1065', 'B1066']);
+    for (const id of qcIds) {
+      const t = truth[id] || { hmw: 2.8, lmw: 1.4 };
+      for (const lane of [1, 2]) {
+        const hmw = Math.max(0.2, t.hmw + 0.15 * noise(rand)), lmw = Math.max(0.1, t.lmw + 0.1 * noise(rand));
+        qc.push([id, lane, r2(100 - hmw - lmw), r2(hmw), r2(lmw), r1(148 + 0.6 * noise(rand)), lane === 1 ? 'A.R.' : 'J.K.']);
+      }
+    }
+    bioCache = {
+      log: toCSV(['BatchID', 'Bioreactor', 'Temp_C', 'pH', 'DO_Pct', 'FeedRate_mL_h', 'Agitation_rpm', 'HarvestDay', 'Titer_g_L'], log),
+      qc: toCSV(['Batch ID', 'Lane', 'Purity_Pct', 'HMW_Pct', 'LMW_Pct', 'MainBand_kDa', 'Analyst'], qc)
+    };
+    return bioCache;
+  }
 
   root.MLSamples = SAMPLES;
   if (typeof module !== 'undefined' && module.exports) module.exports = SAMPLES;

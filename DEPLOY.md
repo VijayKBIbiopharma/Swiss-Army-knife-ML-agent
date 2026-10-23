@@ -10,7 +10,8 @@ ML Agent is a folder of static files: HTML, CSS and JavaScript. There is no serv
 | Outbound connections | None. The pages carry a Content-Security-Policy with `connect-src 'none'` and `default-src 'none'`, so the browser blocks any request the page might try to make. `web.config` sends the same policy as an HTTP header. |
 | Storage | None. No cookies, localStorage, IndexedDB or service workers. Data is wiped on "Finish and delete my data", after 30 idle minutes, and when the page is closed or left. |
 | AI or third-party services | None. No LLM, no analytics, no CDN, no web fonts. Every file is served from your server. |
-| Dependencies | None. No npm packages or libraries; about 5,000 lines of plain JavaScript you can read, including the neural network. |
+| Dependencies | None. No npm packages or libraries; about 6,000 lines of plain JavaScript you can read, including the neural network. |
+| Exports | PDF, Excel (.xlsx) and the audit package (.zip) are built inside the browser and handed to the browser's own download. They are the user's files; nothing is kept by the tool or the server. |
 | Server requirements | Serve static files over HTTPS. Read-only access is enough. |
 | Authentication | Optional. Put the folder behind your normal intranet sign-in (Windows authentication, SSO). The tool itself has no accounts. |
 | Integrity | `SHA256SUMS.txt` lists a fingerprint for every file, so you can confirm nothing was changed. |
@@ -63,8 +64,9 @@ No output from the PowerShell command means every file matches.
 2. Press **Run privacy self-test**. It must say "Passed".
 3. Load the practice dataset **Injection molding yield** and run. Expect Quadratic, about 89% explained.
 4. Open developer tools (F12) → Network, run again, and confirm that only the tool's own files appear.
-5. Open **Learn the concepts** and click through a lesson.
-6. Press **Finish and delete my data**.
+5. Load **Bioreactor log + densitometer QC**, press **Join the files**, run, and press **Download audit package (.zip)**. Unzip it and run `sha256sum -c SHA256SUMS.txt` inside: every file must say OK.
+6. Open **Learn the concepts** and click through a lesson.
+7. Press **Finish and delete my data**.
 
 ## Updating
 Replace the folder with a new package. Users get the new version on their next page load.

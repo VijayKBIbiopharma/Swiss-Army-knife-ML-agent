@@ -12,11 +12,54 @@
   const TARGET_NAME = /^(y|target|response|output|outcome|label|class|result|yield|quality|pass|passfail|pass\/fail|defects?|score|price|sales|revenue)$/i;
   const tick = () => new Promise(r => setTimeout(r, 0));
 
+  /* Column roles from header names (and a look at the values), so analytical and QC files
+     need no manual setup: id / metadata, date or time, result (with a priority for picking
+     the target), analytical measurement, or process input. */
+  const RESULT_RULES = [
+    [1, /purity|main (band|peak)|monomer|main species/, 'purity / main band'],
+    [2, /yield|titer|titre|productivity|output rate/, 'yield / titer'],
+    [3, /potency|assay|bioactivity|bioassay/, 'potency / assay'],
+    [4, /\bhmw|high mol|aggregat|\blmw|low mol|fragment|impurit|clipped|degradant/, 'impurity'],
+    [5, /viab|\bvcd\b|endotoxin|bioburden|osmolal|\bhcp\b|host cell|residual dna|charge variant|acidic|basic variant/, 'quality attribute'],
+    [6, /defect|scrap|reject|pass|fail|result|status|grade|outcome|quality|disposition/, 'outcome']
+  ];
+  const MEASUREMENT = /retention time|\brt\b|molecular weight|\bmw\b|\bkda\b|band size|\bmass\b|migration|rf value/;
+  const META = /^replicates?\b|^n$|^count$|analyst|operator initials|instrument id|^lane$|^well$/;
+  // Dates: the name says so (not words inside a rate like "visits per month"), or the values look like dates.
+  const DATE_NAME = /\bdate\b|time ?stamp|datetime|^(month|year|week|day|time|period|at)$/;
+  const DATE_VALUE = /^(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[\/.]\d{1,2}[\/.]\d{2,4})([ t]\d{1,2}:\d{2})?/i;
+  const looksLikeDates = c => { const v = (c.values || []).filter(x => x !== null).slice(0, 200); return v.length > 0 && v.filter(x => DATE_VALUE.test(String(x).trim())).length / v.length >= 0.8; };
+  const words = name => ' ' + String(name).replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().replace(/[^a-z0-9%]+/g, ' ').trim() + ' ';
+  function columnRoles(prof) {
+    const out = {};
+    for (const c of prof.columns) {
+      const w = words(c.name);
+      let role = 'input', label = c.kind === 'categorical' ? 'category input' : 'process input', priority = 99;
+      if (c.kind === 'id') { role = 'id'; label = 'ID'; }
+      else if (META.test(w.trim())) { role = 'meta'; label = 'record info'; }
+      // Numeric columns named Time or Day are usually process settings (hold time, cure time).
+      else if (c.kind !== 'numeric' && ((DATE_NAME.test(w.trim()) && !/retention/.test(w)) || looksLikeDates(c))) { role = 'time'; label = 'date / time'; }
+      else if (MEASUREMENT.test(w) || MEASUREMENT.test(' ' + c.name.toLowerCase().replace(/[^a-z0-9%]+/g, ' ') + ' ')) { role = 'measurement'; label = 'analytical measurement'; priority = 7; }
+      else for (const [pr, re, lab] of RESULT_RULES) if (re.test(w)) { role = 'result'; label = 'result: ' + lab; priority = pr; break; }
+      out[c.name] = { role, label, priority };
+    }
+    return out;
+  }
   function guessTarget(prof) {
     const usable = prof.columns.filter(E.isUsableFeature);
+    const explicit = usable.find(c => /^(y|target|response|label|outcome)$/i.test(c.name.trim()));
+    if (explicit) return explicit.name;
+    const roles = columnRoles(prof);
+    const results = usable.filter(c => roles[c.name].role === 'result').sort((a, b) => roles[a.name].priority - roles[b.name].priority);
+    if (results.length) return results[0].name;
     const byName = usable.find(c => TARGET_NAME.test(c.name.trim()));
     if (byName) return byName.name;
     return usable.length ? usable[usable.length - 1].name : null;
+  }
+  // Other measured results should not be inputs: measured on the same sample, they leak.
+  function otherResults(prof, targetName) {
+    const roles = columnRoles(prof);
+    return prof.columns.filter(c => c.name !== targetName && E.isUsableFeature(c) && ['result', 'measurement', 'meta', 'time'].includes(roles[c.name].role)).map(c => c.name);
   }
   function decideTask(col, override) {
     if (override === 'regression' && col.kind === 'numeric') return 'regression';
@@ -47,8 +90,17 @@
     const exclude = new Set(options.exclude || []);
     const report0 = {};
     const dropped = [];
+    // When the caller does not pass its own exclusions, other results are set aside automatically.
+    const preTarget = options.target === '__none__' ? null : options.target || guessTarget(prof);
+    const roleOut = new Set(options.exclude === undefined && preTarget ? otherResults(prof, preTarget) : (options.roleExclude || []));
+    const roles = columnRoles(prof);
+    // Every result being optimized together is an output, never an input.
+    if (options.multi && options.multi.responses) options.multi.responses.forEach(r => { if (r.name !== preTarget) roleOut.add(r.name); });
+    roleOut.forEach(n => exclude.add(n));
+    report0.roles = roles;
     for (const c of prof.columns) {
-      if (exclude.has(c.name)) dropped.push({ name: c.name, reason: 'excluded by you' });
+      if (roleOut.has(c.name)) dropped.push({ name: c.name, reason: roles[c.name].role === 'meta' || roles[c.name].role === 'time' ? 'is record information, not a process input' : 'is another measured result, so using it as an input would leak the answer' });
+      else if (exclude.has(c.name)) dropped.push({ name: c.name, reason: 'excluded by you' });
       else if (c.kind === 'id') dropped.push({ name: c.name, reason: 'looks like an ID or row counter' });
       else if (c.kind === 'constant') dropped.push({ name: c.name, reason: 'has only one value' });
       else if (c.kind === 'empty') dropped.push({ name: c.name, reason: 'is empty' });
@@ -91,6 +143,9 @@
     if (options.sixSigma && targetCol) {
       report.spc = sixSigma(report, prof, targetCol, features, options.sixSigma);
       say('Six Sigma mode: ' + (report.spc.capability ? 'capability against your spec limits, ' : report.spc.attribute ? 'defect rate and sigma level, ' : '') + (report.spc.imr ? 'an I-MR control chart, ' : '') + (report.spc.boxes ? 'box plots' : '') + (report.spc.taguchi ? ' and Taguchi signal-to-noise' : '') + '.', 'result');
+    }
+    if (options.multi && options.multi.responses && options.multi.responses.length >= 2 && report.task === 'regression') {
+      report.desirability = await desirability(report, prof, features, options.multi, seed, say, progress);
     }
     report.actionPlan = actionPlan(report);
     report.insights = insights(report, prof, targetCol, features);
@@ -326,6 +381,102 @@
   }
 
   // ---------- Plain-language findings ----------
+  // ---------- Multi-response desirability (Derringer and Suich) ----------
+  // Individual desirability: 0 = unacceptable, 1 = fully satisfied, straight line in between.
+  function dScore(sp, y) {
+    const L = sp.low, H = sp.high, T = sp.target;
+    if (sp.goal === 'max') return y <= L ? 0 : y >= H ? 1 : (y - L) / (H - L);
+    if (sp.goal === 'min') return y <= L ? 1 : y >= H ? 0 : (H - y) / (H - L);
+    if (y < L || y > H) return 0;
+    return y <= T ? (T > L ? (y - L) / (T - L) : 1) : (H > T ? (H - y) / (H - T) : 1);
+  }
+  // Overall desirability: weighted geometric mean, so failing any one result gives zero.
+  function dOverall(ds, ws) {
+    if (ds.some(d => d <= 0)) return 0;
+    const W = ws.reduce((a, b) => a + b, 0);
+    return Math.exp(ds.reduce((a, d, i) => a + ws[i] * Math.log(d), 0) / W);
+  }
+  function checkSpecs(specs) {
+    for (const sp of specs) {
+      if (!['max', 'min', 'target'].includes(sp.goal)) throw new Error('Pick a goal for ' + sp.name + '.');
+      if (!(isFinite(sp.low) && isFinite(sp.high)) || sp.low >= sp.high) throw new Error(sp.name + ': the low value must be below the high value.');
+      if (sp.goal === 'target' && !(isFinite(sp.target) && sp.target >= sp.low && sp.target <= sp.high)) throw new Error(sp.name + ': the target must sit between low and high.');
+    }
+  }
+  async function desirability(rep, prof, features, multi, seed, say, progress) {
+    const specs = multi.responses.map(r => ({ name: r.name, goal: r.goal, low: Number(r.low), high: Number(r.high), target: r.target === null || r.target === undefined || r.target === '' ? null : Number(r.target), weight: Number(r.weight) || 1 }));
+    checkSpecs(specs);
+    const models = [];
+    for (const sp of specs) {
+      const col = prof.columns.find(c => c.name === sp.name);
+      if (!col || col.kind !== 'numeric') throw new Error('"' + sp.name + '" must be a numeric column to optimize it.');
+      if (sp.name === rep.target) { models.push({ name: sp.name, model: rep.best.name, r2: rep.best.metrics.r2, predictMany: list => rep.predictMany(list).map(o => o.value) }); continue; }
+      let data = E.supervisedData(prof, col, features, 'regression');
+      if (data.rows.length < 8) throw new Error('"' + sp.name + '" has too few values to model.');
+      if (data.rows.length > MAX_ROWS) { const keep = shuffle(range(data.rows.length), rng(seed)).slice(0, MAX_ROWS).sort((a, b) => a - b); data = Object.assign({}, data, { rows: keep.map(i => data.rows[i]), y: keep.map(i => data.y[i]) }); }
+      const n = data.rows.length, k = n <= 20 ? n : n <= 100 ? 10 : 5, folds = E.makeFolds(n, k, rng(seed + 11));
+      let bestM = null;
+      for (const id of ['ridge', 'quadratic', 'forest', 'boosting']) {
+        const m = E.MODELS.find(x => x.id === id);
+        if (m.applicable && !m.applicable(n, features.length, 'regression', 0)) continue;
+        await tick();
+        const r2 = E.regressionMetrics(data.y, E.crossValidate(m, data, 'regression', folds, k, seed)).r2;
+        if (!bestM || r2 > bestM.r2 + 0.01 || (Math.abs(r2 - bestM.r2) <= 0.01 && m.complexity < bestM.m.complexity)) bestM = { m, r2 };
+      }
+      const full = E.fitFull(bestM.m, data, 'regression', seed);
+      models.push({ name: sp.name, model: bestM.m.name, r2: bestM.r2, predictMany: list => full.fitted.predict(list.map(v => full.enc.encodeValues(v))) });
+      say('Modelled "' + sp.name + '" with ' + bestM.m.name + ' (R² ' + bestM.r2.toFixed(2) + ' on unseen rows) for the multi-result optimization.');
+    }
+    // Search space: the middle 90% of each numeric input, and the common levels of each category.
+    const vars = features.map(c => {
+      if (c.kind === 'numeric') {
+        const v = c.values.filter(x => x !== null).sort((a, b) => a - b);
+        const whole = v.every(x => Number.isInteger(x)); // days, rpm, counts stay whole numbers
+        return { name: c.name, kind: 'num', whole, lo: E.quantile(v, 0.05), hi: E.quantile(v, 0.95), typical: whole ? Math.round(c.stats.median) : c.stats.median };
+      }
+      return { name: c.name, kind: 'cat', levels: c.levels.slice(0, 8), typical: c.levels[0] };
+    });
+    const ws = specs.map(s => s.weight);
+    const evalMany = list => {
+      const preds = models.map(m => m.predictMany(list));
+      return list.map((_, i) => {
+        const ys = preds.map(p => p[i]), ds = specs.map((sp, j) => dScore(sp, ys[j]));
+        return { ys, ds, D: dOverall(ds, ws), soft: E.mean(ds) };
+      });
+    };
+    const better = (a, b) => a.D > b.D + 1e-12 || (Math.abs(a.D - b.D) <= 1e-12 && a.soft > b.soft);
+    const typical = {}; vars.forEach(v => { typical[v.name] = v.typical; });
+    const rand = rng(seed + 99);
+    const snap = (v, x) => (v.whole ? Math.round(x) : x);
+    const randomPoint = () => { const o = {}; vars.forEach(v => { o[v.name] = v.kind === 'num' ? snap(v, v.lo + (v.hi - v.lo) * rand()) : v.levels[Math.floor(rand() * v.levels.length)]; }); return o; };
+    let pool = [Object.assign({}, typical)];
+    for (let i = 0; i < 1500; i++) pool.push(randomPoint());
+    let scored = [];
+    for (let i = 0; i < pool.length; i += 300) { await tick(); scored = scored.concat(evalMany(pool.slice(i, i + 300)).map((r, j) => Object.assign(r, { values: pool[i + j] }))); }
+    scored.sort((a, b) => (better(a, b) ? -1 : better(b, a) ? 1 : 0));
+    // Refine the five best, one input at a time.
+    let best = scored[0];
+    for (const start of scored.slice(0, 5)) {
+      let cur = start;
+      for (let pass = 0; pass < 2; pass++) {
+        for (const v of vars) {
+          const opts = v.kind === 'num' ? Array.from(new Set(range(9).map(i => snap(v, v.lo + (v.hi - v.lo) * i / 8)))) : v.levels;
+          const cand = opts.map(o => Object.assign({}, cur.values, { [v.name]: o }));
+          const res = evalMany(cand);
+          res.forEach((r, i) => { if (better(r, cur)) cur = Object.assign(r, { values: cand[i] }); });
+        }
+        await tick();
+      }
+      if (better(cur, best)) best = cur;
+    }
+    const typ = Object.assign(evalMany([typical])[0], { values: typical });
+    return {
+      specs, models: models.map(m => ({ name: m.name, model: m.model, r2: m.r2 })), vars,
+      best: { values: best.values, ys: best.ys, ds: best.ds, D: best.D }, typical: { values: typical, ys: typ.ys, ds: typ.ds, D: typ.D },
+      evaluate: values => evalMany([Object.assign({}, typical, values)])[0]
+    };
+  }
+
   // ---------- Six Sigma mode ----------
   function levelCols(features, maxLevels) {
     return features.filter(c => (c.kind === 'categorical' && c.unique >= 2 && c.unique <= maxLevels) || (c.kind === 'numeric' && c.unique >= 2 && c.unique <= 5));
@@ -402,6 +553,11 @@
   function insights(rep, prof, targetCol, features) {
     const out = [];
     const add = (level, text) => out.push({ level, text });
+    if (rep.desirability) {
+      const d = rep.desirability, b = d.best;
+      add(b.D >= 0.6 ? 'good' : b.D > 0 ? 'info' : 'warn', 'Best compromise across ' + d.specs.length + ' results: overall desirability ' + b.D.toFixed(2) + ' (0 = some result unacceptable, 1 = all fully met), versus ' + d.typical.D.toFixed(2) + ' at typical settings. ' +
+        d.specs.map((sp, i) => sp.name + ' ≈ ' + fmt(b.ys[i])).join(', ') + '.' + (b.D === 0 ? ' No setting inside your data range meets every acceptable range at once: relax a range, lower an importance, or explore beyond the data with a DOE.' : ''));
+    }
     spcInsights(rep, add);
     const n = rep.nUsed || prof.nRows;
     if (n < 30) add('warn', 'Only ' + n + ' rows. Treat results as directional; small samples can mislead. A planned experiment gets more from few runs than historical data does.');
@@ -516,6 +672,7 @@
       if (rep.spc.imr && rep.spc.imr.signals.length) add('Analyze', 'Investigate the control-chart signals', 'Find out what happened at the flagged rows (shift change, new lot, maintenance). Remove special causes before judging capability.');
       if (rep.spc.taguchi) add('Improve', 'Set factors for robustness', 'Use the most robust levels in the Taguchi table for factors that do not affect the average much. They cut variation for free.');
     }
+    if (rep.desirability && rep.desirability.best.D > 0) add('Improve', 'Confirm the best compromise', 'Run 3 to 5 batches at the compromise settings in the desirability card and check every result against its acceptable range. Each result has its own model and its own error, so the combined prediction is less certain than any single one.');
     add('Control', 'Sustain the gain', 'Once a change is proven, update the standard work and put a control chart (I-MR or X-bar R) on ' + (rep.target || 'the key metric') + ' and its top driver, so drift is caught early.');
     const order = { Define: 0, Measure: 1, Analyze: 2, Improve: 3, Control: 4 };
     return steps.sort((a, b) => order[a.phase] - order[b.phase]);
@@ -732,6 +889,6 @@
     return rep;
   }
 
-  root.MLAgent = { run, retarget, classOrder, classLabel, guessTarget, decideTask, guessFavorable, fmt, pct, MAX_ROWS };
+  root.MLAgent = { run, retarget, dScore, dOverall, classOrder, classLabel, columnRoles, otherResults, guessTarget, decideTask, guessFavorable, fmt, pct, MAX_ROWS };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLAgent;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

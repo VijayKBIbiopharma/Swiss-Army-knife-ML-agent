@@ -952,6 +952,37 @@
   });
 
   add({
+    id: 'desirability', group: 'Six Sigma and process control', title: 'Desirability: the best compromise across several results',
+    analogy: 'Tuning a car for speed, fuel economy and comfort at once. Flat out wins on speed and fails on fuel. The best tune is the one where nothing fails and everything is as good as it can be together.',
+    intro: 'Real processes have several results to hit at once, for example high purity and low aggregates. Pushing temperature up may raise one and wreck the other. Desirability turns each result into a 0 to 1 score (d), then combines them with a geometric mean (D). Move the temperature and the purity weight below.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-controls">' + slider('x', 'Culture temperature (°C)', 30, 40, 0.1, 33) + slider('w', 'Weight on purity', 0.5, 3, 0.5, 1) + '</div><div data-role="plot"></div><p class="demo-read" data-role="read"></p>';
+      const purity = x => 97.2 - 0.22 * (x - 36.5) ** 2, hmw = x => 0.4 + 0.3 * (x - 30);
+      const dP = y => Math.max(0, Math.min(1, (y - 94) / 3)), dH = y => Math.max(0, Math.min(1, (3 - y) / 2));
+      const D = (x, w) => { const a = dP(purity(x)), b = dH(hmw(x)); return a <= 0 || b <= 0 ? 0 : Math.exp((w * Math.log(a) + Math.log(b)) / (w + 1)); };
+      const draw = () => {
+        const x = Number(q(el, 'x').value), w = Number(q(el, 'w').value);
+        setOut(el, 'x', x.toFixed(1)); setOut(el, 'w', w);
+        const xs = range(101).map(i => 30 + i / 10);
+        const f = frame(640, 280, [30, 40], [0, 1.05], { xLabel: 'Culture temperature (°C)', yLabel: 'Desirability (0 to 1)' });
+        let best = 30; xs.forEach(v => { if (D(v, w) > D(best, w)) best = v; });
+        let b = f.axes + '<path class="curve d1" d="' + pathOf(xs.map(v => [v, dP(purity(v))]), f) + '"/><path class="curve alt" d="' + pathOf(xs.map(v => [v, dH(hmw(v))]), f) + '"/><path class="curve d3" d="' + pathOf(xs.map(v => [v, D(v, w)]), f) + '"/>';
+        b += '<line class="target-line" x1="' + f.sx(best) + '" x2="' + f.sx(best) + '" y1="' + f.sy(0) + '" y2="' + f.sy(1.05) + '"/>' + dot(f.sx(x), f.sy(D(x, w)), 'query', 6);
+        q(el, 'plot').innerHTML = svg(640, 280, 'Desirability demo', b) + C.legend([{ label: 'd purity (94% fails, 97% ideal)', cls: 'c1' }, { label: 'd aggregates HMW (3% fails, 1% ideal)', cls: 'c2' }, { label: 'Overall D', cls: 'c3' }]);
+        const p = purity(x), m = hmw(x);
+        q(el, 'read').innerHTML = 'At <b>' + x.toFixed(1) + ' °C</b>: purity <b>' + p.toFixed(2) + '%</b> (d ' + dP(p).toFixed(2) + '), HMW <b>' + m.toFixed(2) + '%</b> (d ' + dH(m).toFixed(2) + '), overall <b>D ' + D(x, w).toFixed(2) + '</b>. The best compromise is about <b>' + best.toFixed(1) + ' °C</b> (dashed line), not the purity peak at 36.5 °C, because aggregates climb with temperature. ' +
+          (w > 1 ? 'Weighting purity more pulls the compromise toward the purity peak.' : 'Raise the purity weight and watch the compromise move.');
+      };
+      q(el, 'x').oninput = draw; q(el, 'w').oninput = draw; draw();
+    },
+    steps: ['For each result, pick a goal: maximize, minimize, or hit a target, plus where it fails and where it is fully met.', 'Each result gets its own model and a score d from 0 (fails) to 1 (ideal), a straight line in between.', 'Overall D is the weighted geometric mean of the d scores, so a single failing result makes D zero: no trade can hide a failure.', 'The agent searches the middle 90% of your settings for the highest D, then you confirm it with a few real batches.'],
+    when: 'Two or more results matter at once: purity and yield, strength and weight, speed and defects.',
+    watch: 'Each result model has its own error, so the combined prediction is less certain than any single one. Keep settings inside the range you have run.',
+    where: 'Setup: "Optimize several results together". Results: the "Best compromise" card and every result on the what-if desk.',
+    quiz: { q: 'Purity scores d = 1.0, but aggregates score d = 0. What is D?', options: ['0.5', '0', '1.0'], answer: 1, why: 'D is a geometric mean, so one failing result (d = 0) makes the whole compromise unacceptable, however good the others are.' }
+  });
+
+  add({
     id: 'reading-results', group: 'Using the results', title: 'From charts to actions: reading the action plan',
     analogy: 'A mixing desk: turn one knob while leaving the others alone, and listen. That is what "how each driver moves the result" does with the model.',
     intro: 'The agent turns its model into plain-English actions by asking, for each top driver: if I change only this, holding everything else as it was, what happens to the result? The shape of that curve becomes the action.',

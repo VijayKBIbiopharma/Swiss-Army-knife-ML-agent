@@ -5,6 +5,8 @@ One private, in-browser tool for regression, classification, clustering and desi
 Drop in a CSV and it:
 
 1. **Profiles the data.** It finds numbers, categories, IDs, missing values and correlated inputs.
+   - **Joins two files on a key.** Load a process log, then a QC report, and it suggests the shared key (BatchID = Batch ID, matched ignoring case and spaces), averages replicate rows (lanes, injections), drops replicate counters, and lists IDs found in only one file before you join. Inner or left join, with undo.
+   - **Recognizes column roles.** Analytical results (Purity, Main peak, Titer, Potency, HMW / aggregates, LMW / fragments, impurities), analytical measurements (Retention time, Molecular weight, kDa), record info (Analyst, Lane) and dates are tagged in the profile. The most important result becomes the target, and the other results are set aside as inputs by default so they cannot leak the answer.
 2. **Decides the problem type.** A numeric target means regression, a category means classification, and no target means unsupervised (clustering, PCA, outliers). Data that looks like a designed experiment also gets a full DOE effects analysis.
 3. **Runs every suitable model with cross-validation** and keeps the simplest one within 0.01 of the top score:
    - Regression: linear, ridge, lasso, quadratic (response surface), k-nearest neighbours, decision tree, random forest, gradient boosting, neural network.
@@ -19,12 +21,17 @@ Drop in a CSV and it:
    - "how each driver moves the result" curves and a **peek inside the model** (a readable decision tree trained on your data, real trees from the forest or boosting chain, or the recipe of a linear model);
    - a "How to read this" note with an analogy on every chart, linked to the matching lesson;
    - warnings about small samples, gaps, imbalance and overfitting.
-5. **Six Sigma & process control mode** (a switch in step 2, off by default). Enter optional spec limits (LSL, USL, target) and get Cp, Cpk, Pp, Ppk, Cpm, Z.bench, expected PPM and sigma level, a histogram against the spec, an I-MR control chart with special-cause signals, box plots by factor, Taguchi signal-to-noise by factor level, and a quality-loss index. Pass/fail targets get defect rate, DPMO and sigma level. Designed experiments are flagged, because their spread is deliberate.
-6. **Writes next steps mapped to DMAIC** and pre-fills a **DOE builder** with the drivers it found: full or fractional factorial, Plackett-Burman, central composite or Box-Behnken. It produces a randomized run sheet. Fill in the results, load the sheet back, and the agent analyzes it.
+5. **Optimizes several results together** (optional, step 2). Pick each result's goal (maximize, minimize or hit a target), its acceptable range and an importance weight. The agent models every result, scores each 0 to 1 (Derringer-Suich desirability), and searches the usual operating range for the best compromise (the highest weighted geometric mean, so no single result is allowed to fail). The results show typical versus best-compromise settings, and the what-if desk shows every result and the overall score live.
+6. **Six Sigma & process control mode** (a switch in step 2, off by default). Enter optional spec limits (LSL, USL, target) and get Cp, Cpk, Pp, Ppk, Cpm, Z.bench, expected PPM and sigma level, a histogram against the spec, an I-MR control chart with special-cause signals, box plots by factor, Taguchi signal-to-noise by factor level, and a quality-loss index. Pass/fail targets get defect rate, DPMO and sigma level. Designed experiments are flagged, because their spread is deliberate.
+7. **Writes next steps mapped to DMAIC** and pre-fills a **DOE builder** with the drivers it found: full or fractional factorial, Plackett-Burman, central composite or Box-Behnken. It produces a randomized run sheet. Fill in the results, load the sheet back, and the agent analyzes it.
 
-7. **Teaches the concepts.** `learn.html` (ML Agent Academy) has 26 interactive lessons, each with an analogy, a hands-on visual and a quick check. Examples: grow a decision tree and watch it carve up the data, send a batch through five trees of a random forest and see them vote, step through k-means, drag the boosting rounds, see design shapes (factorial cube, central composite, Box-Behnken), and turn noise up on a Pareto chart.
+8. **Teaches the concepts.** `learn.html` (ML Agent Academy) has 27 interactive lessons, each with an analogy, a hands-on visual and a quick check. Examples: grow a decision tree and watch it carve up the data, send a batch through five trees of a random forest and see them vote, step through k-means, drag the boosting rounds, see design shapes (factorial cube, central composite, Box-Behnken), and turn noise up on a Pareto chart.
 
-Three ways to share results: **Save as PDF** builds an A4 PDF file in the browser (action plan, every chart with its "how to read this" note, the DOE run sheet, the models in plain words and a glossary); **Print** sends a clean, light-themed version to the printer; **Download as web page** saves the same report as a single HTML file.
+Ways to share results, all built in the browser:
+- **Save as PDF**: an A4 report (action plan, what-if scenarios, every chart with its "how to read this" note, the DOE run sheet, the models in plain words, a glossary, and an audit trail).
+- **Download Excel (.xlsx)**: every number behind the report, one sheet per topic (summary, audit trail, columns and roles, models, drivers, action plan, capability, control chart, desirability, DOE effects, what-if scenarios, DOE run sheet, data analyzed). Numbers stay numbers.
+- **Download audit package (.zip)**: the PDF, the workbook, `audit-trail.txt`, the DOE run sheet, a README and `SHA256SUMS.txt`. The audit trail records the tool version, time, each input file's SHA-256 fingerprint, size and shape, the join (keys, unmatched IDs, averaged replicates), the target, settings and spec limits, every column set aside and why, the leakage check, the validation scheme, the models and the selection rule, the seed, the agent's log, the data-handling statement, and signature lines. It is decision support, not a validated GxP system.
+- **Print** (clean, light-themed) and **Download as web page** (.html).
 
 **Live:** https://vjpowerhouse.github.io/Swiss-Army-knife-ML-agent/ · **Academy:** https://vjpowerhouse.github.io/Swiss-Army-knife-ML-agent/learn.html
 
@@ -66,7 +73,9 @@ node --test tests/run-tests.js
 | `engine.js` | CSV parsing, profiling, encoding, models, cross-validation, k-means, PCA |
 | `doe.js` | DOE detection, analysis and design generation |
 | `spc.js` | Six Sigma statistics: capability, I-MR, box plots, Taguchi S/N, DPMO |
-| `agent.js` | Orchestration, model choice, findings and DMAIC next steps |
+| `merge.js` | Joining two files on a key, with replicate averaging |
+| `audit.js` | SHA-256, zip and Excel writers, audit trail and results workbook |
+| `agent.js` | Orchestration, column roles, model choice, desirability, findings and DMAIC next steps |
 | `charts.js` | Dependency-free SVG charts |
 | `app.js` | Page logic, report, delete and privacy self-test |
 | `pdf.js` | Dependency-free PDF writer for "Save as PDF" |
