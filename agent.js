@@ -248,6 +248,12 @@
       if (full.fitted.predictProba) { const pr = full.fitted.predictProba([x])[0]; return { proba: pr, label: data.classes[pr.indexOf(Math.max.apply(null, pr))] }; }
       return { value: full.fitted.predict([x])[0] };
     };
+    // Scores many hand-entered rows in one call (the what-if desk asks for ~100 per move).
+    report.predictMany = list => {
+      const X = list.map(v => full.enc.encodeValues(v));
+      if (full.fitted.predictProba) return full.fitted.predictProba(X).map(pr => ({ proba: pr, label: data.classes[pr.indexOf(Math.max.apply(null, pr))] }));
+      return full.fitted.predict(X).map(v => ({ value: v }));
+    };
   }
 
   async function cluster(prof, features, seed, say) {

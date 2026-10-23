@@ -22,7 +22,8 @@
     if (table.columns.length < 2) return showError('load-error', 'Only one column found. If your file uses another separator, try pasting the cells from Excel instead.');
     state.table = table; state.name = name; state.sampleTarget = sampleTarget || null;
     state.prof = E.profile(table);
-    state.report = null;
+    state.report = state.sim = null;
+    $('sim').innerHTML = ''; $('sim').hidden = true;
     $('results').hidden = true; $('next').hidden = true; $('progress').hidden = true; showError('run-error', '');
     $('delete-top').hidden = false;
     renderSetup();
@@ -203,6 +204,7 @@
     }
     $('tiles').innerHTML = tiles.join('');
     renderPlan(rep);
+    renderSimulator(rep);
     $('insights').innerHTML = rep.insights.map(i => '<li class="' + i.level + '">' + h(i.text) + '</li>').join('');
 
     const blocks = $('result-blocks');
@@ -344,12 +346,8 @@
     } else C.confusion($('fit-chart'), rep.best.metrics.confusion, rep.classes);
 
     const imp = (rep.importance || []).slice(0, 12);
-    append(blocks,
-      card('What drives ' + rep.target, 'How much the best model\'s score drops when each column is scrambled. Bigger = more important.', imp.length ? '<div id="imp-chart"></div>' : '<p>No drivers to show.</p>', 'drivers') +
-      card('What-if simulator', 'Change the top drivers to see what the best model predicts. Other columns stay at their typical value.', '<div class="whatif"><div class="whatif-inputs" id="wi-inputs"></div><div class="whatif-out" id="wi-out" aria-live="polite"></div></div>', 'whatif'),
-      'block-grid');
+    append(blocks, card('What drives ' + rep.target, 'How much the best model\'s score drops when each column is scrambled. Bigger = more important.', imp.length ? '<div id="imp-chart"></div>' : '<p>No drivers to show.</p>', 'drivers'));
     if (imp.length) C.hbar($('imp-chart'), imp.map((v, i) => ({ label: v.name, value: v.share, text: pct(v.share), cls: i < 3 ? 'hi' : '' })), { min: 0, tickFmt: t => pct(t), label: 'Driver importance' });
-    renderWhatIf(rep);
     renderPD(rep, blocks);
     renderPeek(rep, blocks);
   }
@@ -427,34 +425,162 @@
     }
   }
 
-  function renderWhatIf(rep) {
-    const cols = state.prof.columns;
-    const names = (rep.importance && rep.importance.length ? rep.importance.map(v => v.name) : rep.features).slice(0, 6);
-    $('wi-inputs').innerHTML = names.map((n, i) => {
-      const c = cols.find(x => x.name === n);
+  // ---------- What-if mixing desk ----------
+  // One knob per top driver. Each move re-scores the current settings plus a short sweep
+  // along every knob (the curve under it), in a single batch, so it feels instant.
+  function simDrivers(rep) {
+    const imp = rep.importance && rep.importance.length ? rep.importance.filter(v => v.share >= 0.02).map(v => v.name) : rep.features;
+    return imp.slice(0, 8).map(n => state.prof.columns.find(c => c.name === n)).filter(Boolean).map(c => {
       if (c.kind === 'numeric') {
-        const step = (c.stats.max - c.stats.min) / 100 || 1;
-        return '<label>' + h(n) + ' <span class="val" id="wi-v' + i + '">' + fmt(c.stats.median) + '</span><input type="range" data-wi="' + i + '" min="' + c.stats.min + '" max="' + c.stats.max + '" step="' + step + '" value="' + c.stats.median + '"></label>';
+        const sorted = c.values.filter(v => v !== null).sort((a, b) => a - b);
+        const span = c.stats.max - c.stats.min || 1, step = Number((span / 200).toPrecision(2));
+        return { name: c.name, kind: 'numeric', min: c.stats.min, max: c.stats.max, lo: E.quantile(sorted, 0.05), hi: E.quantile(sorted, 0.95), typical: c.stats.median, step,
+          grid: E.range(15).map(i => c.stats.min + span * i / 14) };
       }
-      return '<label>' + h(n) + '<select data-wi="' + i + '">' + c.levels.slice(0, 30).map(l => '<option>' + h(l) + '</option>').join('') + '</select></label>';
-    }).join('');
-    const update = () => {
-      if (!state.report) return;
-      const vals = {};
-      names.forEach((n, i) => {
-        const el = document.querySelector('[data-wi="' + i + '"]'); const c = cols.find(x => x.name === n);
-        if (c.kind === 'numeric') { vals[n] = Number(el.value); $('wi-v' + i).textContent = fmt(Number(el.value)); } else vals[n] = el.value;
-      });
-      const out = rep.predict(vals);
-      if (out.proba) {
-        $('wi-out').innerHTML = '<div class="lbl">Most likely</div><div class="big">' + h(out.label) + '</div><div class="proba">' +
-          A.classOrder(rep.classes).map(k => [rep.classes[k], k]).map(([c, k]) => '<div' + ((rep.favorableSet || [rep.favorable]).includes(k) ? ' class="tgt"' : '') + '><span>' + h(c) + '</span><progress max="1" value="' + out.proba[k] + '"></progress><span>' + pct(out.proba[k]) + '</span></div>').join('') + '</div>';
-      } else {
-        $('wi-out').innerHTML = '<div class="lbl">Predicted ' + h(rep.target) + '</div><div class="big">' + fmt(out.value) + '</div><div class="hint">Typical error ±' + fmt(rep.best.metrics.rmse) + '</div>';
-      }
+      return { name: c.name, kind: 'categorical', levels: c.levels.slice(0, 12), typical: c.levels[0], grid: c.levels.slice(0, 12) };
+    });
+  }
+  const simScore = (rep, out) => (out.proba ? (rep.favorableSet || [rep.favorable]).reduce((a, k) => a + out.proba[k], 0) : out.value);
+  const simFmt = (rep, v) => (rep.task === 'classification' ? pct(v) : fmt(v));
+
+  function knobHtml(d, i, v) {
+    const head = '<div class="knob-head"><label for="knob-' + i + '">' + h(d.name) + '</label><output id="knob-out-' + i + '">' + h(d.kind === 'numeric' ? fmt(v) : v) + '</output></div>';
+    let ctl;
+    if (d.kind === 'numeric') {
+      ctl = '<input type="range" id="knob-' + i + '" data-knob="' + i + '" min="' + d.min + '" max="' + d.max + '" step="' + d.step + '" value="' + v + '">' +
+        '<div class="knob-scale"><span>' + fmt(d.min) + '</span><span>typical ' + fmt(d.typical) + '</span><span>' + fmt(d.max) + '</span></div>';
+    } else if (d.levels.length <= 5) {
+      ctl = '<div class="seg" role="group" aria-label="' + h(d.name) + '">' + d.levels.map(l => '<button type="button" data-knob="' + i + '" data-level="' + h(l) + '" aria-pressed="' + (l === v) + '">' + h(l) + '</button>').join('') + '</div>';
+    } else {
+      ctl = '<select id="knob-' + i + '" data-knob="' + i + '">' + d.levels.map(l => '<option' + (l === v ? ' selected' : '') + '>' + h(l) + '</option>').join('') + '</select>';
+    }
+    return '<div class="knob">' + head + ctl + '<div class="knob-curve" id="knob-curve-' + i + '" aria-hidden="true"></div></div>';
+  }
+
+  function renderSimulator(rep) {
+    const el = $('sim');
+    const drivers = rep.predictMany && rep.task !== 'clustering' ? simDrivers(rep) : [];
+    if (!drivers.length) { el.hidden = true; el.innerHTML = ''; return; }
+    let sim = state.sim;
+    if (!sim || sim.rep !== rep) sim = state.sim = { rep, values: {}, pinned: [], shown: null };
+    sim.drivers = drivers;
+    drivers.forEach(d => { if (sim.values[d.name] === undefined) sim.values[d.name] = d.typical; });
+    sim.typical = {}; drivers.forEach(d => { sim.typical[d.name] = d.typical; });
+    const cls = rep.task === 'classification';
+    const what = cls ? 'Chance of ' + rep.target + ' = ' + A.classLabel(rep) : 'Predicted ' + rep.target;
+    const plan = rep.actionPlan && rep.actionPlan.settings && rep.actionPlan.settings.length;
+    el.hidden = false;
+    el.innerHTML = '<h3>What-if mixing desk</h3><p class="sub-head">Move a knob and the prediction updates instantly. The curve under each knob shows how ' + h(rep.target) + ' responds to it, given where the other knobs sit right now (same scale on every curve, so a flat curve is a knob that barely matters). Columns without a knob stay at their typical value.</p>' +
+      '<div class="sim-layout"><div class="sim-readout" aria-live="polite"><div class="lbl">' + h(what) + '</div><div class="sim-big" id="sim-big">–</div><div class="sim-delta" id="sim-delta"></div><div id="sim-extra"></div></div>' +
+      '<div class="sim-knobs">' + drivers.map((d, i) => knobHtml(d, i, sim.values[d.name])).join('') + '</div></div>' +
+      '<p class="sim-warn" id="sim-warn" hidden></p>' +
+      '<div class="row-actions sim-actions">' + (plan ? '<button class="btn" type="button" id="sim-plan">Apply the action plan</button>' : '') +
+      '<button class="btn ghost" type="button" id="sim-reset">Reset to typical</button><button class="btn primary" type="button" id="sim-pin">Pin this scenario</button></div>' +
+      '<div id="sim-pins"></div>' + howTo('whatif');
+    const setKnob = (i, raw) => {
+      const d = drivers[i];
+      sim.values[d.name] = d.kind === 'numeric' ? Number(raw) : raw;
+      scheduleSim();
     };
-    $('wi-inputs').oninput = update;
-    update();
+    el.oninput = e => { const i = e.target.getAttribute('data-knob'); if (i !== null && e.target.tagName !== 'BUTTON') setKnob(Number(i), e.target.value); };
+    el.onclick = e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.hasAttribute('data-level')) { setKnob(Number(b.getAttribute('data-knob')), b.getAttribute('data-level')); syncKnobs(); return; }
+      if (b.id === 'sim-reset') { Object.assign(sim.values, sim.typical); syncKnobs(); scheduleSim(); }
+      if (b.id === 'sim-plan') {
+        rep.actionPlan.settings.forEach(st => { const d = drivers.find(x => x.name === st.name); if (d) sim.values[d.name] = d.kind === 'numeric' ? Math.min(d.max, Math.max(d.min, Number(String(st.value).replace(/,/g, '')))) : st.value; });
+        syncKnobs(); scheduleSim();
+      }
+      if (b.id === 'sim-pin') { sim.pinned.push({ values: Object.assign({}, sim.values) }); renderPins(); }
+      if (b.hasAttribute('data-unpin')) { sim.pinned.splice(Number(b.getAttribute('data-unpin')), 1); renderPins(); }
+    };
+    sim.shown = null;
+    updateSim();
+    renderPins();
+  }
+  function syncKnobs() {
+    const sim = state.sim;
+    sim.drivers.forEach((d, i) => {
+      const v = sim.values[d.name];
+      if (d.kind === 'numeric' || d.levels.length > 5) $('knob-' + i).value = v;
+      else document.querySelectorAll('[data-knob="' + i + '"][data-level]').forEach(b => b.setAttribute('aria-pressed', String(b.getAttribute('data-level') === v)));
+    });
+  }
+  let simFrame = 0;
+  function scheduleSim() { if (!simFrame) simFrame = requestAnimationFrame(() => { simFrame = 0; updateSim(); }); }
+
+  function updateSim() {
+    const sim = state.sim; if (!sim || !state.report) return;
+    const rep = sim.rep, ds = sim.drivers, cur = sim.values;
+    // One batch: typical settings, current settings, then a sweep along each knob.
+    const batch = [Object.assign({}, sim.typical), Object.assign({}, cur)];
+    ds.forEach(d => d.grid.forEach(g => batch.push(Object.assign({}, cur, { [d.name]: g }))));
+    const outs = rep.predictMany(batch), sc = outs.map(o => simScore(rep, o));
+    const base = sc[0], now = sc[1], nowOut = outs[1];
+    let k = 2;
+    const curves = ds.map(d => { const ys = sc.slice(k, k + d.grid.length); k += d.grid.length; return ys; });
+    const all = curves.flat().concat([now]), lo = Math.min(...all), hi = Math.max(...all);
+    ds.forEach((d, i) => {
+      $('knob-out-' + i).textContent = d.kind === 'numeric' ? fmt(cur[d.name]) : cur[d.name];
+      $('knob-curve-' + i).innerHTML = knobCurve(rep, d, curves[i], cur[d.name], now, lo, hi);
+    });
+    animateNumber($('sim-big'), sim.shown === null ? now : sim.shown, now, v => simFmt(rep, v));
+    sim.shown = now;
+    const diff = now - base, cls = rep.task === 'classification';
+    const better = cls || rep.goal !== 'min' ? diff > 0 : diff < 0;
+    const tiny = cls ? Math.abs(diff) < 0.005 : Math.abs(diff) < 1e-9 + 0.01 * (rep.targetSD || 1);
+    $('sim-delta').className = 'sim-delta ' + (tiny ? '' : better ? 'up' : 'down');
+    $('sim-delta').textContent = tiny ? 'Same as typical settings' : (diff > 0 ? '▲ +' : '▼ −') + (cls ? Math.abs(Math.round(diff * 100)) + ' points' : fmt(Math.abs(diff))) + ' vs typical settings (' + simFmt(rep, base) + ')';
+    let extra = '';
+    if (cls) {
+      extra = '<div class="proba">' + A.classOrder(rep.classes).map(c => '<div' + ((rep.favorableSet || [rep.favorable]).includes(c) ? ' class="tgt"' : '') + '><span>' + h(rep.classes[c]) + '</span><progress max="1" value="' + nowOut.proba[c] + '"></progress><span>' + pct(nowOut.proba[c]) + '</span></div>').join('') + '</div><p class="hint">Most likely: <b>' + h(nowOut.label) + '</b></p>';
+    } else {
+      extra = '<p class="hint">Typical error ±' + fmt(rep.best.metrics.rmse) + '</p>';
+      const c = rep.spc && rep.spc.capability;
+      if (c) {
+        const out = c.lsl !== null && now < c.lsl ? 'below LSL ' + fmt(c.lsl) : c.usl !== null && now > c.usl ? 'above USL ' + fmt(c.usl) : null;
+        extra += '<span class="verdict ' + (out ? 'not' : 'capable') + '">' + (out ? h(out) : 'inside spec') + '</span>';
+      }
+    }
+    $('sim-extra').innerHTML = extra;
+    const outside = ds.filter(d => d.kind === 'numeric' && (cur[d.name] < d.lo || cur[d.name] > d.hi)).map(d => d.name);
+    $('sim-warn').hidden = !outside.length;
+    $('sim-warn').textContent = outside.length ? '⚠ ' + outside.join(', ') + (outside.length > 1 ? ' are' : ' is') + ' outside the range where 90% of your data sits. Predictions there are less reliable: confirm with a trial before acting.' : '';
+  }
+
+  // The small response curve under a knob: shaded usual range, current position marked.
+  function knobCurve(rep, d, ys, v, now, lo, hi) {
+    const W = 260, H = 46, pad = 3, span = hi - lo || 1;
+    const sy = y => H - pad - (y - lo) / span * (H - 2 * pad);
+    if (d.kind === 'numeric') {
+      const sx = x => pad + (x - d.min) / (d.max - d.min || 1) * (W - 2 * pad);
+      const path = d.grid.map((g, i) => (i ? 'L' : 'M') + sx(g).toFixed(1) + ' ' + sy(ys[i]).toFixed(1)).join('');
+      return '<svg class="chart knob-svg" viewBox="0 0 ' + W + ' ' + H + '"><rect class="usual" x="' + sx(d.lo) + '" y="0" width="' + (sx(d.hi) - sx(d.lo)) + '" height="' + H + '"/><path class="line" d="' + path + '"/><circle class="query" cx="' + sx(v) + '" cy="' + sy(now) + '" r="4.5"/></svg>';
+    }
+    // Categories: one bar per level, labelled underneath, current level highlighted.
+    const n = d.grid.length, bw = (W - 2 * pad) / n, LH = 14;
+    return '<svg class="chart knob-svg" viewBox="0 0 ' + W + ' ' + (H + LH) + '">' + d.grid.map((g, i) => '<rect class="bar' + (g === v ? ' accent' : '') + '" x="' + (pad + i * bw + 1) + '" y="' + sy(ys[i]) + '" width="' + Math.max(2, bw - 2) + '" height="' + Math.max(1.5, H - pad - sy(ys[i])) + '" rx="2"><title>' + h(g) + ': ' + h(simFmt(rep, ys[i])) + '</title></rect>' +
+      '<text x="' + (pad + i * bw + bw / 2) + '" y="' + (H + LH - 3) + '" text-anchor="middle"' + (g === v ? ' class="lbl-strong"' : '') + '>' + h(String(g).length > 10 ? String(g).slice(0, 9) + '…' : g) + '</text>').join('') + '</svg>';
+  }
+
+  function animateNumber(el, from, to, show) {
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce || from === to) { el.textContent = show(to); return; }
+    const t0 = performance.now(), dur = 220;
+    const step = t => { const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3); el.textContent = show(from + (to - from) * e); if (k < 1 && el.isConnected) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  }
+
+  function renderPins() {
+    const sim = state.sim; if (!sim) return;
+    const rep = sim.rep, ds = sim.drivers;
+    if (!sim.pinned.length) { $('sim-pins').innerHTML = ''; return; }
+    const rows = [{ name: 'Typical settings', values: sim.typical }].concat(sim.pinned.map((p, i) => ({ name: 'Scenario ' + (i + 1), values: p.values, i })));
+    const scores = rep.predictMany(rows.map(r => Object.assign({}, r.values))).map(o => simScore(rep, o));
+    sim.pinRows = rows.map((r, j) => ({ name: r.name, values: r.values, score: scores[j] }));
+    $('sim-pins').innerHTML = '<h4>Pinned scenarios</h4><div class="table-scroll"><table class="pins"><thead><tr><th>Scenario</th>' + ds.map(d => '<th class="num-cell">' + h(d.name) + '</th>').join('') + '<th class="num-cell">' + h(rep.task === 'classification' ? 'Chance of ' + A.classLabel(rep) : 'Predicted ' + rep.target) + '</th><th></th></tr></thead><tbody>' +
+      rows.map((r, j) => '<tr' + (j ? '' : ' class="dim"') + '><td>' + h(r.name) + '</td>' + ds.map(d => { const v = r.values[d.name]; const changed = j && v !== sim.typical[d.name]; return '<td class="num-cell">' + (changed ? '<b>' : '') + h(d.kind === 'numeric' ? fmt(v) : v) + (changed ? '</b>' : '') + '</td>'; }).join('') +
+        '<td class="num-cell"><b>' + h(simFmt(rep, scores[j])) + '</b></td><td>' + (j ? '<button type="button" class="icon-btn" data-unpin="' + r.i + '" aria-label="Remove ' + h(r.name) + '">✕</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>';
   }
 
   function tCritical(df) {
@@ -703,6 +829,16 @@
         if (plan.combined) P.p('All together: ' + plan.combined);
         P.muted(plan.caveat);
       }
+      const sim = state.sim;
+      if (sim && sim.drivers && sim.drivers.length) {
+        renderPins();
+        const rows = sim.pinRows || [];
+        P.h2('What-if scenarios');
+        P.muted('From the what-if mixing desk. Columns not listed stay at their typical value. ' + (rep.task === 'classification' ? 'Values are the chance of ' + rep.target + ' = ' + A.classLabel(rep) + '.' : 'Values are the predicted ' + rep.target + ' (typical error ±' + fmt(rep.best.metrics.rmse) + ').'));
+        const cur = rep.predictMany([Object.assign({}, sim.values)]).map(o => simScore(rep, o))[0];
+        const all = (rows.length ? rows : [{ name: 'Typical settings', values: sim.typical, score: rep.predictMany([Object.assign({}, sim.typical)]).map(o => simScore(rep, o))[0] }]).concat([{ name: 'Current desk settings', values: sim.values, score: cur }]);
+        P.table([['Scenario'].concat(sim.drivers.map(d => d.name)).concat(['Prediction'])].concat(all.map(r => [r.name].concat(sim.drivers.map(d => (d.kind === 'numeric' ? fmt(r.values[d.name]) : String(r.values[d.name])))).concat([simFmt(rep, r.score)]))));
+      }
       P.h2('What the agent found');
       rep.insights.forEach(i => P.p(i.text, { bullet: i.level === 'warn' ? '!' : '·', gap: 3 }));
 
@@ -799,7 +935,8 @@
   function deleteData(reason) {
     const had = !!state.table;
     clearTimeout(idleTimer);
-    state.table = state.prof = state.report = null; state.name = ''; state.sampleTarget = null;
+    state.table = state.prof = state.report = state.sim = null; state.name = ''; state.sampleTarget = null;
+    $('sim').innerHTML = ''; $('sim').hidden = true;
     $('paste').value = ''; $('file').value = '';
     ['setup', 'results', 'next', 'progress'].forEach(id => { $(id).hidden = true; });
     ['result-blocks', 'insights', 'tiles', 'agent-log', 'plan', 'profile', 'preview', 'target', 'goal', 'next-steps', 'self-test-out'].forEach(id => { $(id).innerHTML = ''; });

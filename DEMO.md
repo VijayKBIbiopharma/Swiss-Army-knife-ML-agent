@@ -18,6 +18,8 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Read the **Action plan** aloud: raise cement, lower water, raise slag, and a sweet spot for age.
 - Talking point: *"The agent doesn't know concrete. It found that more cement and less water make stronger concrete, which any civil engineer would confirm. It also flags `age` as a lever, but age is test age, not something you set. That is why the subject-matter expert stays in the loop."*
 - Open **Peek inside the model** to show the readable decision tree.
+- Scroll to the **What-if mixing desk** just below the action plan. Drag **cement** up and **water** down: the strength readout climbs live. Press **Apply the action plan**, then **Pin this scenario**, then **Reset to typical** and pin again, to show a side-by-side comparison.
+- Talking point: *"This is a lightweight digital twin: try settings here before touching the real process. The yellow warning tells you when you've moved outside what the data has seen."*
 
 ## 3. Designed experiments: built-in 2⁴ factorial (2 minutes)
 - Click the practice dataset **2⁴ factorial DOE + center points**, run.
