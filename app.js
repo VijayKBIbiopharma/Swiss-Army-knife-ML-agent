@@ -124,7 +124,16 @@
     const r = X.READ[key];
     return '<details class="howto"><summary>How to read this</summary><p>' + h(r[0]) + (extra ? ' ' + h(extra) : '') + '</p><p class="analogy">' + h(r[1]) + '</p><p>' + learnLink(r[2]) + '</p></details>';
   }
-  function tile(label, val, sub, hero) { return '<div class="tile' + (hero ? ' hero-tile' : '') + '"><div class="lbl">' + h(label) + '</div><div class="val">' + h(val) + '</div><div class="sub">' + h(sub || '') + '</div></div>'; }
+  function tile(label, val, sub, hero, badge) { return '<div class="tile' + (hero ? ' hero-tile' : '') + '"><div class="lbl">' + h(label) + '</div><div class="val">' + h(val) + '</div><div class="sub">' + h(sub || '') + '</div>' + (badge || '') + '</div>'; }
+  // Under 30 rows, one or two unusual rows can swing a cross-validated score by a lot.
+  const SMALL_N = 30;
+  function smallSampleBadge(rep) {
+    const n = rep.nUsed || 0;
+    if (!n || n >= SMALL_N) return '';
+    const tip = 'Only ' + n + ' rows were scored. With fewer than ' + SMALL_N + ', the score can move a lot if a few rows change, so read it as a rough guide, not a precise number.' +
+      (rep.doe ? ' The DOE effects analysis is built for small run counts and is the better guide here.' : ' More rows, or a designed experiment, will firm it up.');
+    return '<span class="risk-badge" tabindex="0" data-tip="' + h(tip) + '" aria-label="' + h(tip) + '">⚠ Small sample size: high variance risk</span>';
+  }
   function card(title, sub, inner, readKey, extra) { return '<div class="card"><h3>' + h(title) + '</h3>' + (sub ? '<p class="sub-head">' + sub + '</p>' : '') + inner + (readKey ? howTo(readKey, extra) : '') + '</div>'; }
   function append(parent, html, cls) {
     const d = document.createElement('div');
@@ -145,8 +154,8 @@
       const b = rep.best, reg = rep.task === 'regression';
       tiles.push(tile('Problem type', reg ? 'Regression' : 'Classification', reg ? 'Predicting the number ' + rep.target : 'Predicting the category ' + rep.target));
       tiles.push(tile('Best model', b.name, X.MODEL_ANALOGY[b.id] || rep.bestReason, true));
-      tiles.push(reg ? tile('Variation explained', pct(Math.max(0, b.metrics.r2)), 'R² on unseen rows · error ±' + fmt(b.metrics.rmse))
-        : tile('Accuracy', pct(b.metrics.accuracy), 'on unseen rows · balanced ' + pct(b.metrics.balancedAccuracy)));
+      tiles.push(reg ? tile('Variation explained', pct(Math.max(0, b.metrics.r2)), 'R² on unseen rows · error ±' + fmt(b.metrics.rmse), false, smallSampleBadge(rep))
+        : tile('Accuracy', pct(b.metrics.accuracy), 'on unseen rows · balanced ' + pct(b.metrics.balancedAccuracy), false, smallSampleBadge(rep)));
       tiles.push(rep.doe ? tile('Designed experiment', rep.doe.k + ' factors', rep.doe.n + ' runs, effects analysis below')
         : tile('Rows used', (rep.nUsed || 0).toLocaleString(), (rep.folds === rep.nUsed ? 'leave-one-out' : rep.folds + '-fold') + ' cross-validation' + (rep.sampled ? ', sampled' : '')));
     }
@@ -549,7 +558,11 @@
       P.h1('ML Agent report');
       P.muted(state.name + ' · ' + rep.profile.nRows.toLocaleString() + ' rows × ' + rep.profile.nCols + ' columns · ' + (rep.target ? 'target: ' + rep.target : 'no target (unsupervised)') + ' · ' + new Date().toLocaleString());
       P.space(4);
-      document.querySelectorAll('#tiles .tile').forEach(t => P.p(t.querySelector('.lbl').textContent + ': ' + t.querySelector('.val').textContent, { bold: true, size: 10.5, gap: 0 }).muted(t.querySelector('.sub').textContent, { gap: 4 }));
+      document.querySelectorAll('#tiles .tile').forEach(t => {
+        const badge = t.querySelector('.risk-badge');
+        P.p(t.querySelector('.lbl').textContent + ': ' + t.querySelector('.val').textContent, { bold: true, size: 10.5, gap: 0 }).muted(t.querySelector('.sub').textContent, { gap: badge ? 1 : 4 });
+        if (badge) P.p('! Small sample size, high variance risk. ' + badge.getAttribute('data-tip'), { size: 8.5, bold: true, color: [154, 90, 0], gap: 4 });
+      });
 
       const plan = rep.actionPlan;
       if (plan && plan.items.length) {

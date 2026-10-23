@@ -150,6 +150,8 @@ progress { flex: 1; height: 10px; accent-color: var(--steel); }
 .tile .val { font-size: 1.5rem; font-weight: 750; line-height: 1.2; margin: 4px 0 2px; overflow-wrap: anywhere; }
 .tile .sub { font-size: .85rem; color: var(--muted); }
 .tile.hero-tile { border-top: 4px solid var(--accent); }
+.risk-badge { display: inline-block; margin-top: 8px; font-size: .74rem; font-weight: 700; line-height: 1.3; color: var(--warn); background: var(--warn-bg); border: 1px solid var(--warn); border-radius: 999px; padding: 2px 9px; cursor: help; }
+.risk-badge:focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; }
 .insights { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .insights li { padding: 8px 12px 8px 36px; border-radius: 8px; position: relative; background: var(--info-bg); }
 .insights li::before { position: absolute; left: 12px; top: 8px; font-weight: 800; width: 16px; text-align: center; }

@@ -156,10 +156,13 @@
       if (y + h > window.innerHeight - 8) y = e.clientY - h - pad;
       tip.style.left = Math.max(4, x) + 'px'; tip.style.top = Math.max(4, y) + 'px';
     };
-    document.addEventListener('pointermove', e => {
+    // pointerdown as well as pointermove, so a tap shows the tip on touch screens.
+    const onPointer = e => {
       const t = e.target.closest && e.target.closest('[data-tip]');
       if (t && t.getAttribute('data-tip')) show(e, t.getAttribute('data-tip')); else tip.hidden = true;
-    });
+    };
+    document.addEventListener('pointermove', onPointer);
+    document.addEventListener('pointerdown', onPointer);
     document.addEventListener('scroll', () => { tip.hidden = true; }, { passive: true });
   }
 
