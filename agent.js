@@ -5,6 +5,7 @@
   'use strict';
   const E = root.MLEngine || require('./engine.js');
   const D = root.MLDoe || require('./doe.js');
+  const S = root.MLSpc || require('./spc.js');
   const { range, mean, rng, shuffle, pearson } = E;
 
   const MAX_ROWS = 3000;
@@ -87,6 +88,10 @@
       if (report.task === 'classification' && targetCol.unique > 20) throw new Error('"' + targetCol.name + '" has ' + targetCol.unique + ' categories. Pick a target with 20 or fewer, or treat it as a number.');
       await supervised(report, prof, targetCol, features, seed, say, progress);
     }
+    if (options.sixSigma && targetCol) {
+      report.spc = sixSigma(report, prof, targetCol, features, options.sixSigma);
+      say('Six Sigma mode: ' + (report.spc.capability ? 'capability against your spec limits, ' : report.spc.attribute ? 'defect rate and sigma level, ' : '') + (report.spc.imr ? 'an I-MR control chart, ' : '') + (report.spc.boxes ? 'box plots' : '') + (report.spc.taguchi ? ' and Taguchi signal-to-noise' : '') + '.', 'result');
+    }
     report.actionPlan = actionPlan(report);
     report.insights = insights(report, prof, targetCol, features);
     report.nextSteps = nextSteps(report, prof, targetCol, features);
@@ -153,6 +158,7 @@
       const det = D.detect(prof, features, targetCol);
       if (det.isDOE) {
         report.doe = D.analyze(det, targetCol);
+        report.doeDet = det;
         const lv = det.factors.map(f => f.levels.length);
         say('This looks like a designed experiment: ' + det.factors.length + ' factors at ' + Array.from(new Set(lv)).join('/') + ' levels in ' + det.rows.length + ' runs, with factors that do not move together. Ran a DOE effects analysis.');
       } else report.doeCheck = det.reason;
@@ -300,9 +306,83 @@
   }
 
   // ---------- Plain-language findings ----------
+  // ---------- Six Sigma mode ----------
+  function levelCols(features, maxLevels) {
+    return features.filter(c => (c.kind === 'categorical' && c.unique >= 2 && c.unique <= maxLevels) || (c.kind === 'numeric' && c.unique >= 2 && c.unique <= 5));
+  }
+  function sixSigma(rep, prof, targetCol, features, o) {
+    const out = { spec: { lsl: o.lsl, usl: o.usl, target: o.target }, timeOrdered: o.timeOrdered !== false };
+    if (rep.task === 'regression') {
+      const rows = range(prof.nRows).filter(r => targetCol.values[r] !== null);
+      const y = rows.map(r => targetCol.values[r]);
+      const hasSpec = [o.lsl, o.usl].some(v => v !== null && v !== undefined && v !== '');
+      const cap = S.capability(y, out.spec, out.timeOrdered);
+      out.stats = cap;
+      if (hasSpec) out.capability = cap;
+      // A designed experiment varies factors on purpose, so its spread is not process variation.
+      out.designed = !!rep.doeDet;
+      if (out.timeOrdered && y.length >= 8 && !out.designed) {
+        const keep = Math.max(0, y.length - 500);
+        out.imr = S.imr(y.slice(keep));
+        out.imr.rowNums = rows.slice(keep).map(r => r + 2);
+        out.imr.trimmed = keep;
+      }
+      // Box plots by the most important columns that have a handful of levels.
+      const order = (rep.importance && rep.importance.length ? rep.importance.map(v => v.name) : features.map(c => c.name));
+      const byImp = order.map(n => features.find(c => c.name === n)).filter(Boolean);
+      const groupCols = levelCols(byImp, 8).slice(0, 3);
+      out.boxes = {
+        overall: S.box(y),
+        by: groupCols.map(c => {
+          const lv = Array.from(new Set(rows.map(r => c.values[r]).filter(v => v !== null))).sort((a, b) => (typeof a === 'number' ? a - b : String(a) < String(b) ? -1 : 1));
+          return { name: c.name, groups: lv.map(l => ({ label: String(typeof l === 'number' ? fmt(l) : l), stats: S.box(rows.filter(r => c.values[r] === l).map(r => targetCol.values[r])) })) };
+        })
+      };
+      // Taguchi: designed-experiment factors if this is a DOE, else columns with a few levels.
+      const type = out.spec.target !== null && out.spec.target !== undefined && out.spec.target !== '' ? 'nominal' : rep.goal === 'min' ? 'smaller' : 'larger';
+      const facCols = rep.doeDet ? rep.doeDet.factors.map(f => f.col) : levelCols(byImp, 6).slice(0, 8);
+      if (facCols.length) {
+        const t = S.taguchi(y, facCols.map(c => ({ name: c.name, values: rows.map(r => c.values[r]) })), type);
+        if (t.length) out.taguchi = { type, factors: t };
+      }
+    } else if (rep.task === 'classification') {
+      const good = rep.actual.filter(k => (rep.favorableSet || [rep.favorable]).includes(k)).length;
+      out.attribute = S.attribute(good, rep.actual.length);
+      out.goodLabel = classLabel(rep);
+    }
+    return out;
+  }
+  function spcInsights(rep, add) {
+    const s = rep.spc;
+    if (!s) return;
+    const c = s.capability;
+    if (c && s.designed) add('warn', 'This is a designed experiment: its spread comes from changing the factors on purpose, so the capability numbers below describe the experiment, not your everyday process. Run Six Sigma mode on normal production data for true capability.');
+    if (c) {
+      const idx = c.Cpk !== null ? 'Cpk = ' + c.Cpk.toFixed(2) : 'Ppk = ' + (c.Ppk !== null ? c.Ppk.toFixed(2) : '–');
+      add(c.verdict === 'capable' || c.verdict === 'excellent' ? 'good' : 'warn', 'Process capability: ' + idx + ' (' + c.verdict + '). Expected ' + fmt(c.ppm, 0) + ' parts per million out of spec (Z.bench ' + c.zBench.toFixed(2) + ', about ' + c.sigmaLevel.toFixed(1) + ' sigma). Observed: ' + c.observedOut + ' of ' + c.n + ' rows out of spec.');
+      if (c.centeredCpk !== null && c.Cpk !== null && c.centeredCpk - c.Cpk > 0.2) add('info', 'The process is off center: the mean is ' + fmt(c.mean) + ' but the middle of the spec is ' + fmt((c.lsl + c.usl) / 2) + '. Centering it would lift Cpk from ' + c.Cpk.toFixed(2) + ' to ' + c.centeredCpk.toFixed(2) + ' without reducing variation.');
+      if (c.centeredCpk !== null && c.centeredCpk < 1.33) add('warn', 'Even perfectly centered, the spread is too wide for Cpk 1.33: the standard deviation needs to come down from ' + fmt(c.sdWithin || c.sdOverall) + ' to about ' + fmt(c.sigmaFor133) + '.');
+      if (Math.abs(c.skew) > 1) add('info', 'The data is skewed (skewness ' + c.skew.toFixed(1) + '). Capability numbers assume a bell-shaped spread, so treat them as approximate.');
+      if (c.loss !== null) add('info', 'Taguchi quality loss: the average unit carries ' + pct(c.loss) + ' of the loss of a unit sitting right at the spec limit. Every step away from the target costs something, even inside spec.');
+    } else if (s.stats) add('info', 'Six Sigma mode: no spec limits were given, so Cp and Cpk are skipped. The control chart, box plots and robustness analysis still apply.');
+    if (s.imr) {
+      const n = s.imr.signals.length;
+      add(n ? 'warn' : 'good', n ? 'Control chart: ' + n + ' signal' + (n > 1 ? 's' : '') + ' of special-cause variation (first at row ' + s.imr.rowNums[s.imr.signals[0].i] + ': ' + s.imr.signals[0].why.join(', ') + '). The process is not yet stable, and capability assumes stability.' : 'Control chart: no special-cause signals. The process looks stable over this period.');
+    }
+    if (s.taguchi && s.taguchi.factors.length) {
+      const t = s.taguchi.factors[0], kind = { larger: 'larger is better', smaller: 'smaller is better', nominal: 'on target is best' }[s.taguchi.type];
+      add('info', 'Robustness (Taguchi signal-to-noise, ' + kind + '): ' + t.name + ' matters most for consistency; its most robust level is ' + (typeof t.best.level === 'number' ? fmt(t.best.level) : t.best.level) + '.');
+    }
+    if (s.attribute) {
+      const a = s.attribute;
+      add(a.sigmaLevel >= 4 ? 'good' : 'warn', 'Quality level: ' + pct(a.p) + ' of rows are not ' + s.goodLabel + ' (' + fmt(a.dpmo, 0) + ' defects per million opportunities). That is a sigma level of about ' + a.sigmaLevel.toFixed(1) + ' (yield ' + pct(a.yield) + '). Six Sigma is 3.4 per million.');
+    }
+  }
+
   function insights(rep, prof, targetCol, features) {
     const out = [];
     const add = (level, text) => out.push({ level, text });
+    spcInsights(rep, add);
     const n = rep.nUsed || prof.nRows;
     if (n < 30) add('warn', 'Only ' + n + ' rows. Treat results as directional; small samples can mislead. A planned experiment gets more from few runs than historical data does.');
     else if (features.length && n < 10 * features.length) add('warn', n + ' rows for ' + features.length + ' inputs. Rule of thumb is 10+ rows per input; more data would firm up the results.');
@@ -405,6 +485,16 @@
       if (rep.clustering.outliers.length) add('Measure', 'Investigate the unusual rows', 'Check the flagged rows for typos, unit mix-ups or special-cause events before you act on the groups.');
       add('Improve', 'Act on the groups', 'Use the groups to stratify: different targets, standard work or service levels per group. In a DOE, use the group as a blocking factor.');
       add('Define', 'Pick an outcome to predict', 'If you have a result column (yield, defects, revenue, churn), choose it as the target and rerun. The agent will then find the drivers and design an experiment.');
+    }
+    if (rep.spc) {
+      add('Measure', 'Check the measurement system first', 'Before trusting capability, confirm the gauge can see the difference: run a quick Gage R&R. If measurement noise is a big share of the spread, fix that first.');
+      const c = rep.spc.capability;
+      if (c && c.Cpk !== null && c.Cpk < 1.33) {
+        const offCenter = c.centeredCpk !== null && c.centeredCpk - c.Cpk > 0.2;
+        add('Improve', offCenter ? 'Center the process, then reduce variation' : 'Reduce variation', (offCenter ? 'Move the mean from ' + fmt(c.mean) + ' toward ' + fmt((c.lsl + c.usl) / 2) + ' (Cpk ' + c.Cpk.toFixed(2) + ' → ' + c.centeredCpk.toFixed(2) + '). ' : '') + (c.centeredCpk !== null && c.centeredCpk < 1.33 ? 'To reach Cpk 1.33 the standard deviation must drop to about ' + fmt(c.sigmaFor133) + '. Use the drivers and the DOE to find what creates the spread.' : 'Then hold it there with the control chart.'));
+      }
+      if (rep.spc.imr && rep.spc.imr.signals.length) add('Analyze', 'Investigate the control-chart signals', 'Find out what happened at the flagged rows (shift change, new lot, maintenance). Remove special causes before judging capability.');
+      if (rep.spc.taguchi) add('Improve', 'Set factors for robustness', 'Use the most robust levels in the Taguchi table for factors that do not affect the average much. They cut variation for free.');
     }
     add('Control', 'Sustain the gain', 'Once a change is proven, update the standard work and put a control chart (I-MR or X-bar R) on ' + (rep.target || 'the key metric') + ' and its top driver, so drift is caught early.');
     const order = { Define: 0, Measure: 1, Analyze: 2, Improve: 3, Control: 4 };

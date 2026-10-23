@@ -224,5 +224,93 @@
     el.firstChild.style.maxWidth = W + 'px';
   }
 
-  root.Charts = { hbar, scatter, lines, confusion, legend, bindTips, treeDiagram, SHAPES, esc, niceTicks };
+  // Histogram with optional spec limits, target and a fitted normal curve.
+  function histogram(el, values, opt) {
+    opt = opt || {};
+    const W = widthOf(el), H = Math.round(Math.min(320, W * 0.55)), L = 46, R = 14, T = 22, B = 40;
+    const marks = [opt.lsl, opt.usl, opt.target].filter(v => v !== null && v !== undefined);
+    let lo = Math.min(...values, ...marks), hi = Math.max(...values, ...marks);
+    const padX = (hi - lo) * 0.06 || 1; lo -= padX; hi += padX;
+    const nb = Math.max(8, Math.min(30, Math.round(Math.sqrt(values.length) * 1.5)));
+    const bw = (hi - lo) / nb, counts = new Array(nb).fill(0);
+    values.forEach(v => { counts[Math.min(nb - 1, Math.max(0, Math.floor((v - lo) / bw)))]++; });
+    const n = values.length, m = opt.mean, s = opt.sd;
+    const curve = s ? Array.from({ length: 80 }, (_, i) => { const x = lo + (hi - lo) * i / 79; return [x, n * bw * Math.exp(-((x - m) ** 2) / (2 * s * s)) / (s * Math.sqrt(2 * Math.PI))]; }) : [];
+    const ymax = Math.max(...counts, ...curve.map(c => c[1])) * 1.08 || 1;
+    const sx = v => L + (v - lo) / (hi - lo) * (W - L - R), sy = v => H - B - v / ymax * (H - T - B);
+    let b = '';
+    for (const t of niceTicks(0, ymax, 4)) if (t <= ymax) b += '<line class="gridline" x1="' + L + '" x2="' + (W - R) + '" y1="' + sy(t) + '" y2="' + sy(t) + '"/><text x="' + (L - 6) + '" y="' + (sy(t) + 4) + '" text-anchor="end">' + esc(fmt(t)) + '</text>';
+    for (const t of niceTicks(lo, hi, 6)) if (t >= lo && t <= hi) b += '<text x="' + sx(t) + '" y="' + (H - B + 16) + '" text-anchor="middle">' + esc(fmt(t)) + '</text>';
+    counts.forEach((c, i) => {
+      const x0 = lo + i * bw, out = (opt.lsl !== null && opt.lsl !== undefined && x0 + bw <= opt.lsl) || (opt.usl !== null && opt.usl !== undefined && x0 >= opt.usl);
+      b += '<g data-tip="' + esc(fmt(x0) + ' to ' + fmt(x0 + bw) + ': ' + c + ' rows') + '"><rect class="bar' + (out ? ' out' : '') + '" x="' + (sx(x0) + 1) + '" y="' + sy(c) + '" width="' + Math.max(1, sx(x0 + bw) - sx(x0) - 2) + '" height="' + (sy(0) - sy(c)) + '" rx="2"/></g>';
+    });
+    b += '<line class="axis" x1="' + L + '" x2="' + (W - R) + '" y1="' + sy(0) + '" y2="' + sy(0) + '"/>';
+    if (curve.length) b += '<path class="line" d="' + curve.map((c, i) => (i ? 'L' : 'M') + sx(c[0]).toFixed(1) + ' ' + sy(c[1]).toFixed(1)).join('') + '"/>';
+    [['LSL', opt.lsl, 'ref'], ['USL', opt.usl, 'ref'], ['Target', opt.target, 'target-line']].forEach(([lab, v, cls]) => {
+      if (v === null || v === undefined) return;
+      b += '<line class="' + cls + '" x1="' + sx(v) + '" x2="' + sx(v) + '" y1="' + T + '" y2="' + sy(0) + '"/><text class="lbl-strong" x="' + sx(v) + '" y="' + (T - 6) + '" text-anchor="middle">' + lab + ' ' + esc(fmt(v)) + '</text>';
+    });
+    if (opt.xLabel) b += '<text class="lbl-strong" x="' + ((L + W - R) / 2) + '" y="' + (H - 4) + '" text-anchor="middle">' + esc(opt.xLabel) + '</text>';
+    el.innerHTML = svg(W, H, opt.label || 'Histogram', b);
+  }
+
+  // Control chart: center line, control limits, and flagged points.
+  function controlChart(el, ys, opt) {
+    const W = widthOf(el), H = opt.height || 230, L = 52, R = 70, T = 12, B = 34;
+    const vals = ys.filter(v => v !== null);
+    const lo0 = Math.min(...vals, opt.lcl !== null && opt.lcl !== undefined ? opt.lcl : Infinity), hi0 = Math.max(...vals, opt.ucl);
+    const pad = (hi0 - lo0) * 0.08 || 1, lo = lo0 - pad, hi = hi0 + pad;
+    const sx = i => L + (ys.length > 1 ? i / (ys.length - 1) : 0.5) * (W - L - R), sy = v => H - B - (v - lo) / (hi - lo) * (H - T - B);
+    let b = '';
+    for (const t of niceTicks(lo, hi, 4)) if (t >= lo && t <= hi) b += '<line class="gridline" x1="' + L + '" x2="' + (W - R) + '" y1="' + sy(t) + '" y2="' + sy(t) + '"/><text x="' + (L - 6) + '" y="' + (sy(t) + 4) + '" text-anchor="end">' + esc(fmt(t)) + '</text>';
+    [['UCL', opt.ucl, 'ref'], ['CL', opt.cl, 'cl-line'], ['LCL', opt.lcl, 'ref']].forEach(([lab, v, cls]) => {
+      if (v === null || v === undefined) return;
+      b += '<line class="' + cls + '" x1="' + L + '" x2="' + (W - R) + '" y1="' + sy(v) + '" y2="' + sy(v) + '"/><text x="' + (W - R + 4) + '" y="' + (sy(v) + 4) + '">' + lab + ' ' + esc(fmt(v)) + '</text>';
+    });
+    let d = '', started = false;
+    ys.forEach((v, i) => { if (v === null) { started = false; return; } d += (started ? 'L' : 'M') + sx(i).toFixed(1) + ' ' + sy(v).toFixed(1); started = true; });
+    b += '<path class="line thin" d="' + d + '"/>';
+    const r = ys.length > 200 ? 2.2 : 3.2;
+    ys.forEach((v, i) => {
+      if (v === null) return;
+      const f = opt.flags && opt.flags[i] && opt.flags[i].length;
+      b += '<g data-tip="' + esc((opt.rowLabel ? opt.rowLabel(i) + '\n' : '') + fmt(v) + (f ? '\nSignal: ' + opt.flags[i].join(', ') : '')) + '"><circle class="' + (f ? 'pt flag' : 'pt small') + '" cx="' + sx(i) + '" cy="' + sy(v) + '" r="' + (f ? r + 2 : r) + '"/></g>';
+    });
+    if (opt.yLabel) b += '<text class="lbl-strong" transform="translate(13 ' + ((T + H - B) / 2) + ') rotate(-90)" text-anchor="middle">' + esc(opt.yLabel) + '</text>';
+    b += '<text class="lbl-strong" x="' + ((L + W - R) / 2) + '" y="' + (H - 6) + '" text-anchor="middle">' + esc(opt.xLabel || 'Row (time order)') + '</text>';
+    el.innerHTML = svg(W, H, opt.label || 'Control chart', b);
+  }
+
+  // Horizontal box plots, one per group, on a shared scale; optional spec lines.
+  function boxplot(el, groups, opt) {
+    opt = opt || {};
+    const W = widthOf(el), rowH = 34, T = 22, B = 30;
+    const labelChars = Math.min(22, Math.max(...groups.map(g => String(g.label).length), 4));
+    const L = Math.min(W * 0.35, 18 + labelChars * 7), R = 18, H = T + groups.length * rowH + B;
+    const marks = [opt.lsl, opt.usl].filter(v => v !== null && v !== undefined);
+    let lo = Math.min(...groups.map(g => g.stats.min), ...marks), hi = Math.max(...groups.map(g => g.stats.max), ...marks);
+    const pad = (hi - lo) * 0.05 || 1; lo -= pad; hi += pad;
+    if (opt.domain) [lo, hi] = opt.domain; // a shared scale lines up several box-plot panels
+    const sx = v => L + (v - lo) / (hi - lo) * (W - L - R);
+    let b = '';
+    for (const t of niceTicks(lo, hi, 5)) if (t >= lo && t <= hi) b += '<line class="gridline" x1="' + sx(t) + '" x2="' + sx(t) + '" y1="' + T + '" y2="' + (H - B) + '"/><text x="' + sx(t) + '" y="' + (H - 10) + '" text-anchor="middle">' + esc(fmt(t)) + '</text>';
+    [['LSL', opt.lsl], ['USL', opt.usl]].forEach(([lab, v]) => { if (v !== null && v !== undefined) b += '<line class="ref" x1="' + sx(v) + '" x2="' + sx(v) + '" y1="' + (T - 4) + '" y2="' + (H - B) + '"/><text class="lbl-strong" x="' + sx(v) + '" y="' + (T - 8) + '" text-anchor="middle">' + lab + '</text>'; });
+    groups.forEach((g, i) => {
+      const s = g.stats, y = T + i * rowH + rowH / 2, hh = 9;
+      const tip = g.label + ' (' + s.n + ' rows)\nMedian ' + fmt(s.median) + ', middle half ' + fmt(s.q1) + ' to ' + fmt(s.q3) + '\nRange ' + fmt(s.min) + ' to ' + fmt(s.max) + (s.outliers.length ? '\n' + s.outliers.length + ' outlier' + (s.outliers.length > 1 ? 's' : '') : '');
+      b += '<g data-tip="' + esc(tip) + '"><rect class="hit" x="0" y="' + (y - rowH / 2) + '" width="' + W + '" height="' + rowH + '"/>';
+      b += '<text x="' + (L - 8) + '" y="' + (y + 4) + '" text-anchor="end">' + esc(trunc(g.label, labelChars)) + '</text>';
+      b += '<line class="whisker" x1="' + sx(s.whiskerLo) + '" x2="' + sx(s.whiskerHi) + '" y1="' + y + '" y2="' + y + '"/>';
+      b += '<line class="whisker" x1="' + sx(s.whiskerLo) + '" x2="' + sx(s.whiskerLo) + '" y1="' + (y - 5) + '" y2="' + (y + 5) + '"/><line class="whisker" x1="' + sx(s.whiskerHi) + '" x2="' + sx(s.whiskerHi) + '" y1="' + (y - 5) + '" y2="' + (y + 5) + '"/>';
+      b += '<rect class="box" x="' + sx(s.q1) + '" y="' + (y - hh) + '" width="' + Math.max(1.5, sx(s.q3) - sx(s.q1)) + '" height="' + 2 * hh + '" rx="2"/>';
+      b += '<line class="median" x1="' + sx(s.median) + '" x2="' + sx(s.median) + '" y1="' + (y - hh) + '" y2="' + (y + hh) + '"/>';
+      s.outliers.slice(0, 40).forEach(v => { b += '<circle class="hollow-pt" cx="' + sx(v) + '" cy="' + y + '" r="3"/>'; });
+      b += '</g>';
+    });
+    if (opt.xLabel) b += '<text class="lbl-strong" x="' + ((L + W - R) / 2) + '" y="' + (H + 6) + '" text-anchor="middle">' + esc(opt.xLabel) + '</text>';
+    el.innerHTML = svg(W, H + 10, opt.label || 'Box plots', b);
+  }
+
+  root.Charts = { hbar, scatter, lines, confusion, legend, bindTips, treeDiagram, histogram, controlChart, boxplot, SHAPES, esc, niceTicks };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

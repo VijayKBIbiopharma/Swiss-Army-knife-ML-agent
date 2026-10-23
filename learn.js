@@ -785,6 +785,101 @@
   });
 
   add({
+    id: 'capability', group: 'Six Sigma and process control', title: 'Process capability: Cp, Cpk and sigma level',
+    analogy: 'Parking a car in a garage. Cp asks: is the car narrower than the garage? Cpk asks: is it parked in the middle, or scraping one wall?',
+    intro: 'Capability compares what the customer allows (the spec limits) with what the process actually does (its spread). Move the process average and its spread below and watch the numbers. The red tails are defects.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-controls">' + slider('mu', 'Process average', 92, 108, 0.5, 103) + slider('sd', 'Process spread (std. dev.)', 0.8, 5, 0.1, 2.5) + '</div><div data-role="plot"></div><p class="demo-read" data-role="read"></p>';
+      const LSL = 90, USL = 110, T = 100;
+      const draw = () => {
+        const mu = Number(q(el, 'mu').value), sdv = Number(q(el, 'sd').value);
+        setOut(el, 'mu', mu); setOut(el, 'sd', sdv.toFixed(1));
+        const f = frame(640, 290, [80, 120], [0, 0.52], { xLabel: 'Measured value', yFmt: () => '' });
+        const pdf = x => Math.exp(-((x - mu) ** 2) / (2 * sdv * sdv)) / (sdv * Math.sqrt(2 * Math.PI));
+        const xs = range(241).map(i => 80 + i / 6);
+        const area = (a, b) => 'M' + f.sx(a) + ' ' + f.sy(0) + xs.filter(x => x >= a && x <= b).map(x => 'L' + f.sx(x).toFixed(1) + ' ' + f.sy(pdf(x)).toFixed(1)).join('') + 'L' + f.sx(b) + ' ' + f.sy(0) + 'Z';
+        let b = f.axes + '<path class="region-c2" fill-opacity=".55" d="' + area(80, LSL) + '"/><path class="region-c2" fill-opacity=".55" d="' + area(USL, 120) + '"/>';
+        b += '<path class="curve" d="' + pathOf(xs.map(x => [x, pdf(x)]), f) + '"/>';
+        [['LSL', LSL, 'ref'], ['USL', USL, 'ref'], ['Target', T, 'target-line']].forEach(([l, v, c]) => { b += '<line class="' + c + '" x1="' + f.sx(v) + '" x2="' + f.sx(v) + '" y1="' + f.sy(0) + '" y2="' + f.sy(0.5) + '"/><text class="lbl-strong" x="' + f.sx(v) + '" y="' + (f.sy(0.5) - 2) + '" text-anchor="middle">' + l + '</text>'; });
+        q(el, 'plot').innerHTML = svg(640, 290, 'Capability demo', b);
+        const S = window.MLSpc, cp = (USL - LSL) / (6 * sdv), cpk = Math.min(USL - mu, mu - LSL) / (3 * sdv);
+        const pOut = S.normCdf((LSL - mu) / sdv) + 1 - S.normCdf((USL - mu) / sdv), z = Math.min(8, S.normInv(1 - Math.max(pOut, 1e-15)));
+        const verdict = cpk >= 1.33 ? 'capable' : cpk >= 1 ? 'marginal' : 'not capable';
+        q(el, 'read').innerHTML = 'Cp <b>' + cp.toFixed(2) + '</b> · Cpk <b>' + cpk.toFixed(2) + '</b> (' + verdict + ') · expected <b>' + fmt(pOut * 1e6, 0) + '</b> defects per million · sigma level <b>' + (z + 1.5).toFixed(1) + '</b><br>' +
+          (cp - cpk > 0.2 ? 'The car fits, but it is parked off center: Cp is fine while Cpk suffers. Center the average at 100 and Cpk rises to Cp.' : cp < 1.33 ? 'Centered, but the car is too wide for the garage: only reducing the spread will make it capable.' : 'Narrow and centered: plenty of room on both sides.');
+      };
+      q(el, 'mu').oninput = draw; q(el, 'sd').oninput = draw; draw();
+    },
+    steps: ['Cp = (USL − LSL) ÷ 6σ: does the spread fit inside the spec window?', 'Cpk = distance from the average to the nearer limit ÷ 3σ: does it fit where it actually sits?', 'Cp/Cpk use short-term spread (row to row); Pp/Ppk use the overall, long-term spread.', '1.33 or more is capable; below 1.0 means a steady stream of defects. PPM and sigma level express the same thing as a defect rate.'],
+    when: 'Any measured result with specification limits, on a stable process in normal production.',
+    watch: 'Capability assumes the process is stable (check the control chart first) and roughly bell-shaped. A designed experiment is not normal production.',
+    where: 'Six Sigma mode: the "Process capability" card and the capability tile.',
+    quiz: { q: 'Cp is 1.8 but Cpk is 0.9. What is the quickest fix?', options: ['Reduce variation', 'Center the process average', 'Widen the spec limits'], answer: 1, why: 'A big gap between Cp and Cpk means the spread fits but the process is off center. Centering it raises Cpk toward Cp.' }
+  });
+
+  add({
+    id: 'control-charts', group: 'Six Sigma and process control', title: 'Control charts: common cause or special cause?',
+    analogy: 'Your commute: it varies a few minutes every day (common cause). A road closure is different (special cause). A control chart tells the two apart, so you do not overreact to normal noise or miss a real problem.',
+    intro: 'An I-MR chart plots each value in time order with control limits at about 3 standard deviations. Inside the limits is everyday noise. Add a disruption below and watch the chart flag it.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-controls"><label><input type="checkbox" data-role="shift"> Process shift from point 25</label><label><input type="checkbox" data-role="spike"> One-off spike at point 12</label>' + btn('new', 'New data', 'ghost') + '</div><div data-role="plot"></div><p class="demo-read" data-role="read"></p>';
+      let seed = 3;
+      const draw = () => {
+        const rand = E.rng(seed);
+        const base = range(40).map(() => 50 + normal(rand) * 1.5);
+        const y = base.map((v, i) => v + (q(el, 'shift').checked && i >= 24 ? 2.2 : 0) + (q(el, 'spike').checked && i === 11 ? 7 : 0));
+        // Limits from the first 20 points, as a team would set them from a stable baseline.
+        const base20 = window.MLSpc.imr(y.slice(0, 20));
+        const lim = { cl: base20.cl, ucl: base20.ucl, lcl: base20.lcl };
+        const flags = y.map((v, i) => { const f = []; if (v > lim.ucl || v < lim.lcl) f.push('beyond limits'); return f; });
+        let run = 0, side = 0;
+        y.forEach((v, i) => { const sd0 = v > lim.cl ? 1 : -1; run = sd0 === side ? run + 1 : 1; side = sd0; if (run >= 8) flags[i].push('8 in a row on one side'); });
+        C.controlChart(q(el, 'plot'), y, Object.assign({ flags, rowLabel: i => 'Point ' + (i + 1), yLabel: 'Value', xLabel: 'Point (time order)', label: 'Individuals chart demo' }, lim));
+        const n = flags.filter(f => f.length).length;
+        q(el, 'read').innerHTML = n ? '<b>' + n + ' point' + (n > 1 ? 's' : '') + ' flagged.</b> ' + (q(el, 'shift').checked ? 'A shift shows up as a long run on one side of the center line, even when no single point crosses a limit. ' : '') + (q(el, 'spike').checked ? 'A one-off spike breaks the limit: find out what happened at that moment.' : '')
+          : 'No signals: the wiggle you see is common-cause noise. Reacting to it (tampering) would make the process worse. Tick a box to add a real disruption.';
+      };
+      q(el, 'shift').onchange = draw; q(el, 'spike').onchange = draw; q(el, 'new').onclick = () => { seed++; draw(); };
+      draw();
+    },
+    steps: ['Plot each value in time order.', 'Center line = average; control limits = average ± 2.66 × the average moving range (about ±3σ).', 'Signals: a point beyond a limit, 8 in a row on one side, or an unusually big jump.', 'Investigate signals (special causes). Leave common-cause noise alone, and reduce it only by changing the system.'],
+    when: 'Before judging capability, and in the Control phase to keep a gain from slipping.',
+    watch: 'Control limits come from the process, not the spec. A process can be stable and still out of spec, or in spec and unstable.',
+    where: 'Six Sigma mode: the "I-MR control chart" card (rows must be in time order).',
+    quiz: { q: 'Eight points in a row sit above the center line, none beyond the limits. What does it suggest?', options: ['Nothing; all points are inside the limits', 'A shift in the process average', 'The limits are wrong'], answer: 1, why: 'A long run on one side is very unlikely by chance and signals that the average has moved.' }
+  });
+
+  add({
+    id: 'taguchi', group: 'Six Sigma and process control', title: 'Taguchi: robustness, S/N ratios and quality loss',
+    analogy: 'A recipe that tastes good every time, not just on a good day. Taguchi looks for settings that make the result consistent despite noise you cannot control.',
+    intro: 'Two suppliers can give the same average and very different consistency. The signal-to-noise (S/N) ratio rewards both being on target and being consistent. The loss function adds that being off target costs something even inside the spec.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-controls">' + slider('noise', 'Supplier B spread', 0.5, 4, 0.1, 2.5) + slider('pos', 'One unit measures', 90, 110, 0.5, 106) + '</div><div class="demo-grid"><div><h4>Same average, different consistency</h4><div data-role="box"></div></div><div><h4>Goalpost thinking vs Taguchi loss</h4><div data-role="loss"></div></div></div><p class="demo-read" data-role="read"></p>';
+      const draw = () => {
+        const nz = Number(q(el, 'noise').value), pos = Number(q(el, 'pos').value);
+        setOut(el, 'noise', nz.toFixed(1)); setOut(el, 'pos', pos);
+        const rand = E.rng(11), a = range(40).map(() => 100 + normal(rand) * 1), bb = range(40).map(() => 100 + normal(rand) * nz);
+        const S = window.MLSpc;
+        C.boxplot(q(el, 'box'), [{ label: 'Supplier A', stats: S.box(a) }, { label: 'Supplier B', stats: S.box(bb) }], { lsl: 90, usl: 110, label: 'Supplier box plots' });
+        const f = frame(320, 240, [88, 112], [0, 1.3], { xLabel: 'Measured value', yLabel: 'Cost of the unit', yFmt: v => (v === 1 ? 'scrap' : v === 0 ? '0' : '') });
+        const tag = x => ((x - 100) / 10) ** 2;
+        let b = f.axes + '<path class="curve alt" d="' + pathOf([[88, 1], [90, 1], [90, 0], [110, 0], [110, 1], [112, 1]], f) + '"/>';
+        b += '<path class="curve" d="' + pathOf(range(97).map(i => { const x = 88 + i * 0.25; return [x, Math.min(1.3, tag(x))]; }), f) + '"/>' + dot(f.sx(pos), f.sy(Math.min(1.3, tag(pos))), 'query', 6);
+        q(el, 'loss').innerHTML = svg(320, 240, 'Loss functions', b) + C.legend([{ label: 'Goalpost: in spec is free', cls: 'pt s2' }, { label: 'Taguchi: loss grows away from target', cls: 'pt' }]);
+        const snA = S.snRatio(a, 'nominal'), snB = S.snRatio(bb, 'nominal');
+        q(el, 'read').innerHTML = 'S/N (on target is best): Supplier A <b>' + snA.toFixed(1) + ' dB</b>, Supplier B <b>' + snB.toFixed(1) + ' dB</b>. Higher is more robust, so ' + (snA > snB ? 'A' : 'B') + ' wins even though both average about 100. ' +
+          'The unit at <b>' + pos + '</b> is ' + (pos < 90 || pos > 110 ? 'out of spec' : 'inside spec, so goalpost thinking says it is perfect') + '; Taguchi loss puts its cost at <b>' + pct(Math.min(tag(pos), 9)) + '</b> of a scrapped unit.';
+      };
+      q(el, 'noise').oninput = draw; q(el, 'pos').oninput = draw; draw();
+    },
+    steps: ['Pick the S/N type from your goal: larger is better, smaller is better, or on target is best.', 'Compute S/N for each level of each factor. Higher S/N = more consistent.', 'Rank factors by how much their S/N changes: big ranges matter most for robustness.', 'Set robust levels for factors that barely move the average; use another factor to adjust the average onto target.'],
+    when: 'When variation hurts as much as the average does, for example fit, finish, fill weight or timing.',
+    watch: 'S/N needs several results per level; with very few runs, treat the ranking as a hint.',
+    where: 'Six Sigma mode: "Taguchi robustness" card, box plots, and the quality-loss line in the capability table.',
+    quiz: { q: 'Two settings give the same average yield. Setting A has S/N 32 dB, setting B 24 dB. Which is better?', options: ['They are equal', 'A: it is more consistent', 'B: lower noise number'], answer: 1, why: 'Higher S/N means less variation relative to the signal, so A is more robust.' }
+  });
+
+  add({
     id: 'reading-results', group: 'Using the results', title: 'From charts to actions: reading the action plan',
     analogy: 'A mixing desk: turn one knob while leaving the others alone, and listen. That is what "how each driver moves the result" does with the model.',
     intro: 'The agent turns its model into plain-English actions by asking, for each top driver: if I change only this, holding everything else as it was, what happens to the result? The shape of that curve becomes the action.',

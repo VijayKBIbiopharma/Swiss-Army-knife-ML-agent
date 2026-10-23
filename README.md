@@ -17,9 +17,10 @@ Drop in a CSV and it:
    - "how each driver moves the result" curves, a what-if simulator, and a **peek inside the model** (a readable decision tree trained on your data, real trees from the forest or boosting chain, or the recipe of a linear model);
    - a "How to read this" note with an analogy on every chart, linked to the matching lesson;
    - warnings about small samples, gaps, imbalance and overfitting.
-5. **Writes next steps mapped to DMAIC** and pre-fills a **DOE builder** with the drivers it found: full or fractional factorial, Plackett-Burman, central composite or Box-Behnken. It produces a randomized run sheet. Fill in the results, load the sheet back, and the agent analyzes it.
+5. **Six Sigma & process control mode** (a switch in step 2, off by default). Enter optional spec limits (LSL, USL, target) and get Cp, Cpk, Pp, Ppk, Cpm, Z.bench, expected PPM and sigma level, a histogram against the spec, an I-MR control chart with special-cause signals, box plots by factor, Taguchi signal-to-noise by factor level, and a quality-loss index. Pass/fail targets get defect rate, DPMO and sigma level. Designed experiments are flagged, because their spread is deliberate.
+6. **Writes next steps mapped to DMAIC** and pre-fills a **DOE builder** with the drivers it found: full or fractional factorial, Plackett-Burman, central composite or Box-Behnken. It produces a randomized run sheet. Fill in the results, load the sheet back, and the agent analyzes it.
 
-6. **Teaches the concepts.** `learn.html` (ML Agent Academy) has 22 interactive lessons, each with an analogy, a hands-on visual and a quick check. Examples: grow a decision tree and watch it carve up the data, send a batch through five trees of a random forest and see them vote, step through k-means, drag the boosting rounds, see design shapes (factorial cube, central composite, Box-Behnken), and turn noise up on a Pareto chart.
+7. **Teaches the concepts.** `learn.html` (ML Agent Academy) has 25 interactive lessons, each with an analogy, a hands-on visual and a quick check. Examples: grow a decision tree and watch it carve up the data, send a batch through five trees of a random forest and see them vote, step through k-means, drag the boosting rounds, see design shapes (factorial cube, central composite, Box-Behnken), and turn noise up on a Pareto chart.
 
 Three ways to share results: **Save as PDF** builds an A4 PDF file in the browser (action plan, every chart with its "how to read this" note, the DOE run sheet, the models in plain words and a glossary); **Print** sends a clean, light-themed version to the printer; **Download as web page** saves the same report as a single HTML file.
 
@@ -62,6 +63,7 @@ node --test tests/run-tests.js
 |---|---|
 | `engine.js` | CSV parsing, profiling, encoding, models, cross-validation, k-means, PCA |
 | `doe.js` | DOE detection, analysis and design generation |
+| `spc.js` | Six Sigma statistics: capability, I-MR, box plots, Taguchi S/N, DPMO |
 | `agent.js` | Orchestration, model choice, findings and DMAIC next steps |
 | `charts.js` | Dependency-free SVG charts |
 | `app.js` | Page logic, report, delete and privacy self-test |

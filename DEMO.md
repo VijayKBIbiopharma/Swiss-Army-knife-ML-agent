@@ -31,6 +31,12 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Expect **Random forest**, about **45% explained**, flagged as **weak**.
 - Talking point: *"It tells us when the data isn't good enough. Taste depends on things not in this file. A tool that always sounds confident is dangerous; this one isn't."*
 
+## 3b. Six Sigma mode (2 minutes, for manufacturing audiences)
+- Load **Injection molding yield**, choose **⚙ Six Sigma & process control**, enter LSL 88, USL 100, target 95, run.
+- Expect **Cpk 0.29, not capable**. The agent explains that centering alone only reaches 0.49 and the spread must fall from about 4.1 to 1.5.
+- Show the I-MR chart (one signal), box plots by Material (Resin C is tightest), and the Taguchi table.
+- Talking point: *"Same data, two lenses: machine learning finds the levers, and classical capability tells us how far we are from the customer's spec."*
+
 ## 4b. Moving customers up a tier (1 minute)
 - Click the practice dataset **Customer loyalty tiers**, run.
 - Above the action plan, set **Starting from: Rows now Bronze** and **Target outcome: Silver or better**. The plan re-aims instantly: raise spend, visits and tenure, cut support tickets, get them on the app.

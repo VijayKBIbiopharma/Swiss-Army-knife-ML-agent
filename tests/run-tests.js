@@ -12,6 +12,7 @@ const E = require(path.join(ROOT, 'engine.js'));
 const D = require(path.join(ROOT, 'doe.js'));
 const A = require(path.join(ROOT, 'agent.js'));
 const S = require(path.join(ROOT, 'samples.js'));
+const SPC = require(path.join(ROOT, 'spc.js'));
 
 test('CSV parser handles quotes, BOM, tabs and blank lines', () => {
   const t = E.parseCSV('﻿Name,Note,Value\r\n"Smith, J","said ""hi""",3\n\nLee,,4\n');
@@ -330,4 +331,45 @@ test('target outcome selector: ranked tiers, starting class and no re-training',
   A.retarget(pen, pen.classes.indexOf('Chinstrap'), pen.classes.indexOf('Adelie'));
   assert.deepStrictEqual(pen.favorableSet, [pen.classes.indexOf('Chinstrap')]);
   assert.ok(/to Chinstrap,/.test(pen.actionPlan.headline));
+});
+
+test('Six Sigma statistics match textbook values', () => {
+  assert.ok(Math.abs(SPC.normCdf(1.96) - 0.975) < 1e-4);
+  assert.ok(Math.abs(SPC.normInv(0.975) - 1.96) < 1e-3);
+  assert.ok(Math.abs(SPC.normInv(1 - 3.4e-6) - 4.5) < 0.01, '3.4 PPM is 4.5 sigma long term');
+  const a = SPC.attribute(9332, 10000);
+  assert.ok(Math.abs(a.sigmaLevel - 3) < 0.02, '6.68% defects is 3 sigma');
+  // Symmetric data, mean 100, spec 94 to 106.
+  const y = []; for (let i = 0; i < 400; i++) y.push(100 + 2 * SPC.normInv((i + 0.5) / 400));
+  const c = SPC.capability(y, { lsl: 94, usl: 106, target: 100 }, false);
+  assert.ok(Math.abs(c.mean - 100) < 1e-9 && Math.abs(c.Pp - 1) < 0.03 && Math.abs(c.Ppk - c.Pp) < 1e-6, 'Pp = Ppk = 1 when centered at 3 sigma');
+  assert.strictEqual(c.Cp, null, 'no short-term Cp without time order');
+  assert.ok(Math.abs(c.ppm - 2700) < 250, 'about 2,700 PPM at plus or minus 3 sigma');
+  const off = SPC.capability(y.map(v => v + 2), { lsl: 94, usl: 106 }, false);
+  assert.ok(off.Ppk < off.Pp - 0.3 && Math.abs(off.centeredCpk - off.Pp) < 1e-9);
+  assert.ok(Math.abs(SPC.snRatio([10, 10], 'larger') - 20) < 1e-9 && Math.abs(SPC.snRatio([10, 10], 'smaller') + 20) < 1e-9);
+  const t = SPC.taguchi([10, 11, 10, 11, 5, 15, 4, 16], [{ name: 'Supplier', values: ['A', 'A', 'A', 'A', 'B', 'B', 'B', 'B'] }], 'nominal');
+  assert.strictEqual(t[0].best.level, 'A', 'the consistent supplier is the robust one');
+  const steady = []; const rand = E.rng(2); for (let i = 0; i < 40; i++) steady.push(50 + (rand() - 0.5) * 2 + (i >= 25 ? 3 : 0));
+  const m = SPC.imr(steady);
+  assert.ok(m.signals.some(s => s.i >= 25), 'a shift is flagged');
+  const b = SPC.box([1, 2, 3, 4, 5, 6, 7, 8, 9, 100]);
+  assert.deepStrictEqual(b.outliers, [100]);
+});
+
+test('Six Sigma mode in the agent', async () => {
+  const get = id => S.find(s => s.id === id);
+  const mold = await A.run(E.parseCSV(get('molding').make()), { target: 'Yield', sixSigma: { lsl: 88, usl: 100, target: 95, timeOrdered: true } });
+  const c = mold.spc.capability;
+  assert.ok(c && c.Cpk < c.Cp && c.verdict === 'not capable');
+  assert.ok(mold.spc.imr && mold.spc.boxes.by.some(b => b.name === 'Material') && mold.spc.taguchi.type === 'nominal');
+  assert.ok(mold.insights.some(i => /Process capability: Cpk/.test(i.text)));
+  assert.ok(mold.nextSteps.some(s => /Gage R&R/.test(s.text)) && mold.nextSteps.some(s => /Center the process/.test(s.title)));
+  const plain = await A.run(E.parseCSV(get('molding').make()), { target: 'Yield' });
+  assert.strictEqual(plain.spc, undefined, 'standard mode adds nothing');
+  const doe = await A.run(E.parseCSV(get('factorial').make()), { target: 'Yield', sixSigma: { lsl: 60 } });
+  assert.ok(doe.spc.designed && !doe.spc.imr, 'no control chart on a designed experiment');
+  assert.ok(doe.insights.some(i => /designed experiment: its spread/.test(i.text)));
+  const bat = await A.run(E.parseCSV(get('batches').make()), { target: 'Result', sixSigma: {} });
+  assert.ok(Math.abs(bat.spc.attribute.p - bat.actual.filter(k => bat.classes[k] !== 'Pass').length / bat.actual.length) < 1e-12);
 });

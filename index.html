@@ -84,6 +84,21 @@
         </label>
       </div>
       <p class="hint" id="target-hint"></p>
+      <fieldset class="mode">
+        <legend>Analysis mode</legend>
+        <label class="mode-opt"><input type="radio" name="mode" value="ml" checked><span><b>Standard ML</b><small>Models, drivers, action plan and DOE</small></span></label>
+        <label class="mode-opt"><input type="radio" name="mode" value="sigma"><span><b>⚙ Six Sigma &amp; process control</b><small>Adds capability, control chart, box plots and Taguchi</small></span></label>
+      </fieldset>
+      <div class="spc-panel" id="spc-panel" hidden>
+        <p class="spc-intro" id="spc-intro">Does this result have specification limits? All optional: leave them blank and you still get the control chart, box plots and robustness analysis.</p>
+        <div class="controls" id="spc-fields">
+          <label>Lower spec limit (LSL) <input type="number" id="lsl" step="any" inputmode="decimal"></label>
+          <label>Upper spec limit (USL) <input type="number" id="usl" step="any" inputmode="decimal"></label>
+          <label>Target value <input type="number" id="spec-target" step="any" inputmode="decimal"></label>
+          <label class="check"><input type="checkbox" id="time-ordered" checked> Rows are in time order</label>
+        </div>
+        <p class="error" id="spc-error" role="alert" hidden></p>
+      </div>
       <div class="table-scroll">
         <table class="profile" id="profile"></table>
       </div>
@@ -191,6 +206,7 @@
 <div class="tip" id="tip" role="tooltip" hidden></div>
 <script src="engine.js"></script>
 <script src="doe.js"></script>
+<script src="spc.js"></script>
 <script src="agent.js"></script>
 <script src="samples.js"></script>
 <script src="charts.js"></script>

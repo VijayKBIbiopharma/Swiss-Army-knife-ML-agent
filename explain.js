@@ -61,6 +61,18 @@
       'Like checking whether each guest is clearly sitting at one table, or standing between two.', 'kmeans'],
     profiles: ['Average of each numeric column in each group, next to the overall average. The last column says what makes each group different from the rest.',
       'A customer persona card, written from the data.', 'kmeans'],
+    capability: ['Cp compares the width of your spec window with the width of the process (6 standard deviations). Cpk does the same but counts only the nearer spec limit, so an off-center process scores lower. Pp and Ppk use the overall long-term spread; Cp and Cpk use short-term spread between neighbouring rows. 1.33 or more is capable, 1.0 to 1.33 is marginal, below 1.0 makes defects. Z.bench and PPM say the same thing as a defect rate.',
+      'Parking a car in a garage: Cp asks whether the car is narrower than the garage; Cpk asks whether it is parked in the middle, or scraping one wall.', 'capability'],
+    histogram: ['Bars show how often each value happened. The curve is the bell shape the capability numbers assume. Red dashed lines are the spec limits and red bars fall outside them. The green line is the target.',
+      'A shooting target seen from the side: you want a tall, narrow pile centered on the bullseye.', 'capability'],
+    controlChart: ['Each dot is one row in time order. The center line is the average, and the red dashed lines are control limits: where common, everyday variation should stay. A red dot is a signal: beyond a limit, 8 in a row on one side, or a sudden jump. Signals point to special causes worth investigating. The lower chart (moving range) tracks how much each point jumps from the last.',
+      'A heart monitor: normal beats wiggle inside a band; a spike outside the band means something happened.', 'control-charts'],
+    boxplot: ['Each box holds the middle half of the values; the thick line is the median; whiskers reach the usual range; circles are unusual values. Compare groups: a box shifted sideways changes the average, and a wider box means more variation.',
+      'Five-number summary at a glance, like comparing the spread of lap times between drivers.', 'taguchi'],
+    taguchi: ['The signal-to-noise ratio (in decibels) scores each factor level for consistency as well as for the average. Higher S/N is always better. The type follows your goal: larger is better, smaller is better, or on target is best when a target is set. Factors with a big S/N range matter most for robustness.',
+      'A recipe that tastes good every time, not just on a good day: robustness against noise you cannot control.', 'taguchi'],
+    sigma: ['For pass/fail results, the defect rate is converted to defects per million opportunities (DPMO) and a sigma level, using the standard 1.5 sigma shift. 3 sigma is about 66,800 per million, 4 sigma 6,210, 5 sigma 233, and 6 sigma 3.4.',
+      'Like a golf handicap for quality: one number that lets very different processes be compared.', 'capability'],
     correlations: ['Correlation runs from −1 to 1 and says how tightly two columns move together. Close to ±1 is a strong link; near 0 is no straight-line link. It never proves that one causes the other.',
       'Ice-cream sales and sunburns rise together, but neither causes the other: the sun drives both.', 'why-doe']
   };
@@ -79,7 +91,12 @@
     ['p-value', 'Chance of seeing an effect this large from noise alone. Below 0.05 is usually called significant.'],
     ['Interaction', 'When the effect of one factor depends on the level of another.'],
     ['Center point', 'A DOE run with every factor in the middle of its range; it tests for curvature.'],
-    ['Aliasing', 'When a smaller design cannot tell two effects apart.']
+    ['Aliasing', 'When a smaller design cannot tell two effects apart.'],
+    ['Cp / Cpk', 'Process capability: spec width versus process width; Cpk also penalizes being off center. 1.33+ is capable.'],
+    ['Pp / Ppk', 'Like Cp / Cpk but using the overall, long-term spread.'],
+    ['Z.bench / PPM', 'Expected defect rate from capability, as a Z value or parts per million.'],
+    ['Control limits', 'The band where everyday (common-cause) variation stays. Points outside are special-cause signals.'],
+    ['S/N ratio', 'Taguchi signal-to-noise: a consistency score for a factor level. Higher is more robust.']
   ];
 
   root.MLExplain = { MODEL_TOPIC, MODEL_ANALOGY, READ, GLOSSARY };

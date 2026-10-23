@@ -89,9 +89,38 @@
     const col = state.prof.columns.find(c => c.name === target);
     const task = col && A.decideTask(col, $('task').value);
     renderGoal(col, task);
+    renderSpcPanel(col, task);
     $('target-hint').textContent = !col ? 'No target: the agent will look for natural groups (clustering), main directions of variation (PCA) and unusual rows.'
       : task === 'regression' ? '"' + target + '" is a number, so the agent will run regression models and check whether the data is a designed experiment.'
         : '"' + target + '" is a category, so the agent will run classification models.';
+  }
+
+  // ---------- Six Sigma mode (setup) ----------
+  const sigmaMode = () => document.querySelector('input[name="mode"]:checked').value === 'sigma';
+  function renderSpcPanel(col, task) {
+    const on = sigmaMode();
+    $('spc-panel').hidden = !on;
+    if (!on) return;
+    const numeric = col && task === 'regression';
+    $('spc-fields').hidden = !numeric;
+    $('spc-intro').textContent = !col ? 'Six Sigma mode needs a target column. With no target, the agent runs the usual group finding.'
+      : numeric ? 'Does "' + col.name + '" have specification limits? All optional: leave them blank and you still get the control chart, box plots and robustness analysis.'
+        : '"' + col.name + '" is pass/fail or a category, so the agent will report the defect rate, defects per million and sigma level. "Which result is better?" sets what counts as good.';
+    if (numeric && col.stats) {
+      $('lsl').placeholder = 'data min ' + fmt(col.stats.min);
+      $('usl').placeholder = 'data max ' + fmt(col.stats.max);
+      $('spec-target').placeholder = 'optional';
+    }
+  }
+  // Returns the Six Sigma options, or throws a message for the user.
+  function readSpc() {
+    if (!sigmaMode()) return null;
+    const v = id => { const t = $(id).value.trim(); return t === '' ? null : Number(t); };
+    const lsl = v('lsl'), usl = v('usl'), target = v('spec-target');
+    if ([lsl, usl, target].some(x => x !== null && !isFinite(x))) throw new Error('Spec limits must be numbers.');
+    if (lsl !== null && usl !== null && lsl >= usl) throw new Error('The lower spec limit must be below the upper spec limit.');
+    if (target !== null && ((lsl !== null && target < lsl) || (usl !== null && target > usl))) throw new Error('The target value must sit between the spec limits.');
+    return { lsl, usl, target, timeOrdered: $('time-ordered').checked };
   }
 
   // ---------- Run ----------
@@ -101,8 +130,13 @@
     const btn = $('run'); btn.disabled = true; btn.textContent = 'Running…';
     $('progress').hidden = false; $('agent-log').innerHTML = ''; $('progress-bar').value = 2; $('progress-text').textContent = 'Starting';
     const exclude = Array.from(document.querySelectorAll('#profile input[data-col]')).filter(i => !i.checked).map(i => i.getAttribute('data-col'));
+    showError('spc-error', '');
+    let sixSigma;
+    try { sixSigma = readSpc(); } catch (e) {
+      showError('spc-error', e.message); $('progress').hidden = true; btn.disabled = false; btn.textContent = 'Run the agent'; return;
+    }
     try {
-      const rep = await A.run(state.table, { target: $('target').value, task: $('task').value, goal: $('goal').value, exclude }, p => {
+      const rep = await A.run(state.table, { target: $('target').value, task: $('task').value, goal: $('goal').value, exclude, sixSigma }, p => {
         if (p.log) $('agent-log').innerHTML = p.log.map(l => '<li class="log-' + l.kind + '">' + h(l.text) + '</li>').join('');
         if (p.total) { $('progress-bar').value = 5 + 90 * p.done / p.total; $('progress-text').textContent = 'Testing ' + p.model + ' (' + (p.done + 1) + ' of ' + p.total + ')'; }
       });
@@ -160,6 +194,13 @@
       tiles.push(rep.doe ? tile('Designed experiment', rep.doe.k + ' factors', rep.doe.n + ' runs, effects analysis below')
         : tile('Rows used', (rep.nUsed || 0).toLocaleString(), (rep.folds === rep.nUsed ? 'leave-one-out' : rep.folds + '-fold') + ' cross-validation' + (rep.sampled ? ', sampled' : '')));
     }
+    if (rep.spc && rep.spc.capability) {
+      const c = rep.spc.capability, k = c.Cpk !== null ? c.Cpk : c.Ppk;
+      if (k !== null) tiles.push(tile('Process capability', (c.Cpk !== null ? 'Cpk ' : 'Ppk ') + k.toFixed(2), c.verdict + ' · ' + fmt(c.ppm, 0) + ' PPM expected out of spec'));
+    } else if (rep.spc && rep.spc.attribute) {
+      const a = rep.spc.attribute;
+      tiles.push(tile('Sigma level', a.sigmaLevel.toFixed(1) + ' σ', fmt(a.dpmo, 0) + ' defects per million · yield ' + pct(a.yield)));
+    }
     $('tiles').innerHTML = tiles.join('');
     renderPlan(rep);
     $('insights').innerHTML = rep.insights.map(i => '<li class="' + i.level + '">' + h(i.text) + '</li>').join('');
@@ -167,6 +208,7 @@
     const blocks = $('result-blocks');
     blocks.innerHTML = '';
     $('results').hidden = false;
+    if (rep.spc) renderSPC(rep, blocks);
     if (rep.doe) renderDOE(rep, blocks);
     if (rep.task === 'clustering') renderClusters(rep, blocks);
     else renderSupervised(rep, blocks);
@@ -212,6 +254,69 @@
       (p.quiet && p.quiet.length ? '<p><b>Little effect:</b> ' + h(p.quiet.join(', ')) + '. In the range you have run, these barely move the result, so set them for cost, speed or convenience.</p>' : '') +
       (p.combined ? '<p><b>All together:</b> ' + h(p.combined) + '</p>' : '') +
       '<p class="hint">' + h(p.caveat) + ' ' + learnLink('reading-results', 'How the action plan is worked out') + '</p>';
+  }
+
+  function renderSPC(rep, blocks) {
+    const s = rep.spc;
+    const row = (k, v) => v === null || v === undefined || v === '' ? '' : '<tr><td>' + h(k) + '</td><td class="num-cell"><b>' + h(v) + '</b></td></tr>';
+    const f2 = v => (v === null || v === undefined || !isFinite(v) ? null : v.toFixed(2));
+    if (s.attribute) {
+      const a = s.attribute;
+      append(blocks, card('Quality level (pass/fail)', 'Good outcome: ' + h(s.goodLabel) + '. Every other result counts as a defect.',
+        '<div class="table-scroll"><table class="spc-table"><tbody>' + row('Rows', a.total.toLocaleString()) + row('Defects', a.defects.toLocaleString()) + row('Defect rate', pct(a.p)) + row('Yield', pct(a.yield)) +
+        row('Defects per million (DPMO)', fmt(a.dpmo, 0)) + row('Z (long term)', f2(a.zLT)) + row('Sigma level (short term, +1.5 shift)', a.sigmaLevel.toFixed(2)) + '</tbody></table></div>', 'sigma'));
+      return;
+    }
+    const c = s.capability, st = s.stats;
+    const histHtml = '<div class="spc-hist"></div>';
+    if (c) {
+      const v = c.verdict === 'not capable' ? 'not' : c.verdict;
+      append(blocks,
+        card('Process capability', 'Against ' + [c.lsl !== null ? 'LSL ' + fmt(c.lsl) : '', c.usl !== null ? 'USL ' + fmt(c.usl) : '', c.target !== null ? 'target ' + fmt(c.target) : ''].filter(Boolean).join(', ') + '. <span class="verdict ' + v + '">' + h(c.verdict) + '</span>' + (s.designed ? '<br>Designed experiment: this spread was created on purpose, so read these as illustration only.' : ''),
+          '<div class="table-scroll"><table class="spc-table"><tbody>' + row('Rows', c.n.toLocaleString()) + row('Mean', fmt(c.mean)) + row('Std. deviation, within (short term)', c.sdWithin === null ? null : fmt(c.sdWithin)) + row('Std. deviation, overall (long term)', fmt(c.sdOverall)) +
+          row('Cp', f2(c.Cp)) + row('Cpk', f2(c.Cpk)) + row('Pp', f2(c.Pp)) + row('Ppk', f2(c.Ppk)) + row('Cpm (Taguchi, vs target)', f2(c.Cpm)) + row('Z.bench', f2(c.zBench)) +
+          row('Expected out of spec (PPM)', fmt(c.ppm, 0)) + row('Observed out of spec', c.observedOut + ' of ' + c.n + ' (' + pct(c.observedPct) + ')') + row('Sigma level (short term, +1.5 shift)', f2(c.sigmaLevel)) +
+          row('Taguchi loss vs a unit at the spec limit', c.loss === null ? null : pct(c.loss)) + '</tbody></table></div>' + (c.sdWithin === null ? '<p class="hint">Rows are not in time order, so short-term Cp and Cpk are skipped; Pp and Ppk use the overall spread.</p>' : ''), 'capability') +
+        card('Distribution against the spec', 'Red bars fall outside the spec. The curve is the bell shape the capability numbers assume.', histHtml, 'histogram'),
+        'block-grid');
+    } else {
+      append(blocks, card('Distribution of ' + rep.target, 'No spec limits given. Add LSL and USL in step 2 to get Cp and Cpk.', histHtml, 'histogram'));
+    }
+    C.histogram(blocks.querySelector('.spc-hist'), (st.n ? state.prof.columns.find(col => col.name === rep.target).values.filter(x => x !== null) : []),
+      { lsl: c ? c.lsl : null, usl: c ? c.usl : null, target: c ? c.target : null, mean: st.mean, sd: st.sdOverall, xLabel: rep.target, label: 'Histogram of ' + rep.target });
+
+    if (s.imr) {
+      const m = s.imr;
+      const sig = m.signals.slice(0, 8).map(g => 'row ' + m.rowNums[g.i] + ' (' + g.why.join(', ') + ')');
+      const el = append(blocks, card('I-MR control chart', 'Individuals (top) and moving range (bottom), in row order' + (m.trimmed ? ', last 500 rows' : '') + '. ' + (m.signals.length ? m.signals.length + ' signal' + (m.signals.length > 1 ? 's' : '') + ' in red.' : 'No signals: the process looks stable.'),
+        '<div class="cc-i"></div><div class="cc-mr"></div>' + (sig.length ? '<p class="hint">Signals: ' + h(sig.join('; ')) + (m.signals.length > 8 ? '…' : '') + '</p>' : ''), 'controlChart'));
+      const label = i => 'Row ' + m.rowNums[i];
+      C.controlChart(el.querySelector('.cc-i'), m.y, { cl: m.cl, ucl: m.ucl, lcl: m.lcl, flags: m.flags, rowLabel: label, yLabel: rep.target, label: 'Individuals chart' });
+      C.controlChart(el.querySelector('.cc-mr'), m.mr, { cl: m.mrBar, ucl: m.mrUcl, lcl: null, flags: m.mr.map((v, i) => (v !== null && v > m.mrUcl ? ['jump between points'] : [])), rowLabel: label, yLabel: 'Moving range', height: 170, label: 'Moving range chart' });
+    }
+    if (s.boxes) {
+      const el = append(blocks, card('Box plots of ' + rep.target, 'Overall' + (s.boxes.by.length ? ', and split by ' + h(s.boxes.by.map(b => b.name).join(', ')) : '') + '. Shifted boxes change the average; wider boxes mean more variation.',
+        '<div class="bp-all"></div>' + s.boxes.by.map((b, i) => '<h4>By ' + h(b.name) + '</h4><div class="bp-' + i + '"></div>').join(''), 'boxplot'));
+      const spec = { lsl: c ? c.lsl : null, usl: c ? c.usl : null };
+      const ov = s.boxes.overall, ext = [ov.min, ov.max, spec.lsl, spec.usl].filter(v => v !== null), pad = (Math.max(...ext) - Math.min(...ext)) * 0.05 || 1;
+      spec.domain = [Math.min(...ext) - pad, Math.max(...ext) + pad];
+      C.boxplot(el.querySelector('.bp-all'), [{ label: 'All rows', stats: s.boxes.overall }], Object.assign({ label: 'Box plot, all rows' }, spec));
+      s.boxes.by.forEach((b, i) => C.boxplot(el.querySelector('.bp-' + i), b.groups, Object.assign({ label: 'Box plots by ' + b.name, xLabel: rep.target }, spec)));
+    }
+    if (s.taguchi) {
+      const t = s.taguchi, kind = { larger: 'larger is better', smaller: 'smaller is better', nominal: 'on target is best' }[t.type];
+      const lv = v => (typeof v === 'number' ? fmt(v) : v);
+      const el = append(blocks, card('Taguchi robustness (signal-to-noise)', 'S/N type: ' + kind + '. Higher S/N means more consistent results. Factors are ranked by how much S/N changes across their levels.',
+        '<div class="table-scroll"><table><thead><tr><th>Rank</th><th>Factor</th><th class="num-cell">S/N range (dB)</th><th>Most robust level</th><th>S/N by level (mean)</th></tr></thead><tbody>' +
+        t.factors.map(f => '<tr><td class="num-cell">' + f.rank + '</td><td>' + h(f.name) + '</td><td class="num-cell">' + f.delta.toFixed(2) + '</td><td><b>' + h(lv(f.best.level)) + '</b></td><td>' + h(f.levels.map(x => lv(x.level) + ': ' + x.sn.toFixed(1) + ' (' + fmt(x.mean) + ')').join(' · ')) + '</td></tr>').join('') +
+        '</tbody></table></div><div class="me-grid tg-grid"></div>', 'taguchi'));
+      const all = t.factors.reduce((a, f) => a.concat(f.levels.map(x => x.sn)), []), dom = [Math.min(...all), Math.max(...all)];
+      t.factors.slice(0, 6).forEach(f => {
+        const d = document.createElement('div'); el.querySelector('.tg-grid').appendChild(d);
+        C.lines(d, [{ name: f.name, points: f.levels.map((x, i) => ({ x: i, y: x.sn, big: x === f.best, tip: f.name + ' = ' + lv(x.level) + '\nS/N ' + x.sn.toFixed(2) + ' dB, mean ' + fmt(x.mean) })) }],
+          { yDomain: dom, xLabel: f.name, xTickFmt: i => String(lv(f.levels[i] ? f.levels[i].level : '')), width: 280, height: 180, label: 'S/N by level of ' + f.name });
+      });
+    }
   }
 
   function renderSupervised(rep, blocks) {
@@ -701,6 +806,8 @@
     $('data-summary').textContent = ''; $('target-hint').textContent = '';
     showError('load-error', ''); showError('run-error', '');
     resetDOE();
+    ['lsl', 'usl', 'spec-target'].forEach(id => { $(id).value = ''; });
+    showError('spc-error', '');
     $('delete-top').hidden = true;
     const note = $('deleted-note');
     note.textContent = had ? (reason || 'Your data and all results have been deleted from this page.') + ' Nothing was saved or sent anywhere.' : 'Cleared. There was no data loaded. Nothing was saved or sent anywhere.';
@@ -731,6 +838,7 @@
     $('use-paste').addEventListener('click', () => { const t = $('paste').value; if (t.trim()) { $('paste').value = ''; loadText(t, 'Pasted data'); } else showError('load-error', 'Paste some data first.'); });
     ['clear', 'delete-top', 'delete-bottom'].forEach(id => $(id).addEventListener('click', () => deleteData()));
     $('target').addEventListener('change', renderProfile);
+    document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', () => { if (state.prof) renderProfile(); }));
     $('task').addEventListener('change', renderProfile);
     $('run').addEventListener('click', runAgent);
     $('download-report').addEventListener('click', () => state.report && download('ml-agent-report.html', reportHTML(state.report), 'text/html'));
