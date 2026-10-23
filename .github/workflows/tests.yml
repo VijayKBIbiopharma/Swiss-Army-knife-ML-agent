@@ -1,0 +1,25 @@
+name: ML Agent tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Models, DOE math and privacy lint
+        run: node --test tests/run-tests.js
+      - name: Build intranet package
+        run: ./package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ml-agent-intranet
+          path: dist/*.zip
