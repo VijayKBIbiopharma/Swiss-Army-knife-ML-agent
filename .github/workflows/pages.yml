@@ -1,5 +1,6 @@
 name: Publish website
 
+# Needs a one-time owner setting: Settings → Pages → Source: GitHub Actions.
 on:
   push:
     branches: [main]
@@ -23,8 +24,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
       - name: Collect the site files
         run: |
           mkdir _site
