@@ -43,6 +43,7 @@
     opt('stab-time', t.columns, timeCol); opt('stab-batch', t.columns, batchCol);
     opt('stab-y', t.columns, yCol); opt('stab-cond', t.columns, condCol, true);
     $('stab-map').hidden = false;
+    $('stab-settings').hidden = false;
     fillConditions();
     describe();
   }
@@ -279,7 +280,7 @@
   function clear() {
     table = null; last = null; window.MLStabilityRun = null;
     $('stab-data').value = ''; $('stab-out').innerHTML = ''; $('stab-read').textContent = '';
-    $('stab-map').hidden = true; $('stab-error').hidden = true; $('stab-file').value = '';
+    $('stab-map').hidden = true; $('stab-settings').hidden = true; $('stab-error').hidden = true; $('stab-file').value = '';
   }
 
   /* An attribute that only falls can never breach an upper limit, so asking for one is

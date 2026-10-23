@@ -17,6 +17,14 @@
   // ---------- Loading ----------
   function showError(id, msg) { const el = $(id); el.textContent = msg; el.hidden = !msg; }
 
+  /* Panels that are only worth reading when there is a reason to: the practice datasets
+     while nothing is loaded, the DOE builder once the agent has something to suggest. */
+  function foldPanels() {
+    const loaded = !!state.table;
+    $('samples-wrap').open = !loaded;
+    if (!loaded) $('doe-wrap').open = false;
+  }
+
   function loadText(text, name, sampleTarget) {
     showError('load-error', ''); $('deleted-note').hidden = true;
     let table;
@@ -33,6 +41,7 @@
     $('delete-top').hidden = false;
     renderSetup();
     $('setup').hidden = false;
+    foldPanels();
     touch();
     $('setup').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -906,6 +915,7 @@
     $('reps').value = rec.replicates || 1;
     $('response-name').value = rep.target;
     $('doe-intro').innerHTML = '<b>Pre-filled by the agent.</b> ' + h(rec.why) + ' Adjust the levels to what is safe and practical, then regenerate.';
+    $('doe-wrap').open = true;
     generateDesign(rep.seed);
   }
   function resetDOE() {
@@ -1178,6 +1188,7 @@
     resetMerge(); $('m-preview').textContent = ''; $('m-result').innerHTML = ''; $('multi-table').innerHTML = ''; $('multi').open = false;
     if (window.MLSeq) window.MLSeq.clear();
     if (window.MLStab) window.MLStab.clear();
+    foldPanels();
     $('sim').innerHTML = ''; $('sim').hidden = true;
     $('paste').value = ''; $('file').value = '';
     ['setup', 'results', 'next', 'progress'].forEach(id => { $(id).hidden = true; });

@@ -126,7 +126,7 @@ h3 { font-size: 1.05rem; margin-bottom: .5rem; }
 .step-head h2 { font-size: 1.35rem; }
 .num { width: 30px; height: 30px; flex: none; border-radius: 50%; background: var(--steel); color: var(--surface); display: grid; place-items: center; font-weight: 700; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; box-shadow: var(--shadow); margin-bottom: 16px; min-width: 0; }
-.load-grid, .privacy-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; }
+.load-grid, .privacy-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; align-items: start; }
 .load-grid .card, .privacy-grid .card { margin-bottom: 0; }
 @media (max-width: 760px) { .load-grid, .privacy-grid { grid-template-columns: 1fr; } }
 
@@ -510,3 +510,20 @@ table.mini { font-size: .82rem; } table.mini td, table.mini th { padding: 3px 8p
 details.advanced { margin: 12px 0 4px; }
 details.advanced > summary { cursor: pointer; font-size: .88rem; font-weight: 600; color: var(--steel); padding: 6px 0; }
 @media print { .toolbar { display: none; } }
+
+/* Panels that open only when they are worth reading */
+.samples-card > summary, .doe-wrap > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; }
+.samples-card > summary::-webkit-details-marker, .doe-wrap > summary::-webkit-details-marker { display: none; }
+.samples-card > summary::after, .doe-wrap > summary::after { content: '▸'; margin-left: auto; color: var(--muted); font-size: .9rem; }
+.samples-card[open] > summary::after, .doe-wrap[open] > summary::after { content: '▾'; }
+.samples-card > summary { flex-direction: column; align-items: flex-start; gap: 2px; position: relative; padding-right: 20px; }
+.samples-card > summary b { font-size: 1.02rem; }
+.samples-card > summary .hint { margin: 0; }
+.samples-card > summary::after { position: absolute; right: 0; top: 2px; margin: 0; }
+.samples-card[open] > summary { margin-bottom: 12px; }
+.doe-wrap > summary { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; margin-bottom: 0; }
+.doe-wrap > summary > span:last-of-type { display: flex; flex-direction: column; gap: 2px; }
+.doe-wrap > summary .hint { margin: 0; }
+.doe-wrap[open] > summary { border-radius: 12px 12px 0 0; border-bottom: 0; margin-bottom: 0; }
+.doe-wrap[open] > .card { border-top-left-radius: 0; border-top-right-radius: 0; }
+.doe-wrap > summary:focus-visible, .samples-card > summary:focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; }

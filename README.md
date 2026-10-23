@@ -2,7 +2,7 @@
 
 One private, in-browser tool for regression, classification, clustering, design of experiments (DOE), shelf-life estimation and sequence optimization, with a built-in academy that teaches every method.
 
-One tool is on screen at a time. A selector at the top (**What do you want to do?**) switches between **Analyze data**, **Shelf life (ICH Q1E)**, **Sequence optimizer** and **Privacy**, and each is linkable directly (`#stability`, `#sequence`).
+One tool is on screen at a time. A selector at the top (**What do you want to do?**) switches between **Analyze data**, **Shelf life (ICH Q1E)**, **Sequence optimizer** and **Privacy**, and each is linkable directly (`#stability`, `#sequence`). Inside each tool, panels open only when they earn their place: the practice datasets while nothing is loaded, the settings once there is something to set them for, the DOE builder when the agent has filled it in.
 
 Drop in a CSV and it:
 

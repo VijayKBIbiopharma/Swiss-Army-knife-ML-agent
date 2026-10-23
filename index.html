@@ -69,11 +69,10 @@
         </div>
         <label class="check auto-del"><input type="checkbox" id="auto-delete" checked> Auto-delete my data after 30 minutes without activity</label>
       </div>
-      <div class="card">
-        <h3>Or try a practice dataset</h3>
-        <p class="hint">Synthetic data, generated in your browser.</p>
+      <details class="card samples-card" id="samples-wrap" open>
+        <summary><b>Or try a practice dataset</b><span class="hint">Synthetic data, generated in your browser.</span></summary>
         <div class="samples" id="samples"></div>
-      </div>
+      </details>
     </div>
     <p class="error" id="load-error" role="alert" hidden></p>
     <p class="deleted" id="deleted-note" role="status" hidden></p>
@@ -184,7 +183,8 @@
   </section>
 
   <section class="wrap step" id="doe">
-    <div class="step-head"><span class="num">5</span><h2>DOE builder</h2></div>
+    <details class="doe-wrap" id="doe-wrap">
+      <summary><span class="num">5</span><span><b>DOE builder</b><span class="hint">Plan your next experiment. Opens filled in after a run.</span></span></summary>
     <div class="card">
       <p id="doe-intro" class="summary">Plan a designed experiment from scratch, or let the agent pre-fill it after a run. Set each factor's low and high level; words (like Supplier A / Supplier B) make a categorical factor.</p>
       <div class="table-scroll">
@@ -211,6 +211,7 @@
       <p class="error" id="doe-error" role="alert" hidden></p>
       <div id="design-out"></div>
     </div>
+    </details>
   </section>
   </div>
 
@@ -253,6 +254,7 @@
           <select id="stab-cond-value"></select>
         </label>
       </div>
+      <div id="stab-settings" hidden>
       <div class="controls">
         <label>What the attribute does
           <select id="stab-dir">
@@ -279,6 +281,7 @@
       <div class="row-actions">
         <button class="btn primary" id="stab-run" type="button">Estimate the shelf life</button>
       </div>
+      </div>
       <p class="error" id="stab-error" role="alert" hidden></p>
       <div id="stab-out"></div>
     </div>
@@ -297,6 +300,7 @@
       <label class="full" for="seq-dna">Coding DNA sequence (FASTA or plain letters; must start at the first codon)</label>
       <textarea id="seq-dna" rows="5" spellcheck="false" placeholder="ATGGGCAGCAGCCATCATCATCATCATCACAGC..."></textarea>
       <p class="hint" id="seq-read" aria-live="polite"></p>
+      <div id="seq-settings" hidden>
       <div class="controls">
         <label>Expression host
           <select id="seq-host"></select>
@@ -341,6 +345,7 @@
       <div class="row-actions">
         <button class="btn primary" id="seq-run" type="button">Optimize the sequence</button>
         <button class="btn" id="seq-stop" type="button" hidden>Stop and keep the best so far</button>
+      </div>
       </div>
       <p class="error" id="seq-error" role="alert" hidden></p>
       <div id="seq-progress" hidden>

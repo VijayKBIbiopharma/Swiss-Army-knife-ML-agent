@@ -47,6 +47,7 @@
   function describe() {
     const el = $('seq-read');
     const dna = readSequence($('seq-dna').value);
+    $('seq-settings').hidden = !dna;
     if (!dna) { el.textContent = ''; return; }
     if (dna.length % 3) { el.textContent = dna.length + ' bases: not a whole number of codons (' + (dna.length % 3) + ' left over). Trim to a coding sequence that starts at the first codon.'; return; }
     try {
@@ -316,7 +317,7 @@
   function clear() {
     stopWorker(); local = null; running = false; job0 = null; lastResult = null; shown = '';
     $('seq-dna').value = ''; $('seq-out').innerHTML = ''; $('seq-read').textContent = '';
-    $('seq-progress').hidden = true; $('seq-error').hidden = true;
+    $('seq-progress').hidden = true; $('seq-error').hidden = true; $('seq-settings').hidden = true;
     $('seq-run').disabled = false; $('seq-run').textContent = 'Optimize the sequence'; $('seq-stop').hidden = true;
     $('seq-chart-fit').innerHTML = ''; $('seq-chart-div').innerHTML = '';
   }
