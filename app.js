@@ -1234,15 +1234,37 @@
     if (!a) { el.innerHTML = ''; el.hidden = true; return; }
     el.hidden = false;
     const uses = a.groups.filter(g => !g.note), notes = a.groups.filter(g => g.note);
+    const A = window.MLApplications;
+    const pickers = '<div class="apps-pick"><label>My industry <select id="apps-industry">' + optionsFor(A.INDUSTRIES, myIndustry) + '</select></label>' +
+      '<label>My function <select id="apps-function">' + optionsFor(A.FUNCTIONS, myFunction) + '</select></label></div>';
     el.innerHTML = '<details class="applications" id="apps-details"' + (appsOpen ? ' open' : '') + '>' +
       '<summary><b>Where this is used</b><span class="hint">' + h(a.tech) + '</span></summary>' +
-      '<div class="apps-body"><p class="apps-scope">' + h(a.scope) + ' The uses below are the technique across industries, not a claim about what this page reads.</p>' +
+      '<div class="apps-body">' + pickers + tailoredHtml(name) +
+      '<p class="apps-scope">' + h(a.scope) + ' The uses below are the technique across industries, not a claim about what this page reads.</p>' +
       '<div class="apps-grid">' + uses.map(g => '<div class="use"><h4>' + h(g.name) + '</h4><p>' + h(g.text) + '</p></div>').join('') + '</div>' +
       notes.map(g => '<p class="apps-note"><b>' + h(g.name) + '.</b> ' + h(g.text) + '</p>').join('') +
       '</div></details>';
     $('apps-details').addEventListener('toggle', e => { appsOpen = e.target.open; });
+    $('apps-industry').addEventListener('change', e => { myIndustry = e.target.value; renderApplications(name); });
+    $('apps-function').addEventListener('change', e => { myFunction = e.target.value; renderApplications(name); });
   }
   let appsOpen = typeof window === 'undefined' || window.innerWidth >= 760;
+  // Held for the session only. Nothing is stored, so this resets on reload like the data does.
+  let myIndustry = '', myFunction = '';
+  const optionsFor = (list, chosen) => '<option value="">Any</option>' +
+    list.map(([k, label]) => '<option value="' + k + '"' + (k === chosen ? ' selected' : '') + '>' + h(label) + '</option>').join('');
+  const labelOf = (list, k) => (list.find(x => x[0] === k) || [, ''])[1];
+
+  // The same technique, narrowed to the reader's own world.
+  function tailoredHtml(tool) {
+    const A = window.MLApplications, t = A.TAILORED && A.TAILORED[tool];
+    if (!t || (!myIndustry && !myFunction)) return '';
+    const cards = [];
+    if (myIndustry && t.industries[myIndustry]) cards.push(['In ' + labelOf(A.INDUSTRIES, myIndustry), t.industries[myIndustry]]);
+    if (myFunction && t.functions[myFunction]) cards.push(['For ' + labelOf(A.FUNCTIONS, myFunction), t.functions[myFunction]]);
+    if (!cards.length) return '';
+    return '<div class="apps-mine">' + cards.map(c => '<div class="mine"><h4>' + h(c[0]) + '</h4><p>' + h(c[1]) + '</p></div>').join('') + '</div>';
+  }
   const TOOL_NAMES = Object.keys(TOOLS);
   function showTool(name, push) {
     if (!TOOL_NAMES.includes(name)) name = 'analyze';

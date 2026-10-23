@@ -973,6 +973,27 @@ test('every tool has an applications write-up, and none of it overclaims', () =>
   }
   // The panel must carry the caveat, not just the data file.
   assert.ok(/not a claim about what this page reads/.test(app), 'the panel must print the scope caveat, not just carry it in the data file');
+  /* The tailored examples must cover every industry and function offered, for every
+     technique. A missing combination shows the reader an empty panel, which is worse than
+     not offering the choice. */
+  const { INDUSTRIES, FUNCTIONS, TAILORED } = apps;
+  assert.ok(INDUSTRIES.length >= 8 && FUNCTIONS.length >= 6);
+  for (const t of tools) {
+    assert.ok(TAILORED[t], 'no tailored examples for ' + t);
+    for (const [key, label] of INDUSTRIES) {
+      const line = TAILORED[t].industries[key];
+      assert.ok(line && line.length > 60, t + ' has nothing for ' + label);
+      assert.ok((line.match(/,/g) || []).length >= 2, t + '/' + label + ' should read as a list of uses');
+    }
+    for (const [key, label] of FUNCTIONS) {
+      const line = TAILORED[t].functions[key];
+      assert.ok(line && line.length > 50, t + ' has nothing for ' + label);
+    }
+  }
+  // Every industry and function the data offers must also be a real option in the page.
+  assert.ok(/apps-industry/.test(app) && /apps-function/.test(app), 'the panel must offer both pickers');
+  assert.ok(/Nothing is stored/.test(app), 'the choice must be documented as session-only');
+
   // The selector is named by technology, not by one industry's use case.
   for (const bad of ['Chromatography', 'Bioreactor', 'Densitometer']) assert.ok(!new RegExp('<option[^>]*>[^<]*' + bad).test(html), 'selector should not name a specific application: ' + bad);
 });

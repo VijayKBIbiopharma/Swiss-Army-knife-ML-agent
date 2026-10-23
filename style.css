@@ -571,3 +571,15 @@ details.advanced > summary { cursor: pointer; font-size: .88rem; font-weight: 60
 .apps-note { font-size: .82rem; line-height: 1.55; color: var(--muted); margin: 12px 0 0; padding-left: 10px; border-left: 2px solid var(--line); }
 .apps-note b { color: var(--ink); }
 @media print { .applications { display: none; } }
+.apps-pick { display: flex; gap: 14px; flex-wrap: wrap; margin: 0 0 12px; }
+.apps-pick label { font-size: .8rem; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.apps-pick select { width: auto; min-width: 150px; font-size: .85rem; padding: 5px 8px; }
+.apps-mine { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.mine { background: var(--info-bg); border-left: 3px solid var(--steel); border-radius: 0 10px 10px 0; padding: 10px 12px; }
+.mine h4 { margin: 0 0 3px; font-size: .82rem; color: var(--steel); }
+.mine p { margin: 0; font-size: .85rem; line-height: 1.5; color: var(--ink); }
+@media (max-width: 520px) {
+  .apps-pick { display: grid; grid-template-columns: 1fr; gap: 8px; }
+  .apps-pick label { display: grid; gap: 3px; }
+  .apps-pick select { width: 100%; min-width: 0; }
+}
