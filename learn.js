@@ -1005,11 +1005,16 @@
         b += '<rect class="region-c2" fill-opacity=".10" x="' + f.sx(0) + '" y="' + f.sy(LSL) + '" width="' + (f.sx(xMax) - f.sx(0)) + '" height="' + (f.sy(93) - f.sy(LSL)) + '"/>';
         b += '<line class="ref" x1="' + f.sx(0) + '" x2="' + f.sx(xMax) + '" y1="' + f.sy(LSL) + '" y2="' + f.sy(LSL) + '"/><text class="lbl-strong" x="' + (f.sx(xMax) - 4) + '" y="' + (f.sy(LSL) - 5) + '" text-anchor="end">Specification 95.0</text>';
         const xs = range(97).map(i => i * xMax / 96);
-        b += '<path class="curve" d="' + pathOf(xs.map(x => [x, c.fit(x)]), f) + '"/>';
-        b += '<path class="curve alt" d="' + pathOf(xs.map(x => [x, Math.max(93, c.lower(x))]), f) + '"/>';
+        const inside = fn => xs.map(x => [x, fn(x)]).filter(pt => pt[1] >= 93 && pt[1] <= 100.5);
+        b += '<path class="curve" d="' + pathOf(inside(c.fit), f) + '"/>';
+        b += '<path class="curve alt" d="' + pathOf(inside(c.lower), f) + '"/>';
         rows.forEach(p => { b += dot(f.sx(p.time), f.sy(p.y), 'pt', 4.5); });
-        [[r.shelfLife, 'target-line'], [Math.min(xMax, trueCross), 'data-end']].forEach(([x, cls]) => {
-          if (x <= xMax) b += '<line class="' + cls + '" x1="' + f.sx(x) + '" x2="' + f.sx(x) + '" y1="' + f.sy(100.5) + '" y2="' + f.sy(93) + '"/>';
+        // Two verticals, labelled at different heights so they never collide.
+        [[r.shelfLife, 'target-line', 'shelf life you can defend', 10], [trueCross, 'ref', 'where the fitted line crosses', 26]].forEach(([x, cls, lab, dy]) => {
+          if (x > xMax) return;
+          const anchor = f.sx(x) > f.W * 0.62 ? 'end' : 'start';
+          b += '<line class="' + cls + '" x1="' + f.sx(x) + '" x2="' + f.sx(x) + '" y1="' + f.sy(100.5) + '" y2="' + f.sy(93) + '"/>' +
+            '<text x="' + (f.sx(x) + (anchor === 'end' ? -5 : 5)) + '" y="' + (f.sy(100.5) + dy) + '" text-anchor="' + anchor + '">' + lab + ': ' + fmt(x) + '</text>';
         });
         q(el, 'plot').innerHTML = svg(640, 300, 'Shelf life from the confidence limit', b) +
           C.legend([{ label: 'fitted trend', cls: 'pt' }, { label: '95% lower confidence limit', cls: 'pt s2' }]);
