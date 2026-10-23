@@ -7,6 +7,11 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Have `demo-data/` open in a file window, ready to drag.
 - Optional: switch Wi-Fi off. Everything below still works, which is the strongest privacy proof you can give.
 
+## 0b. The selector, for a mixed audience (30 seconds)
+- The selector names the **technique**, not one department's use of it, and **Where this is used** underneath lists four or five areas across industries for whatever is selected.
+- Useful when the room is not all from one function: flick through the techniques and let people find their own problem in the list before any data is loaded.
+- Say the caveat out loud once: *"These are uses of the method across industry. This page reads tables, and DNA sequences in the optimizer. It does not read images, audio or free text."*
+
 ## 1. Privacy first (1 minute)
 - Point to the green badge: "Private: data never leaves this browser".
 - Scroll to **How your data stays private** and press **Run privacy self-test**. The page tries to contact an outside server and the browser blocks it.

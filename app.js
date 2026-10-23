@@ -1217,17 +1217,38 @@
      keeps growing and tabs stop fitting; each panel wraps whole sections, so the sections
      keep their own hidden logic (step 2 appears once data is loaded, and so on) untouched. */
   const TOOLS = {
-    analyze: 'Drop in a table and the agent picks the model, names the drivers, and designs your next experiment.',
-    stability: 'Fit a stability study, test whether the batches pool, and read the shelf life off the confidence limit.',
-    equivalence: 'Show that a new lab, instrument or analyst agrees with the old one, within a margin you declare.',
-    sequence: 'Evolve synonymous codons for your host: same protein, better spelling, no restriction sites.',
+    analyze: 'Regression, classification, clustering and neural networks on a table of data, with the drivers named in plain English and the next experiment designed for you.',
+    stability: 'Fit a trend against time, test whether batches may be pooled, and take the date off the confidence limit rather than the fitted line.',
+    equivalence: 'Two one-sided tests: show that a new lab, instrument or supplier agrees with the old one, within a margin you declare first.',
+    sequence: 'A genetic algorithm searching several competing objectives at once, pointed here at codon optimization.',
     privacy: 'How the tool keeps your data on your own device, and how to check that for yourself.'
   };
+
+  /* Under the selector: what the chosen technique is used for across industries, so the
+     page can be shown to people who know the problem but not the method. The write-ups are
+     about the technique in general, and each one states what this page actually reads, so
+     nobody leaves thinking it does computer vision. */
+  function renderApplications(name) {
+    const a = window.MLApplications && window.MLApplications[name];
+    const el = $('tool-apps');
+    if (!a) { el.innerHTML = ''; el.hidden = true; return; }
+    el.hidden = false;
+    const uses = a.groups.filter(g => !g.note), notes = a.groups.filter(g => g.note);
+    el.innerHTML = '<details class="applications" id="apps-details"' + (appsOpen ? ' open' : '') + '>' +
+      '<summary><b>Where this is used</b><span class="hint">' + h(a.tech) + '</span></summary>' +
+      '<div class="apps-body"><p class="apps-scope">' + h(a.scope) + ' The uses below are the technique across industries, not a claim about what this page reads.</p>' +
+      '<div class="apps-grid">' + uses.map(g => '<div class="use"><h4>' + h(g.name) + '</h4><p>' + h(g.text) + '</p></div>').join('') + '</div>' +
+      notes.map(g => '<p class="apps-note"><b>' + h(g.name) + '.</b> ' + h(g.text) + '</p>').join('') +
+      '</div></details>';
+    $('apps-details').addEventListener('toggle', e => { appsOpen = e.target.open; });
+  }
+  let appsOpen = typeof window === 'undefined' || window.innerWidth >= 760;
   const TOOL_NAMES = Object.keys(TOOLS);
   function showTool(name, push) {
     if (!TOOL_NAMES.includes(name)) name = 'analyze';
     if ($('tool').value !== name) $('tool').value = name;
     $('tool-desc').textContent = TOOLS[name];
+    renderApplications(name);
     TOOL_NAMES.forEach(n => { $('tab-' + n).hidden = n !== name; });
     // A link can be shared or bookmarked straight to one tool.
     if (push && location.hash.slice(1) !== name) history.replaceState(null, '', '#' + name);

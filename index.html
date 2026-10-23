@@ -33,15 +33,17 @@
     <div class="wrap toolbar-row">
       <label for="tool">What do you want to do?</label>
       <select id="tool">
-        <option value="analyze">Analyze data &mdash; models, drivers, what-if, DOE</option>
-        <option value="stability">Shelf life &mdash; ICH Q1E stability study</option>
-        <option value="equivalence">Method transfer &mdash; TOST equivalence test</option>
-        <option value="sequence">Sequence optimizer &mdash; codon optimization</option>
-        <option value="privacy">How your data stays private</option>
+        <option value="analyze">Machine learning &amp; design of experiments</option>
+        <option value="stability">Linear regression &amp; confidence limits (ICH Q1E)</option>
+        <option value="equivalence">Equivalence &amp; non-inferiority testing (TOST)</option>
+        <option value="sequence">Genetic algorithms &amp; multi-objective optimization</option>
+        <option value="privacy">Privacy &amp; data handling</option>
       </select>
       <p class="tool-desc" id="tool-desc" aria-live="polite"></p>
     </div>
   </div>
+
+  <section class="wrap" id="tool-apps"></section>
 
   <div class="tabpanel" id="tab-analyze" role="tabpanel" aria-labelledby="tab-btn-analyze">
   <section class="hero">
@@ -526,6 +528,7 @@
 <script src="audit.js"></script>
 <script src="agent.js"></script>
 <script src="samples.js"></script>
+<script src="applications.js"></script>
 <script src="stability.js"></script>
 <script src="codon.js"></script>
 <script src="ga.js"></script>

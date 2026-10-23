@@ -946,3 +946,33 @@ test('equivalence input is checked before anything is tested', () => {
   assert.strictEqual(r.refStats.n + r.testStats.n, ok.length);
   assert.ok(r.refStats.mean > 90, 'a blank result must never be read as zero');
 });
+
+test('every tool has an applications write-up, and none of it overclaims', () => {
+  const apps = require(path.join(ROOT, 'applications.js'));
+  const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  // Every selectable tool but the privacy page must have one.
+  // Only the tool selector's own options, not every <option> on the page.
+  const selector = (html.match(/<select id="tool">([\s\S]*?)<\/select>/) || [])[1] || '';
+  assert.ok(selector, 'the tool selector should be findable');
+  const tools = [...selector.matchAll(/<option value="([a-z]+)"/g)].map(m => m[1]).filter(t => t !== 'privacy');
+  assert.ok(tools.length >= 4, tools.join(','));
+  for (const t of tools) {
+    assert.ok(apps[t], 'no applications entry for ' + t);
+    assert.ok(apps[t].tech && apps[t].scope, t + ' needs a technology name and a scope line');
+    assert.ok(apps[t].groups.length >= 4, t + ' has only ' + apps[t].groups.length + ' areas');
+    assert.ok(apps[t].groups.filter(g => !g.note).length >= 4, t + ' needs at least four application areas');
+    for (const g of apps[t].groups) {
+      assert.ok(g.name && g.text.length > 80, t + ': "' + g.name + '" is too thin');
+      // Application paragraphs read as comma-separated lists of uses, which is what makes
+      // them scannable. A paragraph flagged as a note is a closing remark and is exempt.
+      if (!g.note) assert.ok((g.text.match(/,/g) || []).length >= 3, t + ': "' + g.name + '" should read as a comma-separated list of uses');
+    }
+    // The scope line is what stops a reader assuming the page takes images or audio.
+    assert.ok(/In this tool:/.test(apps[t].scope), t + ': the scope line must say what this page actually reads');
+  }
+  // The panel must carry the caveat, not just the data file.
+  assert.ok(/not a claim about what this page reads/.test(app), 'the panel must print the scope caveat, not just carry it in the data file');
+  // The selector is named by technology, not by one industry's use case.
+  for (const bad of ['Chromatography', 'Bioreactor', 'Densitometer']) assert.ok(!new RegExp('<option[^>]*>[^<]*' + bad).test(html), 'selector should not name a specific application: ' + bad);
+});

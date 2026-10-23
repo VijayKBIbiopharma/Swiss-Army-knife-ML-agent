@@ -553,3 +553,21 @@ details.advanced > summary { cursor: pointer; font-size: .88rem; font-weight: 60
 .two-up .side h4 { margin: 0 0 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .two-up .side textarea, .two-up .side input[type=text] { width: 100%; }
 .two-up .side .controls { margin-top: 8px; }
+
+/* "Where this is used" panel */
+#tool-apps { padding-top: 14px; }
+.applications { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.applications > summary { cursor: pointer; list-style: none; display: flex; align-items: baseline; gap: 4px 10px; flex-wrap: wrap; padding: 11px 38px 11px 16px; position: relative; }
+.applications > summary::-webkit-details-marker { display: none; }
+.applications > summary::after { content: '\25b8'; position: absolute; right: 16px; top: 11px; color: var(--muted); }
+.applications[open] > summary::after { content: '\25be'; }
+.applications > summary .hint { margin: 0; font-size: .8rem; }
+.apps-body { padding: 0 16px 14px; }
+.apps-scope { font-size: .82rem; color: var(--muted); margin: 0 0 12px; }
+.apps-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.use { background: var(--surface-2); border-radius: 10px; padding: 10px 12px; }
+.use h4 { margin: 0 0 3px; font-size: .82rem; letter-spacing: .01em; color: var(--steel); }
+.use p { margin: 0; font-size: .83rem; line-height: 1.5; color: var(--ink); }
+.apps-note { font-size: .82rem; line-height: 1.55; color: var(--muted); margin: 12px 0 0; padding-left: 10px; border-left: 2px solid var(--line); }
+.apps-note b { color: var(--ink); }
+@media print { .applications { display: none; } }

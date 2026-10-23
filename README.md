@@ -2,7 +2,9 @@
 
 One private, in-browser tool for regression, classification, clustering, design of experiments (DOE), shelf-life estimation, method-transfer equivalence and sequence optimization, with a built-in academy that teaches every method.
 
-One tool is on screen at a time. A selector at the top (**What do you want to do?**) switches between **Analyze data**, **Shelf life (ICH Q1E)**, **Method transfer (TOST)**, **Sequence optimizer** and **Privacy**, and each is linkable directly (`#stability`, `#equivalence`, `#sequence`). Inside each tool, panels open only when they earn their place: the practice datasets while nothing is loaded, the settings once there is something to set them for, the DOE builder when the agent has filled it in.
+One tool is on screen at a time, and the selector at the top names the **technique**, not one industry's use of it: **Machine learning & design of experiments**, **Linear regression & confidence limits (ICH Q1E)**, **Equivalence & non-inferiority testing (TOST)**, **Genetic algorithms & multi-objective optimization**, and **Privacy & data handling**. Each is linkable directly (`#stability`, `#equivalence`, `#sequence`).
+
+Under the selector, a **Where this is used** panel names what the chosen technique is used for across industries and functions &mdash; four or five short areas, each a comma-separated list. It opens by default on a desktop and stays folded on a phone, and it states plainly that it describes the technique in general, not what this page can read, so nobody leaves a demo thinking the tool does computer vision. Inside each tool, panels open only when they earn their place: the practice datasets while nothing is loaded, the settings once there is something to set them for, the DOE builder when the agent has filled it in.
 
 Drop in a CSV and it:
 
@@ -81,6 +83,7 @@ node --test tests/run-tests.js
 | `spc.js` | Six Sigma statistics: capability, I-MR, box plots, Taguchi S/N, DPMO |
 | `merge.js` | Joining two files on a key, with replicate averaging |
 | `audit.js` | SHA-256, zip and Excel writers, audit trail and results workbook |
+| `applications.js` | Where each technique is used across industries (content for the selector panel) |
 | `stability.js` | ICH Q1E: regression, poolability F tests, confidence limits, shelf life |
 | `tost.js` | Equivalence testing: two one-sided tests, paired and unpaired |
 | `tost-ui.js` | Method-transfer panel: interval-against-margin chart, result strip, report |
