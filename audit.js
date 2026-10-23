@@ -164,6 +164,11 @@
       analysis.push(['Selection rule', 'Highest cross-validated score; among models within 0.01 of it, the simplest']);
     }
     if (o.sixSigma) analysis.push(['Six Sigma mode', 'LSL ' + (o.sixSigma.lsl ?? '–') + ', USL ' + (o.sixSigma.usl ?? '–') + ', target ' + (o.sixSigma.target ?? '–') + ', rows in time order: ' + yes(o.sixSigma.timeOrdered !== false)]);
+    if (ctx.stability) {
+      const st = ctx.stability;
+      analysis.push(['Shelf life (ICH Q1E)', 'Reported ' + st.reported.toFixed(2) + ' months (statistical ' + st.shelfLife.toFixed(2) + (st.capped ? ', capped by the extrapolation rule' : '') + ')']);
+      analysis.push(['Shelf-life basis', st.modelLabel + '; ' + Math.round(st.confidence * 100) + '% one-sided limit against ' + (st.lsl !== null ? 'LSL ' + st.lsl : '') + (st.lsl !== null && st.usl !== null ? ' and ' : '') + (st.usl !== null ? 'USL ' + st.usl : '') + '; pooling tested at ' + st.poolAlpha + '; limiting batch ' + st.limiting]);
+    }
     if (rep.desirability) analysis.push(['Multi-result optimization', rep.desirability.specs.map(sp => sp.name + ' ' + sp.goal + ' [' + sp.low + ', ' + sp.high + ']' + (sp.target !== null ? ' target ' + sp.target : '') + ' weight ' + sp.weight).join('; ')]);
     S.push({ title: 'Analysis settings', rows: analysis });
     S.push({ title: 'Agent log', rows: (rep.log || []).map((l, i) => [String(i + 1), l.text]) });
@@ -219,6 +224,21 @@
       out.push({ name: 'Desirability', rows });
     }
     if (rep.doe) out.push({ name: 'DOE effects', rows: [['Term', 'Effect (low to high)', 'Coefficient', 'Std error', 't', 'p']].concat(rep.doe.effects.map(e => [e.name, r4(e.effect), r4(e.coef), r4(e.se), r4(e.t), r4(e.p)])) });
+    if (ctx.stability) {
+      const st = ctx.stability;
+      const rows = [['Item', 'Value'], ['Run at', st.when], ['Model used', st.modelLabel], ['Reason', st.why],
+        ['Time column', st.columns.time], ['Batch column', st.columns.batch], ['Result column', st.columns.result],
+        ['Storage condition kept', st.columns.conditionValue || 'all rows'],
+        ['Lower specification limit', st.lsl === null ? '' : st.lsl], ['Upper specification limit', st.usl === null ? '' : st.usl],
+        ['Attribute direction', st.direction], ['Confidence', Math.round(st.confidence * 100) + '% one-sided'], ['Poolability level', st.poolAlpha],
+        ['Measurements', st.measurements], ['Months of data', st.maxTime], ['Q1E extrapolation cap', st.allowed],
+        ['Limiting batch', st.limiting], ['Shelf life (statistical)', r4(st.shelfLife)], ['Shelf life (reported)', r4(st.reported)], [],
+        ['Poolability test', 'F', 'df1', 'df2', 'p', 'Outcome']];
+      st.tests.forEach(t => rows.push([t.name, r4(t.f), t.df1, t.df2, r4(t.p), t.pass ? 'may be pooled' : 'kept separate']));
+      rows.push([], ['Batch', 'Points', 'First month', 'Last month', 'Slope per month', 'Value at t=0', 'R2', 'Shelf life alone']);
+      st.batches.forEach(b => rows.push([b.name, b.n, r4(b.first), r4(b.last), r4(b.slope), r4(b.intercept), r4(b.r2), r4(b.alone)]));
+      out.push({ name: 'Shelf life', rows });
+    }
     if (ctx.scenarios && ctx.scenarios.rows.length) out.push({ name: 'What-if scenarios', rows: [ctx.scenarios.header].concat(ctx.scenarios.rows) });
     if (ctx.design) out.push({ name: 'DOE run sheet', rows: [['RunOrder', 'StdOrder'].concat(ctx.design.factors.map(f => f.name), [ctx.design.response])].concat(ctx.design.design.runs.map(r => [r.run, r.std].concat(r.actual.map(v => (typeof v === 'number' ? v : isFinite(Number(v)) && v !== '' ? Number(v) : v)), ['']))) });
     if (ctx.table && ctx.table.rows.length <= 50000) out.push({ name: 'Data analyzed', rows: [ctx.table.columns].concat(ctx.table.rows.map(r => r.map(v => (v !== '' && v !== null && isFinite(Number(v)) && String(v).trim() !== '' ? Number(v) : v)))) });

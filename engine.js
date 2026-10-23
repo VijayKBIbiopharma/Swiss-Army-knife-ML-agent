@@ -1038,7 +1038,7 @@
   }
 
   root.MLEngine = {
-    rng, shuffle, range, mean, sd, variance, quantile, median, pearson, tTestP, invert, gram,
+    rng, shuffle, range, mean, sd, variance, quantile, median, pearson, tTestP, ibeta, invert, gram,
     parseCSV, profile, isUsableFeature, toNumber, fitEncoder, fitRidgeCore, fitLasso, buildTree, mlpTrainer,
     MODELS, makeFolds, crossValidate, fitFull, regressionMetrics, classificationMetrics,
     supervisedData, permutationImportance, partialDependence, pickProb, treePredictRow, kmeans, silhouette, pca

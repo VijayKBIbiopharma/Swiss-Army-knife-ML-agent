@@ -1097,7 +1097,7 @@
     const header = ['Scenario'].concat(sim.drivers.map(d => d.name), [rep.task === 'classification' ? 'Chance of ' + A.classLabel(rep) : 'Predicted ' + rep.target], rep.desirability ? ['Overall D'] : []);
     return { header, rows: rows.map(r => [r.name].concat(sim.drivers.map(d => r.values[d.name]), [Number(r.score.toPrecision(6))], rep.desirability ? [Number(r.D.toPrecision(4))] : [])) };
   }
-  const auditContext = () => ({ sources: state.sources, merge: state.merge, options: state.runOptions, when: state.runAt, scenarios: scenarioTable(), design: state.design, table: state.table });
+  const auditContext = () => ({ sources: state.sources, merge: state.merge, options: state.runOptions, when: state.runAt, scenarios: scenarioTable(), design: state.design, table: state.table, stability: window.MLStabilityRun });
   const workbook = rep => AU.xlsx(AU.sheets(rep, auditContext()), { title: 'ML Agent results: ' + state.name });
   function saveExcel() {
     const rep = state.report; if (!rep) return;
@@ -1177,6 +1177,7 @@
     state.sources = []; state.merge = state.pending = state.original = state.roleTarget = state.multiRows = state.runOptions = state.runAt = null;
     resetMerge(); $('m-preview').textContent = ''; $('m-result').innerHTML = ''; $('multi-table').innerHTML = ''; $('multi').open = false;
     if (window.MLSeq) window.MLSeq.clear();
+    if (window.MLStab) window.MLStab.clear();
     $('sim').innerHTML = ''; $('sim').hidden = true;
     $('paste').value = ''; $('file').value = '';
     ['setup', 'results', 'next', 'progress'].forEach(id => { $(id).hidden = true; });
@@ -1200,7 +1201,26 @@
   }
 
   // ---------- Wiring ----------
+  /* Top-level tabs. Each panel is a wrapper around whole sections, so the sections keep
+     their own hidden logic (step 2 appears once data is loaded, and so on) untouched. */
+  const TABS = ['analyze', 'stability', 'sequence', 'privacy'];
+  function showTab(name) {
+    if (!TABS.includes(name)) name = 'analyze';
+    document.querySelectorAll('#tabs .tab').forEach(t => {
+      const on = t.getAttribute('data-tab') === name;
+      t.setAttribute('aria-selected', String(on));
+      t.classList.toggle('on', on);
+    });
+    TABS.forEach(n => { $('tab-' + n).hidden = n !== name; });
+  }
+  function initTabs() {
+    document.querySelectorAll('#tabs .tab').forEach(t => t.addEventListener('click', () => { showTab(t.getAttribute('data-tab')); window.scrollTo({ top: 0, behavior: 'smooth' }); }));
+    document.querySelectorAll('[data-tab-link]').forEach(a => a.addEventListener('click', () => showTab(a.getAttribute('data-tab-link'))));
+    showTab('analyze');
+  }
+
   function init() {
+    initTabs();
     C.bindTips($('tip'));
     $('samples').innerHTML = window.MLSamples.map(s => '<button type="button" class="sample" data-sample="' + s.id + '"><span class="k">' + h(s.kind) + '</span><b>' + h(s.title) + '</b><span>' + h(s.blurb) + '</span></button>').join('');
     $('samples').addEventListener('click', e => {

@@ -24,11 +24,19 @@
       <a href="learn.html" target="_blank" rel="noopener noreferrer">Learn the concepts</a>
       <button class="btn danger small" id="delete-top" type="button" hidden>Delete my data</button>
     </nav>
-    <a class="lock" href="#privacy"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 7V5a4 4 0 1 1 8 0v2h1v8H3V7h1zm2 0h4V5a2 2 0 1 0-4 0v2z"/></svg>Private: data never leaves this browser</a>
+    <a class="lock" href="#privacy" data-tab-link="privacy"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 7V5a4 4 0 1 1 8 0v2h1v8H3V7h1zm2 0h4V5a2 2 0 1 0-4 0v2z"/></svg>Private: data never leaves this browser</a>
   </div>
 </header>
 
 <main id="main">
+  <nav class="tabs" id="tabs" role="tablist" aria-label="Tools">
+    <button class="tab" role="tab" id="tab-btn-analyze" aria-controls="tab-analyze" aria-selected="true" type="button" data-tab="analyze">Analyze data</button>
+    <button class="tab" role="tab" id="tab-btn-stability" aria-controls="tab-stability" aria-selected="false" type="button" data-tab="stability">Shelf life (ICH Q1E)</button>
+    <button class="tab" role="tab" id="tab-btn-sequence" aria-controls="tab-sequence" aria-selected="false" type="button" data-tab="sequence">Sequence optimizer</button>
+    <button class="tab" role="tab" id="tab-btn-privacy" aria-controls="tab-privacy" aria-selected="false" type="button" data-tab="privacy">Privacy</button>
+  </nav>
+
+  <div class="tabpanel" id="tab-analyze" role="tabpanel" aria-labelledby="tab-btn-analyze">
   <section class="hero">
     <div class="wrap">
       <p class="eyebrow">Supervised · unsupervised · regression · classification · DOE</p>
@@ -198,9 +206,82 @@
       <div id="design-out"></div>
     </div>
   </section>
+  </div>
 
+  <div class="tabpanel" id="tab-stability" role="tabpanel" aria-labelledby="tab-btn-stability" hidden>
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow">ICH Q1E &middot; stability &middot; shelf life</p>
+      <h1>How long does it stay in specification?</h1>
+      <p class="lede">Paste your stability study and it fits the trend, tests whether the batches may be pooled, and reads the shelf life off the point where the 95% confidence limit meets your specification &mdash; the way ICH Q1E asks for it. Everything runs on your device.</p>
+    </div>
+  </section>
+
+  <section class="wrap step" id="stab">
+    <div class="step-head"><h2>Stability data</h2></div>
+    <div class="card">
+      <p class="summary">One row per measurement: a batch, a time point in months, and the result. Paste it, drop a CSV on it, or try the example. <a class="learn-link" href="learn.html#shelf-life" target="_blank" rel="noopener noreferrer">Learn how this works &#8599;</a></p>
+      <div class="row-actions">
+        <button class="btn ghost small" id="stab-sample" type="button">Load an example study</button>
+        <button class="btn ghost small" id="stab-sample2" type="button">Example: batches that differ</button>
+        <button class="btn ghost small" id="stab-clear" type="button">Clear</button>
+      </div>
+      <label class="full" for="stab-data">Stability data (CSV or tab separated, with a header row)</label>
+      <textarea id="stab-data" rows="6" spellcheck="false" placeholder="BatchID,Month,Purity_Pct&#10;B-001,0,99.4&#10;B-001,3,99.1&#10;B-001,6,98.7"></textarea>
+      <input type="file" id="stab-file" accept=".csv,.tsv,.txt" class="file-input">
+      <p class="hint" id="stab-read" aria-live="polite"></p>
+      <div class="controls" id="stab-map" hidden>
+        <label>Time column (months)
+          <select id="stab-time"></select>
+        </label>
+        <label>Batch column
+          <select id="stab-batch"></select>
+        </label>
+        <label>Result column
+          <select id="stab-y"></select>
+        </label>
+        <label>Storage condition (optional)
+          <select id="stab-cond"></select>
+        </label>
+        <label>Only this condition
+          <select id="stab-cond-value"></select>
+        </label>
+      </div>
+      <div class="controls">
+        <label>Lower specification limit
+          <input id="stab-lsl" type="number" step="any" placeholder="e.g. 95">
+        </label>
+        <label>Upper specification limit
+          <input id="stab-usl" type="number" step="any" placeholder="e.g. 5">
+        </label>
+        <label>What the attribute does
+          <select id="stab-dir">
+            <option value="auto">Decide from the data</option>
+            <option value="decreasing">Falls over time (watch the lower limit)</option>
+            <option value="increasing">Rises over time (watch the upper limit)</option>
+            <option value="both">Could go either way (watch both)</option>
+          </select>
+        </label>
+        <label>Pooling test level
+          <select id="stab-alpha">
+            <option value="0.25" selected>0.25 (ICH Q1E)</option>
+            <option value="0.10">0.10</option>
+            <option value="0.05">0.05</option>
+          </select>
+        </label>
+      </div>
+      <div class="row-actions">
+        <button class="btn primary" id="stab-run" type="button">Estimate the shelf life</button>
+      </div>
+      <p class="error" id="stab-error" role="alert" hidden></p>
+      <div id="stab-out"></div>
+    </div>
+  </section>
+  </div>
+
+  <div class="tabpanel" id="tab-sequence" role="tabpanel" aria-labelledby="tab-btn-sequence" hidden>
   <section class="wrap step" id="seq">
-    <div class="step-head"><span class="num">6</span><h2>Sequence optimizer</h2></div>
+    <div class="step-head"><h2>Sequence optimizer</h2></div>
     <div class="card">
       <p class="summary">Codon optimization by genetic algorithm. Paste a coding DNA sequence and it evolves synonymous codons &mdash; same protein, different spelling &mdash; to raise the <b>Codon Adaptation Index</b> for your host, hold <b>GC content</b> inside its window, keep the <b>5' end unfolded</b>, and remove <b>restriction sites</b>. It runs in a background thread, so the page stays responsive. <a class="learn-link" href="learn.html#codon-optimization" target="_blank" rel="noopener noreferrer">Learn how this works &#8599;</a></p>
       <div class="row-actions">
@@ -262,7 +343,9 @@
       <div id="seq-out"></div>
     </div>
   </section>
+  </div>
 
+  <div class="tabpanel" id="tab-privacy" role="tabpanel" aria-labelledby="tab-btn-privacy" hidden>
   <section class="wrap step privacy" id="privacy">
     <div class="step-head"><span class="num lock-num" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M4 7V5a4 4 0 1 1 8 0v2h1v8H3V7h1zm2 0h4V5a2 2 0 1 0-4 0v2z"/></svg></span><h2>How your data stays private</h2></div>
     <div class="privacy-grid">
@@ -288,6 +371,7 @@
       </div>
     </div>
   </section>
+  </div>
 </main>
 
 <footer class="foot">
@@ -304,12 +388,14 @@
 <script src="audit.js"></script>
 <script src="agent.js"></script>
 <script src="samples.js"></script>
+<script src="stability.js"></script>
 <script src="codon.js"></script>
 <script src="ga.js"></script>
 <script src="charts.js"></script>
 <script src="explain.js"></script>
 <script src="pdf.js"></script>
 <script src="app.js"></script>
+<script src="stab.js"></script>
 <script src="seq.js"></script>
 </body>
 </html>

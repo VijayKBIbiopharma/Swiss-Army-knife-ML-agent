@@ -682,3 +682,141 @@ test('the optimizer never silently keeps a forbidden site it cannot remove', () 
   assert.strictEqual(res.after.violations, 1, 'the impossible site is still reported, not hidden');
   assert.strictEqual(CD.translate(res.dna), CD.translate(dna));
 });
+
+const ST = require(path.join(ROOT, 'stability.js'));
+const stabRows = (specs, noise, seed, times) => {
+  const r = E.rng(seed), out = [];
+  for (const s of specs) for (const t of (times || [0, 3, 6, 9, 12, 18, 24])) out.push({ batch: s.b, time: t, y: s.i + s.m * t + (r() - 0.5) * (noise || 0) });
+  return out;
+};
+
+test('F and t distributions match published tables', () => {
+  // F(0.05; 3, 10) = 3.708; F(0.025; 4, 12) = 4.121; t(0.95; 10) = 1.8125; t(0.975; 20) = 2.0860
+  assert.ok(Math.abs(ST.fTestP(3.708, 3, 10) - 0.05) < 1e-4);
+  assert.ok(Math.abs(ST.fTestP(4.121, 4, 12) - 0.025) < 1e-4);
+  assert.ok(Math.abs(ST.tQuantile(0.05, 10) - 1.8125) < 1e-4);
+  assert.ok(Math.abs(ST.tQuantile(0.025, 20) - 2.0860) < 1e-4);
+  assert.strictEqual(ST.fTestP(0, 1, 1), 1);
+});
+
+test('shelf life: a noiseless line crosses the spec exactly where algebra says', () => {
+  // 100 - 0.5t meets 95 at t = 10. With no scatter the confidence limit is the line itself.
+  const rows = [0, 3, 6, 9, 12, 18].map(t => ({ batch: 'B1', time: t, y: 100 - 0.5 * t }));
+  const r = ST.analyze(rows, { lsl: 95, direction: 'decreasing' });
+  assert.ok(Math.abs(r.curves[0].slope + 0.5) < 1e-9);
+  assert.ok(Math.abs(r.shelfLife - 10) < 1e-6, 'shelf life ' + r.shelfLife);
+  // An impurity rising to an upper limit is the mirror image.
+  const imp = [0, 3, 6, 9, 12].map(t => ({ batch: 'B1', time: t, y: 0.5 + 0.25 * t }));
+  assert.ok(Math.abs(ST.analyze(imp, { usl: 5, direction: 'increasing' }).shelfLife - 18) < 1e-6);
+});
+
+test('the confidence limit is the textbook one, and more scatter shortens the shelf life', () => {
+  const rows = stabRows([{ b: 'B1', i: 100, m: -0.2 }], 1.2, 5);
+  const r = ST.analyze(rows, { lsl: 95, direction: 'decreasing' });
+  const c = r.curves[0];
+  // At the mean time the band is exactly t * s / sqrt(n) wide.
+  const expected = c.fit(c.tBar) - c.tq * c.s / Math.sqrt(c.nB);
+  assert.ok(Math.abs(c.lower(c.tBar) - expected) < 1e-9);
+  assert.ok(c.lower(0) < c.fit(0) && c.upper(0) > c.fit(0));
+  // Away from the mean the band is wider: that is why extrapolation costs shelf life.
+  assert.ok(c.fit(0) - c.lower(0) > c.fit(c.tBar) - c.lower(c.tBar));
+  let previous = Infinity;
+  for (const noise of [0.1, 0.8, 2.5]) {
+    const s = ST.analyze(stabRows([{ b: 'B1', i: 100, m: -0.2 }], noise, 5), { lsl: 95, direction: 'decreasing' }).shelfLife;
+    assert.ok(s < previous, 'noise ' + noise + ' gave ' + s + ', not shorter than ' + previous);
+    previous = s;
+  }
+});
+
+test('ICH Q1E poolability: the three models are chosen for the right reasons', () => {
+  const opt = { lsl: 95, direction: 'decreasing' };
+  const SAME = [{ b: 'A', i: 99.5, m: -0.16 }, { b: 'B', i: 99.45, m: -0.16 }, { b: 'C', i: 99.55, m: -0.16 }];
+  // Same rate, same start, realistic scatter: everything pools into one line.
+  const same = ST.analyze(stabRows(SAME, 0.55, 1), opt);
+  assert.strictEqual(same.model, 'C');
+  assert.strictEqual(same.tests.length, 2);
+  assert.ok(same.tests.every(t => t.pass && t.p >= 0.25));
+
+  /* Q1E's 0.25 level means the slope test wrongly splits identical batches about a quarter
+     of the time, by design. Over twenty studies the rate has to land near that, or the test
+     is not doing what Q1E describes. (Expect ~15 of 20 slope-pooled, ~11 fully pooled.) */
+  let slopesPooled = 0, fullyPooled = 0;
+  for (let seed = 1; seed <= 20; seed++) {
+    const r = ST.analyze(stabRows(SAME, 0.55, seed), opt);
+    if (r.tests[0].pass) slopesPooled++;
+    if (r.model === 'C') fullyPooled++;
+  }
+  assert.ok(slopesPooled >= 10, slopesPooled + ' of 20 pooled on slope, expected about 15');
+  assert.ok(fullyPooled >= 6, fullyPooled + ' of 20 fully pooled, expected about 11');
+  assert.ok(slopesPooled < 20, 'at this level some identical batches must still be split');
+
+  // Same rate, clearly different starting levels: a common slope, separate intercepts.
+  const offset = ST.analyze(stabRows([{ b: 'A', i: 99.5, m: -0.16 }, { b: 'B', i: 97.5, m: -0.16 }, { b: 'C', i: 101, m: -0.16 }], 0.3, 1), opt);
+  assert.strictEqual(offset.model, 'B');
+  assert.ok(offset.tests[0].pass && !offset.tests[1].pass);
+
+  // Clearly different rates: no pooling at all, and the fastest decline decides.
+  const spread = ST.analyze(stabRows([{ b: 'A', i: 99.5, m: -0.09 }, { b: 'B', i: 99.4, m: -0.22 }, { b: 'C', i: 99.5, m: -0.36 }], 0.25, 4), opt);
+  assert.strictEqual(spread.model, 'A');
+  assert.ok(!spread.tests[0].pass && spread.tests[0].p < 0.25);
+  assert.strictEqual(spread.tests.length, 1, 'once slopes differ there is no point testing intercepts');
+  assert.strictEqual(spread.limiting.name, 'C', 'the fastest-degrading batch sets the shelf life');
+  assert.ok(spread.shelfLife <= Math.min.apply(null, spread.batches.map(b => b.alone)) + 1e-6);
+
+  /* The level is a dial on how readily batches are split. Seed 4 is one of the studies that
+     the 0.25 level splits (p 0.073) although the true slopes are identical; at a lower level
+     the same data pools. Q1E chooses 0.25 precisely to err towards splitting, because
+     splitting gives the shorter, more conservative shelf life. */
+  const borderline = stabRows(SAME, 0.55, 4);
+  const atQ1E = ST.analyze(borderline, opt);
+  const atLoose = ST.analyze(borderline, Object.assign({}, opt, { poolAlpha: 0.001 }));
+  assert.strictEqual(atQ1E.model, 'A');
+  assert.strictEqual(atLoose.model, 'C');
+  assert.ok(atQ1E.shelfLife < atLoose.shelfLife, 'splitting must give the shorter shelf life');
+});
+
+test('pooling buys shelf life, and every batch is also reported on its own', () => {
+  const specs = [{ b: 'A', i: 99.5, m: -0.16 }, { b: 'B', i: 99.45, m: -0.16 }, { b: 'C', i: 99.55, m: -0.16 }];
+  const r = ST.analyze(stabRows(specs, 0.55, 1), { lsl: 95, direction: 'decreasing' });
+  assert.strictEqual(r.model, 'C');
+  assert.strictEqual(r.batches.length, 3);
+  // Every batch gets its own estimate whatever the pooling decision, and pooling (three
+  // times the data, so a tighter band) must not come out worse than the best single batch.
+  assert.ok(r.batches.every(b => b.alone !== null && b.alone > 0));
+  assert.ok(r.shelfLife > Math.max.apply(null, r.batches.map(b => b.alone)));
+});
+
+test('Q1E extrapolation cap and out-of-spec data are reported honestly', () => {
+  // Barely any decline over 12 months: the statistics run far past the data.
+  const slow = ST.analyze(stabRows([{ b: 'A', i: 99.9, m: -0.02 }], 0.05, 9, [0, 3, 6, 9, 12]), { lsl: 95, direction: 'decreasing' });
+  assert.ok(slow.shelfLife > slow.allowed, 'statistical ' + slow.shelfLife);
+  assert.strictEqual(slow.allowed, 24, 'twice 12 months, and no more than 12 beyond');
+  assert.strictEqual(slow.reported, 24);
+  assert.ok(slow.capped && slow.extrapolated);
+
+  // Inside the data there is nothing to cap.
+  const fast = ST.analyze(stabRows([{ b: 'A', i: 99.5, m: -0.5 }], 0.1, 9), { lsl: 95, direction: 'decreasing' });
+  assert.ok(!fast.extrapolated && !fast.capped && fast.reported === fast.shelfLife);
+
+  // Material already below the limit on day one gets zero, not a negative number.
+  const bad = ST.analyze([0, 3, 6].map(t => ({ batch: 'A', time: t, y: 94 - 0.2 * t })), { lsl: 95, direction: 'decreasing' });
+  assert.strictEqual(bad.shelfLife, 0);
+  assert.ok(bad.startsOutOfSpec);
+});
+
+test('stability input is checked before anything is fitted', () => {
+  const rows = stabRows([{ b: 'A', i: 99, m: -0.1 }], 0.2, 2);
+  assert.throws(() => ST.analyze(rows, {}), /specification limit/);
+  assert.throws(() => ST.analyze(rows, { lsl: 99, usl: 95 }), /lower limit must be below/);
+  assert.throws(() => ST.analyze([{ batch: 'A', time: 0, y: 1 }], { lsl: 0 }), /at least 3 time points/);
+  assert.throws(() => ST.analyze([0, 1, 2].map(() => ({ batch: 'A', time: 0, y: 99 })), { lsl: 95 }), /only one time point/);
+  /* Rows with no number are dropped rather than poisoning the fit. This matters more than
+     it looks: isFinite(null) and isFinite('') are both true in JavaScript, so a blank result
+     cell would otherwise be fitted as a zero and wreck the slope. */
+  const dirty = rows.concat([{ batch: 'A', time: NaN, y: 99 }, { batch: 'A', time: 6, y: null }, { batch: 'A', time: 9, y: '' }, { batch: 'A', time: null, y: 98 }, { batch: 'A', time: 3, y: 'n/a' }]);
+  const kept = ST.analyze(dirty, { lsl: 95, direction: 'decreasing' });
+  assert.strictEqual(kept.rows.length, rows.length);
+  assert.ok(kept.rows.every(p => p.y > 90), 'a blank result must never be read as zero');
+  // Numbers arriving as text are still numbers.
+  assert.strictEqual(ST.analyze([{ batch: 'A', time: '0', y: '100' }, { batch: 'A', time: '6', y: '98' }, { batch: 'A', time: '12', y: '96' }], { lsl: 95, direction: 'decreasing' }).rows.length, 3);
+});

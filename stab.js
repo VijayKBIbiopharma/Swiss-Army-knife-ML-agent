@@ -1,0 +1,305 @@
+/* Shelf-life panel (ICH Q1E): reads a stability study, runs the poolability tests and the
+   confidence-limit intersection, and draws the result. Nothing is uploaded or stored. */
+(function () {
+  'use strict';
+  const E = window.MLEngine, S = window.MLStability, CH = window.Charts;
+  const $ = id => document.getElementById(id);
+  const h = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const f2 = v => (isFinite(v) ? Number(v).toFixed(2) : '–');
+  const f3 = v => (isFinite(v) ? Number(v).toFixed(3) : '–');
+  const months = v => (v >= 1000 ? 'beyond the search range' : f2(v) + ' months');
+
+  let table = null, last = null;
+
+  function download(name, data, type) {
+    const url = URL.createObjectURL(new Blob([data], { type: type + ';charset=utf-8' }));
+    const a = document.createElement('a'); a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  // ---------- reading the study ----------
+  const TIME = /^(month|months|time|timepoint|time ?point|t|age|interval|study ?month)$/i;
+  const BATCH = /batch|lot|^run$|campaign|drug ?product/i;
+  const COND = /condition|storage|temp|rh|humidity|orientation|package/i;
+  const RESULT = /purity|potency|assay|content|impurit|degrad|related|moisture|dissolution|titer|activity|result|value|%/i;
+
+  function loadText(text) {
+    let t;
+    try { t = E.parseCSV(text); } catch (e) { return fail('Could not read the data: ' + e.message); }
+    if (!t.rows.length || t.columns.length < 2) return fail('No usable rows found. The first row should hold column names.');
+    table = t;
+    const prof = E.profile(t);
+    const numeric = prof.columns.filter(c => c.kind === 'numeric' || c.kind === 'id').map(c => c.name);
+    const guess = (re, from) => from.find(c => re.test(c)) || '';
+    const timeCol = guess(TIME, t.columns) || guess(/month|time|week|day/i, t.columns) || numeric[0] || t.columns[0];
+    const batchCol = guess(BATCH, t.columns) || t.columns[0];
+    const yCol = t.columns.filter(c => c !== timeCol && numeric.includes(c)).find(c => RESULT.test(c)) ||
+      t.columns.filter(c => c !== timeCol && numeric.includes(c)).pop() || '';
+    const condCol = guess(COND, t.columns);
+    const opt = (sel, cols, val, blank) => {
+      $(sel).innerHTML = (blank ? '<option value="">(none)</option>' : '') + cols.map(c => '<option' + (c === val ? ' selected' : '') + '>' + h(c) + '</option>').join('');
+    };
+    opt('stab-time', t.columns, timeCol); opt('stab-batch', t.columns, batchCol);
+    opt('stab-y', t.columns, yCol); opt('stab-cond', t.columns, condCol, true);
+    $('stab-map').hidden = false;
+    fillConditions();
+    describe();
+  }
+  function fillConditions() {
+    const c = $('stab-cond').value;
+    const sel = $('stab-cond-value');
+    if (!c || !table) { sel.innerHTML = '<option value="">(all rows)</option>'; sel.disabled = true; return; }
+    const i = table.columns.indexOf(c);
+    const vals = Array.from(new Set(table.rows.map(r => String(r[i]).trim()).filter(Boolean)));
+    sel.disabled = false;
+    sel.innerHTML = '<option value="">(all rows)</option>' + vals.map(v => '<option>' + h(v) + '</option>').join('');
+    // A study usually holds several conditions; long term is the one Q1E sets shelf life from.
+    const longTerm = vals.find(v => /25|30|long/i.test(v));
+    if (longTerm) sel.value = longTerm;
+  }
+
+  function readRows() {
+    if (!table) throw new Error('Load some stability data first.');
+    const ti = table.columns.indexOf($('stab-time').value);
+    const bi = table.columns.indexOf($('stab-batch').value);
+    const yi = table.columns.indexOf($('stab-y').value);
+    if (ti < 0 || yi < 0) throw new Error('Pick a time column and a result column.');
+    if (ti === yi) throw new Error('The time column and the result column must be different.');
+    const ci = $('stab-cond').value ? table.columns.indexOf($('stab-cond').value) : -1;
+    const want = $('stab-cond-value').value;
+    const out = [];
+    let skipped = 0;
+    table.rows.forEach(r => {
+      if (ci >= 0 && want && String(r[ci]).trim() !== want) return;
+      const time = E.toNumber(r[ti]), y = E.toNumber(r[yi]);
+      if (time === null || y === null) { skipped++; return; }
+      out.push({ batch: bi >= 0 ? String(r[bi]).trim() : 'All data', time, y, condition: ci >= 0 ? String(r[ci]).trim() : '' });
+    });
+    if (!out.length) throw new Error('No rows left after filtering. Check the column choices and the storage condition.');
+    return { rows: out, skipped };
+  }
+  function readOpts() {
+    const num = id => ($(id).value === '' ? null : Number($(id).value));
+    const lsl = num('stab-lsl'), usl = num('stab-usl');
+    const dir = $('stab-dir').value;
+    return { lsl: lsl === null ? NaN : lsl, usl: usl === null ? NaN : usl, direction: dir === 'auto' ? null : dir, poolAlpha: Number($('stab-alpha').value) };
+  }
+
+  function describe() {
+    try {
+      const { rows, skipped } = readRows();
+      const bs = Array.from(new Set(rows.map(r => r.batch)));
+      const ts = Array.from(new Set(rows.map(r => r.time))).sort((a, b) => a - b);
+      $('stab-read').textContent = rows.length + ' measurements, ' + bs.length + ' batch' + (bs.length === 1 ? '' : 'es') +
+        ', time points ' + ts.slice(0, 10).join(', ') + (ts.length > 10 ? '…' : '') + ' months.' +
+        (skipped ? ' ' + skipped + ' row' + (skipped === 1 ? '' : 's') + ' skipped (no number in the time or result column).' : '');
+    } catch (e) { $('stab-read').textContent = e.message; }
+  }
+  function fail(msg) { $('stab-error').textContent = msg; $('stab-error').hidden = false; }
+
+  // ---------- the chart ----------
+  /* Measurements, the fitted line for each batch, the confidence limit that decides the
+     shelf life, the specification, and a marker where the two meet. */
+  function drawChart(el, r) {
+    const W = Math.max(340, el.clientWidth || 700), H = Math.round(Math.min(420, W * 0.58)), L = 62, R = 18, T = 16, B = 46;
+    const xMax = Math.max(r.maxTime * 1.1, Math.min(r.shelfLife * 1.15, r.horizon));
+    const ysData = r.rows.map(p => p.y);
+    const limitVals = [];
+    for (let i = 0; i <= 40; i++) {
+      const t = xMax * i / 40;
+      r.curves.forEach(c => { limitVals.push(c.fit(t)); if (c.watchLow) limitVals.push(c.lower(t)); if (c.watchHigh) limitVals.push(c.upper(t)); });
+    }
+    const cand = ysData.concat(limitVals).concat([r.lsl, r.usl].filter(v => v !== null));
+    let ylo = Math.min.apply(null, cand), yhi = Math.max.apply(null, cand);
+    const padY = (yhi - ylo) * 0.08 || 1; ylo -= padY; yhi += padY;
+    const sx = v => L + (v / (xMax || 1)) * (W - L - R);
+    const sy = v => H - B - (v - ylo) / (yhi - ylo) * (H - T - B);
+    let b = '';
+    // Out-of-specification zones, so "below the line is bad" is visible at a glance.
+    if (r.lsl !== null && r.lsl > ylo) b += '<rect class="oos" x="' + L + '" y="' + sy(r.lsl) + '" width="' + (W - L - R) + '" height="' + Math.max(0, H - B - sy(r.lsl)) + '"/>';
+    if (r.usl !== null && r.usl < yhi) b += '<rect class="oos" x="' + L + '" y="' + T + '" width="' + (W - L - R) + '" height="' + Math.max(0, sy(r.usl) - T) + '"/>';
+    for (const t of CH.niceTicks(ylo, yhi, 5)) if (t >= ylo && t <= yhi) b += '<line class="gridline" x1="' + L + '" x2="' + (W - R) + '" y1="' + sy(t) + '" y2="' + sy(t) + '"/><text x="' + (L - 6) + '" y="' + (sy(t) + 4) + '" text-anchor="end">' + h(CH.esc ? f2(t) : t) + '</text>';
+    for (const t of CH.niceTicks(0, xMax, 6)) if (t >= 0 && t <= xMax) b += '<text x="' + sx(t) + '" y="' + (H - B + 16) + '" text-anchor="middle">' + Math.round(t) + '</text>';
+    b += '<line class="axis" x1="' + L + '" x2="' + (W - R) + '" y1="' + (H - B) + '" y2="' + (H - B) + '"/>';
+    [['lsl', r.lsl, 'LSL'], ['usl', r.usl, 'USL']].forEach(([, v, lab]) => {
+      if (v === null || v < ylo || v > yhi) return;
+      b += '<line class="ref" x1="' + L + '" x2="' + (W - R) + '" y1="' + sy(v) + '" y2="' + sy(v) + '"/>' +
+        '<text class="lbl-strong" x="' + (W - R - 2) + '" y="' + (sy(v) - 4) + '" text-anchor="end">' + lab + ' ' + f2(v) + '</text>';
+    });
+    const path = (fn, cls) => {
+      let d = '';
+      for (let i = 0; i <= 80; i++) { const t = xMax * i / 80; d += (i ? 'L' : 'M') + sx(t).toFixed(1) + ' ' + sy(fn(t)).toFixed(1); }
+      return '<path class="' + cls + '" d="' + d + '"/>';
+    };
+    const cls = i => 'c' + ((i % 6) + 1);
+    r.curves.forEach((c, i) => {
+      const lim = c === r.limiting;
+      b += path(c.fit, 'line ' + cls(i) + (lim ? '' : ' faint'));
+      if (c.watchLow) b += path(c.lower, 'climit ' + cls(i) + (lim ? '' : ' faint'));
+      if (c.watchHigh) b += path(c.upper, 'climit ' + cls(i) + (lim ? '' : ' faint'));
+    });
+    // Points are coloured by batch, even when one pooled line is fitted through all of them.
+    const order = r.batches.map(b => b.name);
+    r.rows.forEach(p => {
+      const i = Math.max(0, order.indexOf(p.batch));
+      b += '<g data-tip="' + h(p.batch + ' · month ' + p.time + ' · ' + f3(p.y)) + '"><circle class="pt ' + cls(i) + '" cx="' + sx(p.time) + '" cy="' + sy(p.y) + '" r="3.8"/></g>';
+    });
+    if (r.shelfLife <= xMax) {
+      b += '<line class="target-line" x1="' + sx(r.shelfLife) + '" x2="' + sx(r.shelfLife) + '" y1="' + T + '" y2="' + (H - B) + '"/>' +
+        '<text class="lbl-strong" x="' + (sx(r.shelfLife) + 5) + '" y="' + (T + 12) + '">' + f2(r.shelfLife) + ' months</text>';
+    }
+    if (r.maxTime <= xMax) b += '<line class="data-end" x1="' + sx(r.maxTime) + '" x2="' + sx(r.maxTime) + '" y1="' + T + '" y2="' + (H - B) + '"/>';
+    b += '<text class="lbl-strong" x="' + ((L + W - R) / 2) + '" y="' + (H - 6) + '" text-anchor="middle">Months</text>';
+    b += '<text class="lbl-strong" transform="translate(14 ' + ((T + H - B) / 2) + ') rotate(-90)" text-anchor="middle">' + h($('stab-y').value) + '</text>';
+    el.innerHTML = '<svg class="chart stab-chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Stability trend with confidence limit and specification">' + b + '</svg>' +
+      CH.legend(r.batches.map((bt, i) => ({ label: bt.name + (r.limiting.name === bt.name ? ' (sets the shelf life)' : ''), cls: 'pt ' + cls(i) }))
+        .concat([{ label: 'solid: fitted trend · dashed: ' + Math.round(r.confidence * 100) + '% confidence limit', cls: 'pt', shape: 'square' },
+          { label: 'vertical dotted: last real data point', cls: 'pt', shape: 'square' }]));
+  }
+
+  // ---------- results ----------
+  function render(r) {
+    last = r;
+    const tile = (lbl, val, sub, hero) => '<div class="tile' + (hero ? ' hero-tile' : '') + '"><div class="lbl">' + h(lbl) + '</div><div class="val">' + h(val) + '</div><div class="sub">' + h(sub || '') + '</div></div>';
+    const verdictClass = r.startsOutOfSpec ? 'not' : r.capped ? 'marginal' : 'capable';
+    const headline = r.startsOutOfSpec ? 'Already outside specification at time zero'
+      : r.capped ? f2(r.allowed) + ' months (capped)' : months(r.reported);
+
+    const tiles = tile('Shelf life', headline, r.capped ? 'statistically ' + f2(r.shelfLife) + ', capped by the Q1E extrapolation rule' : 'where the ' + Math.round(r.confidence * 100) + '% limit meets the specification', true) +
+      tile('Batch pooling', { A: 'Not pooled', B: 'Common slope only', C: 'Fully pooled' }[r.model], r.modelLabel) +
+      tile('Data in hand', f2(r.maxTime) + ' months', r.rows.length + ' measurements, ' + r.batches.length + ' batch' + (r.batches.length === 1 ? '' : 'es')) +
+      tile('Limiting batch', r.limiting.name, 'slope ' + f3(r.limiting.slope) + ' per month');
+
+    const tests = r.tests.length ? '<h4>Poolability tests (ICH Q1E)</h4><div class="table-scroll"><table><thead><tr><th>Test</th><th class="num-cell">F</th><th class="num-cell">df</th><th class="num-cell">p</th><th>At level ' + r.poolAlpha + '</th></tr></thead><tbody>' +
+      r.tests.map(t => '<tr><td>' + h(t.name) + '</td><td class="num-cell">' + f3(t.f) + '</td><td class="num-cell">' + t.df1 + ', ' + t.df2 + '</td><td class="num-cell">' + S.fmtP(t.p) + '</td><td><span class="verdict ' + (t.pass ? 'capable' : 'not') + '">' + (t.pass ? 'may be pooled' : 'kept separate') + '</span></td></tr>').join('') +
+      '</tbody></table></div>' : '';
+
+    const perBatch = '<h4>Each batch on its own</h4><p class="hint">Every batch fitted separately, whatever the pooling tests decided. ' +
+      (r.model === 'C' ? 'The reported shelf life comes from the pooled line, which is tighter than any single batch because it rests on more data.' : 'The shortest of these sets the shelf life.') + '</p>' +
+      '<div class="table-scroll"><table><thead><tr><th>Batch</th><th class="num-cell">Points</th><th class="num-cell">Months covered</th><th class="num-cell">Slope / month</th><th class="num-cell">Value at t=0</th><th class="num-cell">R&sup2;</th><th class="num-cell">Shelf life alone</th></tr></thead><tbody>' +
+      r.batches.map(b => '<tr><td>' + h(b.name) + (r.limiting.name === b.name ? ' <span class="chip target">limiting</span>' : '') + '</td><td class="num-cell">' + b.n + '</td><td class="num-cell">' + f2(b.first) + ' to ' + f2(b.last) + '</td>' +
+        '<td class="num-cell">' + f3(b.slope) + '</td><td class="num-cell">' + f2(b.intercept) + '</td><td class="num-cell">' + f3(b.r2) + '</td><td class="num-cell">' + (b.alone === null ? '–' : f2(b.alone)) + '</td></tr>').join('') + '</tbody></table></div>';
+
+    const notes = [];
+    notes.push('Shelf life is read where the ' + Math.round(r.confidence * 100) + '% one-sided confidence limit of the ' + (r.model === 'C' ? 'pooled regression line' : 'limiting batch') + ' meets the ' + (r.limiting.which === 'lower' ? 'lower' : 'upper') + ' specification limit, as ICH Q1E directs.');
+    notes.push('Poolability was tested at level ' + r.poolAlpha + '. ' + r.why);
+    if (r.extrapolated) notes.push('This runs past the ' + f2(r.maxTime) + ' months of data you have. Q1E allows a shelf life of at most twice the data period, and no more than 12 months beyond it: ' + f2(r.allowed) + ' months here.' + (r.capped ? ' The reported figure is capped at that.' : ''));
+    else notes.push('The shelf life sits inside the ' + f2(r.maxTime) + ' months of data, so no extrapolation is involved.');
+    if (r.limiting.df < 6) notes.push('Only ' + r.limiting.df + ' degrees of freedom for error: the confidence limit is wide and the estimate is soft. More time points would tighten it.');
+    if (r.batches.length < 3) notes.push('ICH Q1A/Q1E expects at least three primary batches for a registration shelf life. This study has ' + r.batches.length + '.');
+
+    $('stab-out').innerHTML = '<div class="card stab-result"><h3>Shelf-life estimate</h3>' +
+      '<p class="sub-head"><span class="verdict ' + verdictClass + '">' + h(headline) + '</span></p>' +
+      '<div class="tiles">' + tiles + '</div>' +
+      '<div id="stab-chart"></div>' + tests + perBatch +
+      '<h4>What was done, and what it rests on</h4><ul class="insights">' + notes.map(n => '<li class="info">' + h(n) + '</li>').join('') + '</ul>' +
+      '<div class="row-actions"><button class="btn primary" type="button" id="stab-csv">Download the Q1E report (.csv)</button></div>' +
+      '<p class="hint">Decision support, not a validated stability system. A shelf life in a regulatory submission needs software validated for that purpose, and an independent check of this arithmetic.</p>' +
+      '</div>';
+    drawChart($('stab-chart'), r);
+    $('stab-csv').addEventListener('click', () => download('ich-q1e-shelf-life.csv', reportCSV(r), 'text/csv'));
+    // The audit package picks this up when an analysis report is exported in the other tab.
+    window.MLStabilityRun = summary(r);
+  }
+
+  function summary(r) {
+    return {
+      when: new Date().toISOString(), model: r.model, modelLabel: r.modelLabel, why: r.why,
+      shelfLife: r.shelfLife, reported: r.reported, capped: r.capped, extrapolated: r.extrapolated,
+      maxTime: r.maxTime, allowed: r.allowed, confidence: r.confidence, poolAlpha: r.poolAlpha,
+      lsl: r.lsl, usl: r.usl, direction: r.direction, limiting: r.limiting.name,
+      measurements: r.rows.length, batches: r.batches, tests: r.tests.map(t => ({ name: t.name, f: t.f, df1: t.df1, df2: t.df2, p: t.p, pass: t.pass })),
+      columns: { time: $('stab-time').value, batch: $('stab-batch').value, result: $('stab-y').value, condition: $('stab-cond').value, conditionValue: $('stab-cond-value').value }
+    };
+  }
+
+  function reportCSV(r) {
+    const q = v => '"' + String(v).replace(/"/g, '""') + '"';
+    const L = [];
+    L.push(['ICH Q1E shelf-life report']);
+    L.push(['Generated', q(new Date().toISOString())]);
+    L.push(['Computed', q('In the browser. No data was uploaded or stored.')]);
+    L.push([]);
+    L.push(['Setting', 'Value']);
+    L.push(['Time column', q(r0('stab-time'))], ['Batch column', q(r0('stab-batch'))], ['Result column', q(r0('stab-y'))]);
+    if ($('stab-cond').value) L.push(['Condition column', q(r0('stab-cond'))], ['Condition kept', q($('stab-cond-value').value || 'all')]);
+    L.push(['Lower specification limit', r.lsl === null ? '' : r.lsl], ['Upper specification limit', r.usl === null ? '' : r.usl]);
+    L.push(['Attribute direction', r.direction], ['Confidence', Math.round(r.confidence * 100) + '% one-sided'], ['Poolability level', r.poolAlpha]);
+    L.push(['Measurements', r.rows.length], ['Batches', r.batches.length], ['Months of data', r.maxTime]);
+    L.push([]);
+    L.push(['Poolability test', 'F', 'df1', 'df2', 'p', 'Outcome']);
+    r.tests.forEach(t => L.push([q(t.name), t.f, t.df1, t.df2, t.p, t.pass ? 'may be pooled' : 'kept separate']));
+    L.push([]);
+    L.push(['Model used', q(r.modelLabel)], ['Reason', q(r.why)]);
+    L.push([]);
+    L.push(['Batch', 'Points', 'First month', 'Last month', 'Slope per month', 'Value at t=0', 'R2', 'Shelf life alone (months)']);
+    r.batches.forEach(b => L.push([q(b.name), b.n, b.first, b.last, b.slope, b.intercept, b.r2, b.alone === null ? '' : b.alone]));
+    L.push([]);
+    L.push(['Limiting batch', q(r.limiting.name)]);
+    L.push(['Shelf life (statistical)', r.shelfLife]);
+    L.push(['Q1E extrapolation cap', r.allowed]);
+    L.push(['Shelf life (reported)', r.reported]);
+    L.push([]);
+    L.push(['Batch', 'Month', 'Result', 'Condition']);
+    r.rows.forEach(p => L.push([q(p.batch), p.time, p.y, q(p.condition || '')]));
+    L.push([]);
+    L.push([q('Decision support, not a validated stability system. A shelf life in a regulatory submission needs software validated for that purpose, and an independent check of this arithmetic.')]);
+    return L.map(x => x.join(',')).join('\n') + '\n';
+  }
+  const r0 = id => $(id).value;
+
+  // ---------- example studies ----------
+  /* Both examples are made here rather than copied from a real filing: a well-behaved study
+     whose batches pool, and one whose batches degrade at visibly different rates. */
+  function example(spread) {
+    const r = E.rng(spread ? 19 : 4);
+    const lines = ['BatchID,Month,Condition,Purity_Pct'];
+    const specs = spread
+      ? [{ b: 'B-101', i: 99.6, m: -0.09 }, { b: 'B-102', i: 99.4, m: -0.22 }, { b: 'B-103', i: 99.5, m: -0.36 }]
+      : [{ b: 'B-201', i: 99.5, m: -0.16 }, { b: 'B-202', i: 99.45, m: -0.16 }, { b: 'B-203', i: 99.55, m: -0.16 }];
+    const noise = spread ? 0.25 : 0.55;
+    for (const s of specs) for (const t of [0, 3, 6, 9, 12, 18, 24]) {
+      lines.push([s.b, t, '25C/60RH', (s.i + s.m * t + (r() - 0.5) * noise).toFixed(2)].join(','));
+      lines.push([s.b, t, '40C/75RH', (s.i + s.m * 3.4 * t + (r() - 0.5) * noise * 1.6).toFixed(2)].join(','));
+    }
+    return lines.join('\n');
+  }
+
+  function run() {
+    $('stab-error').hidden = true;
+    let rows, opts;
+    try { rows = readRows(); opts = readOpts(); } catch (e) { return fail(e.message); }
+    try {
+      render(window.MLStability.analyze(rows.rows, opts));
+      $('stab-out').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) { fail(e.message); }
+  }
+
+  function clear() {
+    table = null; last = null; window.MLStabilityRun = null;
+    $('stab-data').value = ''; $('stab-out').innerHTML = ''; $('stab-read').textContent = '';
+    $('stab-map').hidden = true; $('stab-error').hidden = true; $('stab-file').value = '';
+  }
+
+  function init() {
+    const load = text => { $('stab-data').value = text; $('stab-error').hidden = true; $('delete-top').hidden = false; loadText(text); };
+    $('stab-sample').addEventListener('click', () => load(example(false)));
+    $('stab-sample2').addEventListener('click', () => load(example(true)));
+    $('stab-clear').addEventListener('click', clear);
+    $('stab-data').addEventListener('change', () => { if ($('stab-data').value.trim()) { $('delete-top').hidden = false; loadText($('stab-data').value); } });
+    $('stab-file').addEventListener('change', e => {
+      const f = e.target.files && e.target.files[0]; if (!f) return;
+      const fr = new FileReader();
+      fr.onload = () => load(String(fr.result));
+      fr.readAsText(f);
+    });
+    ['stab-time', 'stab-batch', 'stab-y', 'stab-cond-value'].forEach(id => $(id).addEventListener('change', describe));
+    $('stab-cond').addEventListener('change', () => { fillConditions(); describe(); });
+    $('stab-run').addEventListener('click', run);
+  }
+
+  window.MLStab = { clear, example };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();

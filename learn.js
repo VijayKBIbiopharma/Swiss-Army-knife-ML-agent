@@ -983,6 +983,53 @@
   });
 
   add({
+    id: 'shelf-life', group: 'Six Sigma and process control', title: 'Shelf life: why the confidence limit sets the date, not the line',
+    analogy: 'The date on a milk carton is not the day it is expected to turn. It is the day you can still be confident it has not. The gap between those two is what noisy data costs you.',
+    intro: 'Fit a straight line through a stability study and it crosses the specification at some month. ICH Q1E does not use that month. It uses the month where the 95% confidence limit of the line crosses, which is always earlier, and gets earlier still as the data gets noisier or thinner. Move the sliders and watch the price of uncertainty.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-controls">' + slider('noise', 'Assay scatter (std. dev.)', 0, 1.2, 0.05, 0.3) + slider('pts', 'Time points measured', 3, 8, 1, 7) + '</div><div data-role="plot"></div><p class="demo-read" data-role="read"></p>';
+      const ST = window.MLStability, LSL = 95, TRUE_SLOPE = -0.18, START = 99.6;
+      const ALL = [0, 3, 6, 9, 12, 18, 24, 36];
+      const draw = () => {
+        const nz = Number(q(el, 'noise').value), np = Number(q(el, 'pts').value);
+        setOut(el, 'noise', nz.toFixed(2)); setOut(el, 'pts', np);
+        const rand = E.rng(17), times = ALL.slice(0, np);
+        const rows = times.map(t => ({ batch: 'B1', time: t, y: START + TRUE_SLOPE * t + normal(rand) * nz }));
+        let r;
+        try { r = ST.analyze(rows, { lsl: LSL, direction: 'decreasing' }); } catch (err) { q(el, 'read').textContent = err.message; return; }
+        const c = r.curves[0];
+        const trueCross = (LSL - START) / TRUE_SLOPE;
+        const xMax = 48;
+        const f = frame(640, 300, [0, xMax], [93, 100.5], { xLabel: 'Months', yLabel: 'Purity %' });
+        let b = f.axes;
+        b += '<rect class="region-c2" fill-opacity=".10" x="' + f.sx(0) + '" y="' + f.sy(LSL) + '" width="' + (f.sx(xMax) - f.sx(0)) + '" height="' + (f.sy(93) - f.sy(LSL)) + '"/>';
+        b += '<line class="ref" x1="' + f.sx(0) + '" x2="' + f.sx(xMax) + '" y1="' + f.sy(LSL) + '" y2="' + f.sy(LSL) + '"/><text class="lbl-strong" x="' + (f.sx(xMax) - 4) + '" y="' + (f.sy(LSL) - 5) + '" text-anchor="end">Specification 95.0</text>';
+        const xs = range(97).map(i => i * xMax / 96);
+        b += '<path class="curve" d="' + pathOf(xs.map(x => [x, c.fit(x)]), f) + '"/>';
+        b += '<path class="curve alt" d="' + pathOf(xs.map(x => [x, Math.max(93, c.lower(x))]), f) + '"/>';
+        rows.forEach(p => { b += dot(f.sx(p.time), f.sy(p.y), 'pt', 4.5); });
+        [[r.shelfLife, 'target-line'], [Math.min(xMax, trueCross), 'data-end']].forEach(([x, cls]) => {
+          if (x <= xMax) b += '<line class="' + cls + '" x1="' + f.sx(x) + '" x2="' + f.sx(x) + '" y1="' + f.sy(100.5) + '" y2="' + f.sy(93) + '"/>';
+        });
+        q(el, 'plot').innerHTML = svg(640, 300, 'Shelf life from the confidence limit', b) +
+          C.legend([{ label: 'fitted trend', cls: 'pt' }, { label: '95% lower confidence limit', cls: 'pt s2' }]);
+        const lost = trueCross - r.shelfLife;
+        q(el, 'read').innerHTML = 'The fitted line reaches 95.0% at about <b>' + fmt(trueCross) + ' months</b>. The 95% confidence limit gets there at <b>' + fmt(r.shelfLife) + ' months</b>, so the shelf life you can defend is <b>' + fmt(lost) + ' months shorter</b>.<br>' +
+          (nz < 0.05 ? 'With almost no scatter the two nearly coincide: perfect data costs nothing.'
+            : lost > 6 ? 'Scatter and few time points widen the band, and every bit of width is shelf life you cannot claim. This is why analytical precision pays for itself.'
+              : 'Tighten the assay or add time points and the band narrows, pulling the date back towards the trend line.') +
+          (np <= 4 ? ' With only ' + np + ' time points there are barely any degrees of freedom, so the band flares out quickly.' : '');
+      };
+      q(el, 'noise').oninput = draw; q(el, 'pts').oninput = draw; draw();
+    },
+    steps: ['Fit purity (or impurity) against time, in months.', 'Test whether the batches may be pooled: equal slopes first, then equal intercepts, both at the 0.25 level Q1E sets.', 'Take the 95% one-sided confidence limit of the chosen line: the lower limit for something that falls, the upper limit for something that rises.', 'The shelf life is where that limit meets the specification, capped at twice the data you actually have (and never more than 12 months past it).'],
+    when: 'Setting or defending an expiry date from a stability study.',
+    watch: 'The 0.25 level is deliberately generous about splitting batches, because splitting gives the shorter, safer answer. A shelf life past your data is an extrapolation, and Q1E limits how far it may go.',
+    where: 'The "Shelf life (ICH Q1E)" tab.',
+    quiz: { q: 'Your fitted line reaches the specification at 30 months, but the 95% confidence limit reaches it at 22. What shelf life does ICH Q1E support?', options: ['30 months, the best estimate', '22 months', '26 months, the average'], answer: 1, why: 'Q1E uses the confidence limit, not the fitted line, so the claim holds even if the true degradation rate is at the unfavourable end of what the data can rule out.' }
+  });
+
+  add({
     id: 'codon-optimization', group: 'Optimizing with evolution', title: 'Codon optimization: evolving a gene without changing the protein',
     analogy: 'Spelling the same word in two languages. "Colour" and "color" read the same to a person, but one is what the local reader expects. The protein is the meaning; the codons are the spelling, and each host has its own preference.',
     intro: 'Most amino acids can be written with several codons, so a protein has astronomically many possible genes. A genetic algorithm breeds a population of spellings: it keeps the ones that score well, mixes them, and mutates a codon here and there. Drag through the generations below and watch a deliberately badly-spelled gene improve, one objective at a time.',

@@ -71,6 +71,15 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Talking point: *"Same protein, better spelling for this host. Nothing left the laptop, and the before-and-after is on one page a reviewer can sign."*
 - Honest caveat to say out loud: *"The codon tables shipped here are reference values, and the folding number is a base-pairing score, not a kcal/mol free energy. Confirm the table for your host and have the sequence reviewed before synthesis."*
 
+## 4d. Shelf life in one minute (for QA, stability and regulatory audiences)
+- Open the **Shelf life (ICH Q1E)** tab and press **Load an example study** (3 batches, 0 to 24 months, two storage conditions). It picks the long-term condition automatically.
+- Enter a lower specification limit of **95**, press **Estimate the shelf life**.
+- Expect **about 27 months**, **fully pooled** (slopes p 0.33, intercepts p 0.83, both above the 0.25 level Q1E sets), limiting batch: the pooled line.
+- Point at the chart: *"The solid line is the trend. The dashed line is the 95% confidence limit. Q1E says the date comes from the dashed line, not the solid one."*
+- Press **Example: batches that differ** and run it again: now the batches fail the slope test, nothing is pooled, and the fastest-degrading batch drags the answer down to about **12 months**.
+- Talking point: *"Same tool, same two minutes, and it shows its working: which test, which p-value, which batch decided."*
+- Honest caveat: *"This is decision support. A shelf life in a submission needs validated software and an independent check of the arithmetic."*
+
 ## 5. Finding groups with no target: penguins (1 minute)
 - Drag `penguins.csv`, choose **Nothing: find groups and patterns**, run.
 - Show the groups chart and profiles: one group is entirely Gentoo penguins on Biscoe island. The agent found the species without being told.

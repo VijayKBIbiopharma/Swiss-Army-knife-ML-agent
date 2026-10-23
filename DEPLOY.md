@@ -10,13 +10,13 @@ ML Agent is a folder of static files: HTML, CSS and JavaScript. There is no serv
 | Outbound connections | None. The pages carry a Content-Security-Policy with `connect-src 'none'` and `default-src 'none'`, so the browser blocks any request the page might try to make. `web.config` sends the same policy as an HTTP header. |
 | Storage | None. No cookies, localStorage, IndexedDB or service workers. Data is wiped on "Finish and delete my data", after 30 idle minutes, and when the page is closed or left. |
 | AI or third-party services | None. No LLM, no analytics, no CDN, no web fonts. Every file is served from your server. |
-| Dependencies | None. No npm packages or libraries; about 6,700 lines of plain JavaScript you can read, including the neural network and the genetic algorithm. |
+| Dependencies | None. No npm packages or libraries; about 7,400 lines of plain JavaScript you can read, including the neural network, the genetic algorithm and the ICH Q1E statistics. |
+| Validation status | Decision support and training. Not validated for GxP release decisions or regulatory submissions. Shelf-life figures, capability indices and optimized sequences all carry that statement on screen and in every export. |
 | Background threads | The sequence optimizer uses one Web Worker, loaded from this site's own `ga-worker.js`. `worker-src 'self'` blocks workers from anywhere else, and a worker inherits the page's policy, so it cannot open a connection either. Opened straight from a file (`file://`) some browsers block workers; the tool detects this and runs the same code on the page instead. |
 | Exports | PDF, Excel (.xlsx) and the audit package (.zip) are built inside the browser and handed to the browser's own download. They are the user's files; nothing is kept by the tool or the server. |
 | Server requirements | Serve static files over HTTPS. Read-only access is enough. |
 | Authentication | Optional. Put the folder behind your normal intranet sign-in (Windows authentication, SSO). The tool itself has no accounts. |
 | Integrity | `SHA256SUMS.txt` lists a fingerprint for every file, so you can confirm nothing was changed. |
-| Validation status | Decision support and training tool. Not validated for GxP release decisions. |
 
 ## Option A: Windows IIS (most common)
 1. Copy the folder to the server, for example `C:\inetpub\wwwroot\ml-agent`.
@@ -66,9 +66,10 @@ No output from the PowerShell command means every file matches.
 3. Load the practice dataset **Injection molding yield** and run. Expect Quadratic, about 89% explained.
 4. Open developer tools (F12) → Network, run again, and confirm that only the tool's own files appear.
 5. Load **Bioreactor log + densitometer QC**, press **Join the files**, run, and press **Download audit package (.zip)**. Unzip it and run `sha256sum -c SHA256SUMS.txt` inside: every file must say OK.
-6. In step 6, press **Load an example gene** and **Optimize the sequence**. It must finish with "Protein unchanged" and 0 sites left. If your browser blocks workers the run still completes, just with the page doing the work.
-7. Open **Learn the concepts** and click through a lesson.
-8. Press **Finish and delete my data**.
+6. In the **Shelf life** tab, press **Load an example study**, enter a lower limit of 95 and run. It must report about 27 months, fully pooled.
+7. In the **Sequence optimizer** tab, press **Load an example gene** and **Optimize the sequence**. It must finish with "Protein unchanged" and 0 sites left. If your browser blocks workers the run still completes, just with the page doing the work.
+8. Open **Learn the concepts** and click through a lesson.
+9. Press **Finish and delete my data**. Data in every tab must clear.
 
 ## Updating
 Replace the folder with a new package. Users get the new version on their next page load.
