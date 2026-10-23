@@ -499,3 +499,14 @@ table.mini { font-size: .82rem; } table.mini td, table.mini th { padding: 3px 8p
 .file-input { display: block; margin-top: 8px; font-size: .85rem; }
 #stab-data { width: 100%; }
 .stab-result h4 { margin: 18px 0 6px; }
+
+/* Tool selector */
+.toolbar { border-bottom: 1px solid var(--line); background: var(--surface); position: sticky; top: 0; z-index: 30; }
+.toolbar-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 20px; }
+.toolbar-row label { font-size: .85rem; font-weight: 600; color: var(--muted); }
+.toolbar-row select { width: auto; min-width: 260px; max-width: 100%; font-size: .95rem; font-weight: 600; padding: 7px 10px; }
+.tool-desc { flex: 1 1 100%; margin: 0; font-size: .85rem; color: var(--muted); }
+@media (min-width: 900px) { .tool-desc { flex: 1 1 auto; } }
+details.advanced { margin: 12px 0 4px; }
+details.advanced > summary { cursor: pointer; font-size: .88rem; font-weight: 600; color: var(--steel); padding: 6px 0; }
+@media print { .toolbar { display: none; } }

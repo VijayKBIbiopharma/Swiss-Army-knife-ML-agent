@@ -62,7 +62,7 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Talking point: *"Same model, different business question, one click. Region doesn't appear at all, because it truly doesn't matter in this data."*
 
 ## 4c. Codon optimization by evolution (3 minutes, for biologics and gene-therapy audiences)
-- Go to step 6, **Sequence optimizer**, and press **Load an example gene** (a 238-codon sequence written with poor codons for a mammalian host, carrying an EcoRI site, a BsaI site and a GC-rich run).
+- Pick **Sequence optimizer** from the selector at the top and press **Load an example gene** (a 238-codon sequence written with poor codons for a mammalian host, carrying an EcoRI site, a BsaI site and a GC-rich run).
 - The line under the box reads the sequence straight away: *238 codons, 237 amino acids, CAI 0.600, GC 43.8%, 4 sites to remove.*
 - Leave the host on **CHO**, the GC window at **45&ndash;55%**, and press **Optimize the sequence**. Scroll the page while it runs: it stays perfectly smooth, because the algorithm is on a background thread.
 - Watch the two live charts: the best and average score climbing, and population diversity falling as the population converges.
@@ -72,7 +72,7 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Honest caveat to say out loud: *"The codon tables shipped here are reference values, and the folding number is a base-pairing score, not a kcal/mol free energy. Confirm the table for your host and have the sequence reviewed before synthesis."*
 
 ## 4d. Shelf life in one minute (for QA, stability and regulatory audiences)
-- Open the **Shelf life (ICH Q1E)** tab and press **Load an example study** (3 batches, 0 to 24 months, two storage conditions). It picks the long-term condition automatically.
+- Pick **Shelf life &mdash; ICH Q1E stability study** from the selector at the top, then press **Load an example study** (3 batches, 0 to 24 months, two storage conditions). It picks the long-term condition automatically.
 - Enter a lower specification limit of **95**, press **Estimate the shelf life**.
 - Expect **about 27 months**, **fully pooled** (slopes p 0.33, intercepts p 0.83, both above the 0.25 level Q1E sets), limiting batch: the pooled line.
 - Point at the chart: *"The solid line is the trend. The dashed line is the 95% confidence limit. Q1E says the date comes from the dashed line, not the solid one."*

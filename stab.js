@@ -282,6 +282,16 @@
     $('stab-map').hidden = true; $('stab-error').hidden = true; $('stab-file').value = '';
   }
 
+  /* An attribute that only falls can never breach an upper limit, so asking for one is
+     noise. "Decide from the data" keeps both, because the direction is not known yet. */
+  function showRelevantLimits() {
+    const d = $('stab-dir').value;
+    $('stab-lsl-wrap').hidden = d === 'increasing';
+    $('stab-usl-wrap').hidden = d === 'decreasing';
+    if (d === 'increasing') $('stab-lsl').value = '';
+    if (d === 'decreasing') $('stab-usl').value = '';
+  }
+
   function init() {
     const load = text => { $('stab-data').value = text; $('stab-error').hidden = true; $('delete-top').hidden = false; loadText(text); };
     $('stab-sample').addEventListener('click', () => load(example(false)));
@@ -297,6 +307,8 @@
     ['stab-time', 'stab-batch', 'stab-y', 'stab-cond-value'].forEach(id => $(id).addEventListener('change', describe));
     $('stab-cond').addEventListener('change', () => { fillConditions(); describe(); });
     $('stab-run').addEventListener('click', run);
+    $('stab-dir').addEventListener('change', showRelevantLimits);
+    showRelevantLimits();
   }
 
   window.MLStab = { clear, example };

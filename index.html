@@ -29,12 +29,18 @@
 </header>
 
 <main id="main">
-  <nav class="tabs" id="tabs" role="tablist" aria-label="Tools">
-    <button class="tab" role="tab" id="tab-btn-analyze" aria-controls="tab-analyze" aria-selected="true" type="button" data-tab="analyze">Analyze data</button>
-    <button class="tab" role="tab" id="tab-btn-stability" aria-controls="tab-stability" aria-selected="false" type="button" data-tab="stability">Shelf life (ICH Q1E)</button>
-    <button class="tab" role="tab" id="tab-btn-sequence" aria-controls="tab-sequence" aria-selected="false" type="button" data-tab="sequence">Sequence optimizer</button>
-    <button class="tab" role="tab" id="tab-btn-privacy" aria-controls="tab-privacy" aria-selected="false" type="button" data-tab="privacy">Privacy</button>
-  </nav>
+  <div class="toolbar">
+    <div class="wrap toolbar-row">
+      <label for="tool">What do you want to do?</label>
+      <select id="tool">
+        <option value="analyze">Analyze data &mdash; models, drivers, what-if, DOE</option>
+        <option value="stability">Shelf life &mdash; ICH Q1E stability study</option>
+        <option value="sequence">Sequence optimizer &mdash; codon optimization</option>
+        <option value="privacy">How your data stays private</option>
+      </select>
+      <p class="tool-desc" id="tool-desc" aria-live="polite"></p>
+    </div>
+  </div>
 
   <div class="tabpanel" id="tab-analyze" role="tabpanel" aria-labelledby="tab-btn-analyze">
   <section class="hero">
@@ -248,12 +254,6 @@
         </label>
       </div>
       <div class="controls">
-        <label>Lower specification limit
-          <input id="stab-lsl" type="number" step="any" placeholder="e.g. 95">
-        </label>
-        <label>Upper specification limit
-          <input id="stab-usl" type="number" step="any" placeholder="e.g. 5">
-        </label>
         <label>What the attribute does
           <select id="stab-dir">
             <option value="auto">Decide from the data</option>
@@ -261,6 +261,12 @@
             <option value="increasing">Rises over time (watch the upper limit)</option>
             <option value="both">Could go either way (watch both)</option>
           </select>
+        </label>
+        <label id="stab-lsl-wrap">Lower specification limit
+          <input id="stab-lsl" type="number" step="any" placeholder="e.g. 95">
+        </label>
+        <label id="stab-usl-wrap">Upper specification limit
+          <input id="stab-usl" type="number" step="any" placeholder="e.g. 5">
         </label>
         <label>Pooling test level
           <select id="stab-alpha">
@@ -304,12 +310,6 @@
         <label>Longest single-base run
           <input id="seq-maxrun" type="number" min="0" max="12" step="1" value="6">
         </label>
-        <label>Population
-          <input id="seq-pop" type="number" min="20" max="300" step="10" value="80">
-        </label>
-        <label>Generations
-          <input id="seq-gens" type="number" min="20" max="2000" step="10" value="300">
-        </label>
       </div>
       <fieldset class="avoid">
         <legend>Remove these sites (both strands)</legend>
@@ -317,17 +317,27 @@
         <label class="full" for="seq-extra">Other sequences to avoid (comma separated, for example GGTCTC, AAGCTT)</label>
         <input id="seq-extra" type="text" spellcheck="false" placeholder="GGTCTC, AAGCTT">
       </fieldset>
-      <div class="controls">
-        <label>Importance: CAI
-          <select id="seq-w-cai" class="wsel"></select>
-        </label>
-        <label>Importance: GC window
-          <select id="seq-w-gc" class="wsel"></select>
-        </label>
-        <label>Importance: 5' folding
-          <select id="seq-w-fold" class="wsel"></select>
-        </label>
-      </div>
+      <details class="advanced">
+        <summary>Advanced settings</summary>
+        <div class="controls">
+          <label>Importance: CAI
+            <select id="seq-w-cai" class="wsel"></select>
+          </label>
+          <label>Importance: GC window
+            <select id="seq-w-gc" class="wsel"></select>
+          </label>
+          <label>Importance: 5' folding
+            <select id="seq-w-fold" class="wsel"></select>
+          </label>
+          <label>Population
+            <input id="seq-pop" type="number" min="20" max="300" step="10" value="80">
+          </label>
+          <label>Generations
+            <input id="seq-gens" type="number" min="20" max="2000" step="10" value="300">
+          </label>
+        </div>
+        <p class="hint">A bigger population searches more spellings per generation; more generations keep going for longer. The defaults finish in a few seconds on a typical gene.</p>
+      </details>
       <div class="row-actions">
         <button class="btn primary" id="seq-run" type="button">Optimize the sequence</button>
         <button class="btn" id="seq-stop" type="button" hidden>Stop and keep the best so far</button>

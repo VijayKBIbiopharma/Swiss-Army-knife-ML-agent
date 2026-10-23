@@ -66,8 +66,8 @@ No output from the PowerShell command means every file matches.
 3. Load the practice dataset **Injection molding yield** and run. Expect Quadratic, about 89% explained.
 4. Open developer tools (F12) → Network, run again, and confirm that only the tool's own files appear.
 5. Load **Bioreactor log + densitometer QC**, press **Join the files**, run, and press **Download audit package (.zip)**. Unzip it and run `sha256sum -c SHA256SUMS.txt` inside: every file must say OK.
-6. In the **Shelf life** tab, press **Load an example study**, enter a lower limit of 95 and run. It must report about 27 months, fully pooled.
-7. In the **Sequence optimizer** tab, press **Load an example gene** and **Optimize the sequence**. It must finish with "Protein unchanged" and 0 sites left. If your browser blocks workers the run still completes, just with the page doing the work.
+6. Choose **Shelf life** in the selector, press **Load an example study**, enter a lower limit of 95 and run. It must report about 27 months, fully pooled.
+7. Choose **Sequence optimizer**, press **Load an example gene** and **Optimize the sequence**. It must finish with "Protein unchanged" and 0 sites left. If your browser blocks workers the run still completes, just with the page doing the work.
 8. Open **Learn the concepts** and click through a lesson.
 9. Press **Finish and delete my data**. Data in every tab must clear.
 

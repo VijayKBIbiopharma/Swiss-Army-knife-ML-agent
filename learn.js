@@ -1030,7 +1030,7 @@
     steps: ['Fit purity (or impurity) against time, in months.', 'Test whether the batches may be pooled: equal slopes first, then equal intercepts, both at the 0.25 level Q1E sets.', 'Take the 95% one-sided confidence limit of the chosen line: the lower limit for something that falls, the upper limit for something that rises.', 'The shelf life is where that limit meets the specification, capped at twice the data you actually have (and never more than 12 months past it).'],
     when: 'Setting or defending an expiry date from a stability study.',
     watch: 'The 0.25 level is deliberately generous about splitting batches, because splitting gives the shorter, safer answer. A shelf life past your data is an extrapolation, and Q1E limits how far it may go.',
-    where: 'The "Shelf life (ICH Q1E)" tab.',
+    where: 'Pick "Shelf life" from the selector at the top of the agent.',
     quiz: { q: 'Your fitted line reaches the specification at 30 months, but the 95% confidence limit reaches it at 22. What shelf life does ICH Q1E support?', options: ['30 months, the best estimate', '22 months', '26 months, the average'], answer: 1, why: 'Q1E uses the confidence limit, not the fitted line, so the claim holds even if the true degradation rate is at the unfavourable end of what the data can rule out.' }
   });
 
@@ -1103,7 +1103,7 @@
     steps: ['Start from a population of spellings of the same protein: the original, the host’s favourite codon everywhere, and random mixes.', 'Score each one: Codon Adaptation Index (does this host read it easily?), GC content in its window, how much the 5′ end folds, and whether forbidden sites are present.', 'Keep the sequences nothing else beats on all goals at once (the Pareto front), breed them, and mutate the odd codon to a synonym.', 'Repeat for a few hundred generations. Because only synonyms are ever swapped, the protein cannot change.'],
     when: 'Expressing a gene in a host it did not come from, or cleaning a sequence up before ordering synthesis.',
     watch: 'Codon tables are averages over a genome, not a promise about your construct. The folding number here is a base-pairing score, not a kcal/mol free energy. Highest CAI is not always best: very fast translation can misfold some proteins. Always have the final sequence reviewed.',
-    where: 'Step 6, "Sequence optimizer": paste a coding sequence, pick a host, and run it.',
+    where: 'Pick "Sequence optimizer" from the selector at the top: paste a coding sequence, pick a host, and run it.',
     quiz: { q: 'A codon optimizer changes 60% of the codons in your gene. What should the protein look like afterwards?', options: ['Slightly different, which is normal', 'Exactly the same, every amino acid', 'Shorter, because rare codons are dropped'], answer: 1, why: 'Only synonymous codons are swapped, so the amino acid sequence is identical. If it is not, something is wrong: the tool checks this and reports it.' }
   });
 

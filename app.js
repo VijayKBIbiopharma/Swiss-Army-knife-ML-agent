@@ -1201,26 +1201,33 @@
   }
 
   // ---------- Wiring ----------
-  /* Top-level tabs. Each panel is a wrapper around whole sections, so the sections keep
-     their own hidden logic (step 2 appears once data is loaded, and so on) untouched. */
-  const TABS = ['analyze', 'stability', 'sequence', 'privacy'];
-  function showTab(name) {
-    if (!TABS.includes(name)) name = 'analyze';
-    document.querySelectorAll('#tabs .tab').forEach(t => {
-      const on = t.getAttribute('data-tab') === name;
-      t.setAttribute('aria-selected', String(on));
-      t.classList.toggle('on', on);
-    });
-    TABS.forEach(n => { $('tab-' + n).hidden = n !== name; });
+  /* One tool on screen at a time. A selector rather than a row of tabs, because the list
+     keeps growing and tabs stop fitting; each panel wraps whole sections, so the sections
+     keep their own hidden logic (step 2 appears once data is loaded, and so on) untouched. */
+  const TOOLS = {
+    analyze: 'Drop in a table and the agent picks the model, names the drivers, and designs your next experiment.',
+    stability: 'Fit a stability study, test whether the batches pool, and read the shelf life off the confidence limit.',
+    sequence: 'Evolve synonymous codons for your host: same protein, better spelling, no restriction sites.',
+    privacy: 'How the tool keeps your data on your own device, and how to check that for yourself.'
+  };
+  const TOOL_NAMES = Object.keys(TOOLS);
+  function showTool(name, push) {
+    if (!TOOL_NAMES.includes(name)) name = 'analyze';
+    if ($('tool').value !== name) $('tool').value = name;
+    $('tool-desc').textContent = TOOLS[name];
+    TOOL_NAMES.forEach(n => { $('tab-' + n).hidden = n !== name; });
+    // A link can be shared or bookmarked straight to one tool.
+    if (push && location.hash.slice(1) !== name) history.replaceState(null, '', '#' + name);
   }
-  function initTabs() {
-    document.querySelectorAll('#tabs .tab').forEach(t => t.addEventListener('click', () => { showTab(t.getAttribute('data-tab')); window.scrollTo({ top: 0, behavior: 'smooth' }); }));
-    document.querySelectorAll('[data-tab-link]').forEach(a => a.addEventListener('click', () => showTab(a.getAttribute('data-tab-link'))));
-    showTab('analyze');
+  function initTools() {
+    $('tool').addEventListener('change', () => { showTool($('tool').value, true); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+    document.querySelectorAll('[data-tab-link]').forEach(a => a.addEventListener('click', () => showTool(a.getAttribute('data-tab-link'), true)));
+    window.addEventListener('hashchange', () => showTool(location.hash.slice(1), false));
+    showTool(location.hash.slice(1) || 'analyze', false);
   }
 
   function init() {
-    initTabs();
+    initTools();
     C.bindTips($('tip'));
     $('samples').innerHTML = window.MLSamples.map(s => '<button type="button" class="sample" data-sample="' + s.id + '"><span class="k">' + h(s.kind) + '</span><b>' + h(s.title) + '</b><span>' + h(s.blurb) + '</span></button>').join('');
     $('samples').addEventListener('click', e => {
