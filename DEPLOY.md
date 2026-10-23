@@ -10,7 +10,7 @@ ML Agent is a folder of static files: HTML, CSS and JavaScript. There is no serv
 | Outbound connections | None. The pages carry a Content-Security-Policy with `connect-src 'none'` and `default-src 'none'`, so the browser blocks any request the page might try to make. `web.config` sends the same policy as an HTTP header. |
 | Storage | None. No cookies, localStorage, IndexedDB or service workers. Data is wiped on "Finish and delete my data", after 30 idle minutes, and when the page is closed or left. |
 | AI or third-party services | None. No LLM, no analytics, no CDN, no web fonts. Every file is served from your server. |
-| Dependencies | None. No npm packages or libraries; about 4,000 lines of plain JavaScript you can read. |
+| Dependencies | None. No npm packages or libraries; about 5,000 lines of plain JavaScript you can read, including the neural network. |
 | Server requirements | Serve static files over HTTPS. Read-only access is enough. |
 | Authentication | Optional. Put the folder behind your normal intranet sign-in (Windows authentication, SSO). The tool itself has no accounts. |
 | Integrity | `SHA256SUMS.txt` lists a fingerprint for every file, so you can confirm nothing was changed. |

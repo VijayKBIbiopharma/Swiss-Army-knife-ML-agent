@@ -196,6 +196,13 @@ progress { flex: 1; height: 10px; accent-color: var(--steel); }
 .agent-log { margin: 12px 0 0; padding-left: 1.3em; font-size: .92rem; }
 .agent-log li { margin: 4px 0; }
 .agent-log li.log-result { font-weight: 600; }
+.nn-live { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+.nn-live h4 { margin: 0 0 4px; font-size: .9rem; }
+.chart .nn-edge { stroke: var(--line); stroke-width: .7; }
+.chart .nn-node { fill: var(--steel-soft); stroke: var(--surface); stroke-width: 1.5; }
+.chart .nn-node.in { fill: var(--steel); } .chart .nn-node.out { fill: var(--accent); }
+.chart .nn-edge.pos { stroke: var(--s1); } .chart .nn-edge.neg { stroke: var(--s2); }
+.block-grid.nn-grid .card, .nn-grid > div { min-width: 0; }
 .agent-log li.log-done { color: var(--good); font-weight: 600; }
 
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }

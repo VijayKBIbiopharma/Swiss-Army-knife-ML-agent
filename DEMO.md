@@ -28,6 +28,12 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Scroll to the **DOE builder**: the next experiment is already drafted. Download the run sheet.
 - Talking point: *"Historical data tells us where to look; a DOE proves cause and effect. The tool does both and hands over the run sheet."*
 
+## 3c. Deep learning, honestly (1 minute)
+- While any run is going, point at the **live learning curve** in the progress panel: that is the neural network training in the browser.
+- In the results, open **Neural network: how it learned**. On small tables it often ranks below boosting, and the card says so. On the large diamonds file it wins.
+- In the Academy, open **Neural networks: watch one learn**, choose **Checkerboard (XOR)** and press **Train**.
+- Talking point: *"Deep learning is in the toolbox, but it has to earn its place on the leaderboard like every other model."*
+
 ## 4. Honesty: wine quality (1 minute, optional; takes about 15 to 20 seconds)
 - Drag `wine-quality-white.csv`, target `quality`, run.
 - Expect **Random forest**, about **45% explained**, flagged as **weak**.

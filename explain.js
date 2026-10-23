@@ -6,7 +6,7 @@
   // Which Learn lesson explains each model.
   const MODEL_TOPIC = {
     baseline: 'scores', linear: 'linear', ridge: 'ridge-lasso', lasso: 'ridge-lasso', quadratic: 'quadratic',
-    logistic: 'logistic', naivebayes: 'naive-bayes', knn: 'knn', tree: 'tree', forest: 'forest', boosting: 'boosting'
+    logistic: 'logistic', naivebayes: 'naive-bayes', knn: 'knn', tree: 'tree', forest: 'forest', boosting: 'boosting', mlp: 'neural-network'
   };
 
   const MODEL_ANALOGY = {
@@ -20,7 +20,8 @@
     knn: 'Asking the neighbours: "what happened the last few times conditions looked like this?"',
     tree: 'A troubleshooting flowchart, or a game of 20 questions.',
     forest: 'Asking 60 experienced operators separately and going with the majority.',
-    boosting: 'Golf: each shot corrects the miss of the one before.'
+    boosting: 'Golf: each shot corrects the miss of the one before.',
+    mlp: 'A team of specialists passing notes forward, building up from simple clues to complex conclusions.'
   };
 
   // "How to read this" text for each result chart: [what it shows, analogy, lesson id].
@@ -73,6 +74,8 @@
       'A recipe that tastes good every time, not just on a good day: robustness against noise you cannot control.', 'taguchi'],
     sigma: ['For pass/fail results, the defect rate is converted to defects per million opportunities (DPMO) and a sigma level, using the standard 1.5 sigma shift. 3 sigma is about 66,800 per million, 4 sigma 6,210, 5 sigma 233, and 6 sigma 3.4.',
       'Like a golf handicap for quality: one number that lets very different processes be compared.', 'capability'],
+    nn: ['The neural network learns in rounds called epochs. The solid line is its error on the rows it learns from; the orange line is its error on 15% of rows held back to check it. Both fall at first. When the check error stops falling, more training would only memorize noise, so training stops (early stopping) and the network keeps its best version, marked with the large dot.',
+      'Practice exams: keep studying while your practice score improves, and stop when it plateaus, before you start memorizing the answer key.', 'neural-network'],
     correlations: ['Correlation runs from −1 to 1 and says how tightly two columns move together. Close to ±1 is a strong link; near 0 is no straight-line link. It never proves that one causes the other.',
       'Ice-cream sales and sunburns rise together, but neither causes the other: the sun drives both.', 'why-doe']
   };

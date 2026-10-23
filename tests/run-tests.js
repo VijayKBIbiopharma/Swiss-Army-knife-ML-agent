@@ -373,3 +373,22 @@ test('Six Sigma mode in the agent', async () => {
   const bat = await A.run(E.parseCSV(get('batches').make()), { target: 'Result', sixSigma: {} });
   assert.ok(Math.abs(bat.spc.attribute.p - bat.actual.filter(k => bat.classes[k] !== 'Pass').length / bat.actual.length) < 1e-12);
 });
+
+test('neural network learns non-linear patterns, stops early and is reproducible', async () => {
+  const rand = E.rng(3), X = [], y = [], yc = [];
+  for (let i = 0; i < 500; i++) { const a = rand() * 4 - 2, b = rand() * 4 - 2; X.push([a, b]); y.push(Math.sin(a * 2) * b); yc.push(a * a + b * b < 1.5 ? 1 : 0); }
+  const run = () => { const t = E.mlpTrainer(X, y, { task: 'regression', rand: E.rng(1) }); while (!t.step(20)); return t; };
+  const t1 = run(), m = t1.model();
+  assert.ok(E.regressionMetrics(y, m.predict(X)).r2 > 0.95, 'fits sin(2a) * b');
+  assert.ok(E.regressionMetrics(y, E.fitRidgeCore(X, y, 1e-6).predict(X)).r2 < 0.1, 'a straight line cannot');
+  assert.ok(t1.bestEpoch <= t1.epoch && t1.history.length === t1.epoch && t1.history[0].val !== null);
+  assert.deepStrictEqual(run().model().predict(X.slice(0, 5)), m.predict(X.slice(0, 5)), 'same seed, same network');
+  const tc = E.mlpTrainer(X, yc, { task: 'classification', nClasses: 2, rand: E.rng(2) }); while (!tc.step(20));
+  assert.ok(E.classificationMetrics(yc, tc.model().predict(X), 2).accuracy > 0.95);
+  const rep = await A.run(E.parseCSV(S.find(s => s.id === 'molding').make()), { target: 'Yield' });
+  const nn = rep.leaderboard.find(b => b.id === 'mlp');
+  assert.ok(nn && nn.metrics.r2 > 0.5, 'on the leaderboard with a real score (150 rows is small for a network)');
+  assert.ok(rep.nn && rep.nn.history.length > 5 && rep.nn.sizes[1] === 32 && rep.nn.sizes[2] === 16);
+  const tiny = await A.run(E.parseCSV(S.find(s => s.id === 'factorial').make()), { target: 'Yield' });
+  assert.ok(!tiny.leaderboard.some(b => b.id === 'mlp') && !tiny.nn, 'skipped on tiny data');
+});

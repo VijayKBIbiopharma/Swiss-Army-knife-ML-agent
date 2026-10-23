@@ -7,8 +7,9 @@ Drop in a CSV and it:
 1. **Profiles the data.** It finds numbers, categories, IDs, missing values and correlated inputs.
 2. **Decides the problem type.** A numeric target means regression, a category means classification, and no target means unsupervised (clustering, PCA, outliers). Data that looks like a designed experiment also gets a full DOE effects analysis.
 3. **Runs every suitable model with cross-validation** and keeps the simplest one within 0.01 of the top score:
-   - Regression: linear, ridge, lasso, quadratic (response surface), k-nearest neighbours, decision tree, random forest, gradient boosting.
-   - Classification: logistic regression, naive Bayes, k-nearest neighbours, decision tree, random forest, gradient boosting (binary).
+   - Regression: linear, ridge, lasso, quadratic (response surface), k-nearest neighbours, decision tree, random forest, gradient boosting, neural network.
+   - Classification: logistic regression, naive Bayes, k-nearest neighbours, decision tree, random forest, gradient boosting (binary), neural network.
+   - Neural network (MLP): inputs → 32 → 16 ReLU units → linear or softmax output, trained with Adam and early stopping on 15% held-back rows. Written in plain JavaScript (no TensorFlow.js), so the privacy lock and offline use are unchanged. The learning curve is drawn live while it trains, and a results card explains how it learned. Skipped below 40 rows.
    - Unsupervised: k-means with silhouette-based choice of k, PCA, outlier scoring.
    - DOE: effects, t and p values (or Lenth's method for saturated designs), aliasing, curvature from center points, main-effect and interaction plots, and the best settings.
 4. **Explains the result** in plain language:
@@ -21,7 +22,7 @@ Drop in a CSV and it:
 5. **Six Sigma & process control mode** (a switch in step 2, off by default). Enter optional spec limits (LSL, USL, target) and get Cp, Cpk, Pp, Ppk, Cpm, Z.bench, expected PPM and sigma level, a histogram against the spec, an I-MR control chart with special-cause signals, box plots by factor, Taguchi signal-to-noise by factor level, and a quality-loss index. Pass/fail targets get defect rate, DPMO and sigma level. Designed experiments are flagged, because their spread is deliberate.
 6. **Writes next steps mapped to DMAIC** and pre-fills a **DOE builder** with the drivers it found: full or fractional factorial, Plackett-Burman, central composite or Box-Behnken. It produces a randomized run sheet. Fill in the results, load the sheet back, and the agent analyzes it.
 
-7. **Teaches the concepts.** `learn.html` (ML Agent Academy) has 25 interactive lessons, each with an analogy, a hands-on visual and a quick check. Examples: grow a decision tree and watch it carve up the data, send a batch through five trees of a random forest and see them vote, step through k-means, drag the boosting rounds, see design shapes (factorial cube, central composite, Box-Behnken), and turn noise up on a Pareto chart.
+7. **Teaches the concepts.** `learn.html` (ML Agent Academy) has 26 interactive lessons, each with an analogy, a hands-on visual and a quick check. Examples: grow a decision tree and watch it carve up the data, send a batch through five trees of a random forest and see them vote, step through k-means, drag the boosting rounds, see design shapes (factorial cube, central composite, Box-Behnken), and turn noise up on a Pareto chart.
 
 Three ways to share results: **Save as PDF** builds an A4 PDF file in the browser (action plan, every chart with its "how to read this" note, the DOE run sheet, the models in plain words and a glossary); **Print** sends a clean, light-themed version to the printer; **Download as web page** saves the same report as a single HTML file.
 

@@ -117,7 +117,8 @@
     series.forEach((s, si) => {
       const cls = s.cls || (si ? 's2' : '');
       b += '<path class="line ' + cls + '" d="' + s.points.map((p, i) => (i ? 'L' : 'M') + sx(p.x) + ' ' + sy(p.y)).join('') + '"/>';
-      for (const p of s.points) b += '<g data-tip="' + esc(p.tip || (s.name ? s.name + ': ' : '') + fmt(p.y)) + '"><circle class="hit" cx="' + sx(p.x) + '" cy="' + sy(p.y) + '" r="12"/><circle class="pt ' + cls + '" cx="' + sx(p.x) + '" cy="' + sy(p.y) + '" r="' + (p.big ? 6.5 : 4.5) + '"/></g>';
+      // noDots: long series (like a loss curve) draw only the highlighted points.
+      for (const p of s.points) if (!opt.noDots || p.big) b += '<g data-tip="' + esc(p.tip || (s.name ? s.name + ': ' : '') + fmt(p.y)) + '"><circle class="hit" cx="' + sx(p.x) + '" cy="' + sy(p.y) + '" r="12"/><circle class="pt ' + cls + '" cx="' + sx(p.x) + '" cy="' + sy(p.y) + '" r="' + (p.big ? 6.5 : 4.5) + '"/></g>';
     });
     if (opt.xLabel) b += '<text class="lbl-strong" x="' + ((L + W - R) / 2) + '" y="' + (H - 6) + '" text-anchor="middle">' + esc(opt.xLabel) + '</text>';
     if (opt.yLabel) b += '<text class="lbl-strong" transform="translate(13 ' + ((T + H - B) / 2) + ') rotate(-90)" text-anchor="middle">' + esc(opt.yLabel) + '</text>';

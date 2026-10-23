@@ -506,6 +506,78 @@
   });
 
   add({
+    id: 'neural-network', group: 'Predicting numbers and categories', title: 'Neural networks: watch one learn',
+    analogy: 'A team of specialists passing notes forward. The first layer spots simple clues, the next combines clues into patterns, and the last makes the call. Training is the team adjusting how much they trust each note.',
+    intro: 'A neural network is layers of simple units. Each unit adds up its weighted inputs and passes a signal on if the total is positive. Stack two layers and the network can bend its boundary into curves and islands that a straight line cannot draw. Pick a pattern and press Train.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-controls">' + ['circle', 'moons', 'xor'].map((k, i) => btn('d-' + k, { circle: 'Circle', moons: 'Two moons', xor: 'Checkerboard (XOR)' }[k], i ? 'ghost' : 'primary')).join('') +
+        slider('h', 'Units per hidden layer', 2, 16, 1, 8) + btn('go', 'Train', 'primary') + btn('reset', 'Reset', 'ghost') + '</div>' +
+        '<div class="demo-grid"><div><h4>What the network thinks (shading = its confidence)</h4><div data-role="map"></div>' + passLegend + '</div><div><h4>The network: blue connections push up, orange push down</h4><div data-role="net"></div><h4>Error while learning</h4><div data-role="loss"></div></div></div><p class="demo-read" data-role="read"></p>';
+      let kind = 'circle', tr = null, data = null, running = false, raf = 0;
+      const make = () => {
+        const rand = E.rng(17), X = [], y = [];
+        for (let i = 0; i < 220; i++) {
+          let a, b, c;
+          if (kind === 'circle') { a = rand() * 4 - 2; b = rand() * 4 - 2; c = a * a + b * b < 1.4 ? 1 : 0; }
+          else if (kind === 'xor') { a = rand() * 4 - 2; b = rand() * 4 - 2; c = (a > 0) === (b > 0) ? 1 : 0; }
+          else { const t = rand() * Math.PI, up = rand() < 0.5; a = up ? Math.cos(t) * 1.4 - 0.5 : 0.9 - Math.cos(t) * 1.4; b = up ? Math.sin(t) * 1.4 - 0.4 : 0.4 - Math.sin(t) * 1.4; c = up ? 1 : 0; a += normal(rand) * 0.15; b += normal(rand) * 0.15; }
+          X.push([a, b]); y.push(c);
+        }
+        return { X, y };
+      };
+      const restart = () => {
+        cancelAnimationFrame(raf); running = false; q(el, 'go').textContent = 'Train';
+        const h = Number(q(el, 'h').value); setOut(el, 'h', h);
+        data = make();
+        tr = E.mlpTrainer(data.X, data.y, { task: 'classification', nClasses: 2, rand: E.rng(5) }, { h1: h, h2: h, maxEpochs: 400, patience: 400, lr: 0.01, l2: 0 });
+        draw();
+      };
+      const draw = () => {
+        const f = frame(330, 290, [-2.2, 2.2], [-2.2, 2.2], { xLabel: 'Input 1', yLabel: 'Input 2' });
+        const nx = 34, ny = 30, cells = [];
+        for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) cells.push([-2.2 + 4.4 * (i + 0.5) / nx, -2.2 + 4.4 * (j + 0.5) / ny]);
+        const pr = tr.peek(cells);
+        let b = f.axes;
+        cells.forEach((c, k) => {
+          const p1 = pr[k][1], x0 = Math.round(f.sx(c[0] - 2.2 / nx)), y0 = Math.round(f.sy(c[1] + 2.2 / ny));
+          b += '<rect class="region-' + (p1 >= 0.5 ? 'c1' : 'c2') + '" fill-opacity="' + (0.06 + 0.4 * Math.abs(p1 - 0.5)).toFixed(2) + '" x="' + x0 + '" y="' + y0 + '" width="' + (Math.round(f.sx(c[0] + 2.2 / nx)) - x0) + '" height="' + (Math.round(f.sy(c[1] - 2.2 / ny)) - y0) + '" shape-rendering="crispEdges"/>';
+        });
+        b += data.X.map((p, i) => dot(f.sx(p[0]), f.sy(p[1]), data.y[i] ? 'c1' : 'c2', 3.5, null, data.y[i] ? 'circle' : 'square')).join('');
+        q(el, 'map').innerHTML = svg(330, 290, 'Network decision map', b);
+        // Network diagram with live weights.
+        const wts = tr.weights(), sizes = tr.sizes, W = 330, H = 200, xs = c => 30 + c * (W - 60) / (sizes.length - 1), ys = (c, i) => H / 2 + (i - (sizes[c] - 1) / 2) * Math.min(22, (H - 30) / sizes[c]);
+        let maxw = 1e-9; wts.W.forEach(w => w.forEach(v => { maxw = Math.max(maxw, Math.abs(v)); }));
+        let n = '';
+        for (let l = 0; l < sizes.length - 1; l++) for (let j = 0; j < sizes[l + 1]; j++) for (let i = 0; i < sizes[l]; i++) {
+          const v = wts.W[l][j * sizes[l] + i];
+          n += '<line class="nn-edge ' + (v >= 0 ? 'pos' : 'neg') + '" stroke-opacity="' + (0.15 + 0.85 * Math.abs(v) / maxw).toFixed(2) + '" stroke-width="' + (0.5 + 3 * Math.abs(v) / maxw).toFixed(2) + '" x1="' + xs(l) + '" y1="' + ys(l, i) + '" x2="' + xs(l + 1) + '" y2="' + ys(l + 1, j) + '"/>';
+        }
+        sizes.forEach((sz, c) => { for (let i = 0; i < sz; i++) n += '<circle class="nn-node' + (c === 0 ? ' in' : c === sizes.length - 1 ? ' out' : '') + '" cx="' + xs(c) + '" cy="' + ys(c, i) + '" r="6"/>'; });
+        q(el, 'net').innerHTML = svg(W, H, 'Network diagram', n);
+        const hist = tr.history;
+        if (hist.length > 1) {
+          const fl = frame(330, 150, [1, Math.max(10, hist.length)], [0, Math.max(0.8, ...hist.map(e => e.train))], { xLabel: 'Epoch', yFmt: v => v.toFixed(1) });
+          q(el, 'loss').innerHTML = svg(330, 150, 'Training error', fl.axes + '<path class="curve" d="' + pathOf(hist.map(e => [e.epoch, e.train]), fl) + '"/>');
+        } else q(el, 'loss').innerHTML = '<p class="hint">Press Train to start.</p>';
+        const acc = E.mean(tr.peek(data.X).map((o, i) => ((o[1] >= 0.5 ? 1 : 0) === data.y[i] ? 1 : 0)));
+        q(el, 'read').innerHTML = 'Epoch <b>' + hist.length + '</b> · accuracy <b>' + pct(acc) + '</b>. ' + (hist.length === 0 ? 'Before training the weights are random, so the map is a guess.' :
+          acc > 0.95 ? 'It has bent its boundary to fit the pattern. Try fewer units: with 2 per layer it often cannot draw the shape.' : 'Watch the shading reshape as the connections strengthen.');
+      };
+      const loop = () => { if (!running) return; const fin = tr.step(2); draw(); if (fin) { running = false; q(el, 'go').textContent = 'Train'; return; } raf = requestAnimationFrame(loop); };
+      q(el, 'go').onclick = () => { running = !running; q(el, 'go').textContent = running ? 'Pause' : 'Train'; if (running) raf = requestAnimationFrame(loop); };
+      q(el, 'reset').onclick = restart;
+      q(el, 'h').oninput = restart;
+      ['circle', 'moons', 'xor'].forEach(k => { q(el, 'd-' + k).onclick = () => { kind = k; el.querySelectorAll('[data-role^="d-"]').forEach(b => { b.className = 'btn ' + (b.getAttribute('data-role') === 'd-' + k ? 'primary' : 'ghost'); }); restart(); }; });
+      restart();
+    },
+    steps: ['Each unit computes a weighted sum of its inputs plus a bias, then keeps it only if positive (ReLU).', 'Two hidden layers let the network combine simple cuts into curves and islands.', 'Training nudges every weight a little to reduce the error (backpropagation with the Adam optimizer), one batch at a time.', 'ML Agent holds back 15% of rows and stops when their error stops improving (early stopping), keeping the best version.'],
+    when: 'Tangled, curved patterns with enough rows (hundreds or more), where trees and straight lines fall short.',
+    watch: 'Needs more data than simple models, is hard to explain, and can overfit small tables. On many business tables boosting or a forest does as well with less fuss, and the agent will tell you when.',
+    where: 'The "Neural network (MLP)" row on the leaderboard, the live learning curve while the agent runs, and the "Neural network: how it learned" card.',
+    quiz: { q: 'Why does the agent stop training when the error on held-back rows stops improving?', options: ['To save battery', 'Further training would start memorizing noise (overfitting)', 'Because the network is full'], answer: 1, why: 'Learning-row error keeps falling, but once held-back error plateaus, extra epochs only fit noise.' }
+  });
+
+  add({
     id: 'kmeans', group: 'Finding patterns', title: 'k-means: finding natural groups',
     analogy: 'Placing k warehouses so every store is as close as possible to its nearest one. Move the warehouses, reassign the stores, repeat.',
     intro: 'k-means has no answer key. It drops k centers, assigns every row to the nearest center, moves each center to the middle of its rows, and repeats until nothing changes. Step through it.',

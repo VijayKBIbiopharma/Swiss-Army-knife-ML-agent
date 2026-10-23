@@ -130,6 +130,7 @@
     showError('run-error', '');
     const btn = $('run'); btn.disabled = true; btn.textContent = 'Running…';
     $('progress').hidden = false; $('agent-log').innerHTML = ''; $('progress-bar').value = 2; $('progress-text').textContent = 'Starting';
+    $('nn-live').hidden = true; $('nn-live-chart').innerHTML = '';
     const exclude = Array.from(document.querySelectorAll('#profile input[data-col]')).filter(i => !i.checked).map(i => i.getAttribute('data-col'));
     showError('spc-error', '');
     let sixSigma;
@@ -140,6 +141,11 @@
       const rep = await A.run(state.table, { target: $('target').value, task: $('task').value, goal: $('goal').value, exclude, sixSigma }, p => {
         if (p.log) $('agent-log').innerHTML = p.log.map(l => '<li class="log-' + l.kind + '">' + h(l.text) + '</li>').join('');
         if (p.total) { $('progress-bar').value = 5 + 90 * p.done / p.total; $('progress-text').textContent = 'Testing ' + p.model + ' (' + (p.done + 1) + ' of ' + p.total + ')'; }
+        if (p.nn) {
+          $('nn-live').hidden = false;
+          $('progress-text').textContent = 'Neural network: epoch ' + p.nn.history.length;
+          lossChart($('nn-live-chart'), p.nn, 220);
+        }
       });
       if (!state.table) return; // deleted while running
       $('progress-bar').value = 100; $('progress-text').textContent = 'Finished';
@@ -348,8 +354,47 @@
     const imp = (rep.importance || []).slice(0, 12);
     append(blocks, card('What drives ' + rep.target, 'How much the best model\'s score drops when each column is scrambled. Bigger = more important.', imp.length ? '<div id="imp-chart"></div>' : '<p>No drivers to show.</p>', 'drivers'));
     if (imp.length) C.hbar($('imp-chart'), imp.map((v, i) => ({ label: v.name, value: v.share, text: pct(v.share), cls: i < 3 ? 'hi' : '' })), { min: 0, tickFmt: t => pct(t), label: 'Driver importance' });
+    renderNN(rep, blocks);
     renderPD(rep, blocks);
     renderPeek(rep, blocks);
+  }
+
+  // Loss curve: error on the rows the network learns from, and on the rows held back to check it.
+  function lossChart(el, nn, height) {
+    const hist = nn.history; if (!hist.length) return;
+    const hasVal = hist[0].val !== null;
+    const series = [{ name: 'Learning rows', points: hist.map(e => ({ x: e.epoch, y: e.train })) }];
+    if (hasVal) series.push({ name: 'Check rows', cls: 's2', points: hist.map(e => ({ x: e.epoch, y: e.val, big: e.epoch === nn.bestEpoch, tip: 'Best check score, epoch ' + e.epoch })) });
+    else series[0].points.forEach(pt => { pt.big = pt.x === nn.bestEpoch; });
+    const last = hist[hist.length - 1].epoch, ticks = C.niceTicks(1, Math.max(2, last), 5).filter(t => t >= 1 && t <= last);
+    C.lines(el, series, { noDots: true, xTicks: ticks, xLabel: 'Epoch (one pass over the learning rows)', yLabel: 'Error', height: height || 240, label: 'Neural network learning curve' });
+    el.insertAdjacentHTML('beforeend', C.legend([{ label: 'Error on rows it learns from', cls: 'pt' }].concat(hasVal ? [{ label: 'Error on held-back check rows', cls: 'pt s2' }] : [])));
+  }
+  // A sketch of the network: up to 8 units drawn per layer, connections faint.
+  function networkSketch(sizes, inputs) {
+    const W = 520, H = 190, cols = sizes.length, show = s => Math.min(s, 8);
+    const x = c => 40 + c * (W - 80) / (cols - 1), y = (c, i) => { const n = show(sizes[c]); return H / 2 + (i - (n - 1) / 2) * 20; };
+    let b = '';
+    for (let c = 0; c < cols - 1; c++) for (let i = 0; i < show(sizes[c]); i++) for (let j = 0; j < show(sizes[c + 1]); j++) b += '<line class="nn-edge" x1="' + x(c) + '" y1="' + y(c, i) + '" x2="' + x(c + 1) + '" y2="' + y(c + 1, j) + '"/>';
+    const names = ['Inputs', 'Hidden layer 1', 'Hidden layer 2', 'Output'];
+    sizes.forEach((s, c) => {
+      for (let i = 0; i < show(s); i++) b += '<circle class="nn-node' + (c === 0 ? ' in' : c === cols - 1 ? ' out' : '') + '" cx="' + x(c) + '" cy="' + y(c, i) + '" r="6.5"/>';
+      b += '<text class="lbl-strong" x="' + x(c) + '" y="14" text-anchor="middle">' + names[c] + '</text><text x="' + x(c) + '" y="' + (H - 4) + '" text-anchor="middle">' + s + (s > 8 ? ' (8 shown)' : '') + '</text>';
+    });
+    return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Network diagram: ' + sizes.join(' to ') + ' units">' + b + '</svg>';
+  }
+  function renderNN(rep, blocks) {
+    const nn = rep.nn; if (!nn) return;
+    const key = rep.metricKey, bestScore = rep.best.metrics[key];
+    const scoreTxt = v => (rep.task === 'regression' ? 'R² ' + v.toFixed(2) : pct(v));
+    const why = nn.chosen ? 'It is the chosen model.' : bestScore - nn.score <= 0.01 + 1e-9 ? 'A simpler model scored within 0.01, so the agent kept the easier-to-explain one.' : 'Other models scored higher on this data, which is common for small tables.';
+    const outN = nn.sizes[nn.sizes.length - 1];
+    const bestVal = nn.history[nn.bestEpoch - 1] && nn.history[nn.bestEpoch - 1].val, lastVal = nn.history[nn.history.length - 1].val;
+    const overfit = bestVal !== null && bestVal !== undefined && lastVal > bestVal * 1.05 ? ' After that, the check error rises while the learning error keeps falling: that is overfitting, so the network keeps its epoch-' + nn.bestEpoch + ' version.' : '';
+    const el = append(blocks, card('Neural network: how it learned', nn.sizes[0] + ' inputs → ' + nn.sizes[1] + ' → ' + nn.sizes[2] + ' units → ' + (outN === 1 ? '1 output (the number)' : outN + ' outputs (one per class)') + '. Cross-validated ' + scoreTxt(nn.score) + ', rank ' + nn.rank + ' on the leaderboard. ' + why +
+      ' Training stopped after ' + nn.history.length + ' epochs; the best check score came at epoch ' + nn.bestEpoch + '.' + overfit,
+      '<div class="block-grid nn-grid"><div class="nn-curve"></div><div>' + networkSketch(nn.sizes) + '<p class="hint">Inputs are your columns after scaling (each category becomes a yes/no input). Each unit adds up its weighted inputs and passes the signal on only if it is positive (ReLU).</p></div></div>', 'nn'));
+    lossChart(el.querySelector('.nn-curve'), nn);
   }
 
   function renderPD(rep, blocks) {

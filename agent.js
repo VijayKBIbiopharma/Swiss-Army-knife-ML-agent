@@ -200,10 +200,24 @@
     report.bestReason = best === top ? 'highest cross-validated score' : 'within 0.01 of the top score (' + top.name + ') but simpler, so easier to trust and explain';
     say('Best model: ' + best.name + ' (' + report.bestReason + ').', 'result');
 
+    // Neural network: train once more on all rows, step by step, so the page can draw the
+    // learning curve live. If the network is the winner, this run becomes the final model.
+    let nnFull = null;
+    const nnRow = ok.find(b => b.id === 'mlp');
+    if (nnRow) {
+      say('Training the neural network on all rows so you can watch it learn (85% to learn from, 15% held back to check it).');
+      const enc = E.fitEncoder(features, data.rows), Xa = enc.transform(data.rows);
+      const tr = E.mlpTrainer(Xa, data.y, { task, nClasses: K, rand: rng(seed + 7) });
+      while (!tr.step(3)) { progress({ log: report.log.slice(), nn: { history: tr.history, sizes: tr.sizes, bestEpoch: tr.bestEpoch } }); await tick(); }
+      report.nn = { history: tr.history.slice(), sizes: tr.sizes, bestEpoch: tr.bestEpoch, inputs: enc.labels, score: nnRow.metrics[key], rank: ok.filter(b => b.id !== 'baseline').indexOf(nnRow) + 1, chosen: best.id === 'mlp', cvMs: nnRow.ms };
+      say('Neural network: stopped after ' + tr.epoch + ' epochs; its best check score came at epoch ' + tr.bestEpoch + '.');
+      if (best.id === 'mlp') nnFull = { enc, X: Xa, fitted: tr.model() };
+    }
+
     // Refit the winner on all rows for drivers and what-if predictions.
     await tick();
     const model = E.MODELS.find(m => m.id === best.id);
-    const full = E.fitFull(model, data, task, seed);
+    const full = nnFull || E.fitFull(model, data, task, seed);
     const trainPred = full.fitted.predict(full.X);
     report.trainMetrics = task === 'regression' ? E.regressionMetrics(data.y, trainPred) : E.classificationMetrics(data.y, trainPred, K);
     report.importance = best.id === 'baseline' ? [] : E.permutationImportance(full, data, task, seed);

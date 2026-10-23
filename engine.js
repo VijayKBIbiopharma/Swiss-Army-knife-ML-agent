@@ -667,8 +667,138 @@
         }));
         Object.assign(m, { trees, f0, lr }); return m;
       }
+    },
+    {
+      id: 'mlp', name: 'Neural network (MLP)', task: 'both', complexity: 4.5,
+      plain: 'A small neural network: inputs feed two layers of simple units (32 then 16) that each combine their inputs and pass on a signal, so it can learn tangled, curved patterns. It trains in rounds (epochs) and stops when it stops improving on rows held back to check it.',
+      applicable: n => n >= 40,
+      fit(X, y, ctx) {
+        const t = mlpTrainer(X, y, ctx);
+        while (!t.step(20)) { /* train until early stopping */ }
+        return t.model();
+      }
     }
   ];
+
+  /* A small multi-layer perceptron: inputs → h1 → h2 (ReLU) → output (linear, or softmax for
+     classes), trained with Adam on mini-batches. 15% of rows are held back to check it after
+     every epoch; training stops when that check stops improving (early stopping) and the best
+     weights are kept. step(k) trains k more epochs and returns true when finished, so the UI
+     can draw the loss curve live. */
+  function mlpTrainer(X, y, ctx, opt) {
+    opt = opt || {};
+    const cls = ctx.task === 'classification', K = cls ? ctx.nClasses : 1, n = X.length, p = X[0].length;
+    const sizes = [p, opt.h1 || 32, opt.h2 || 16, K], L = 3;
+    const rand = ctx.rand, gauss = () => Math.sqrt(-2 * Math.log(Math.max(1e-12, rand()))) * Math.cos(2 * Math.PI * rand());
+    const ym = cls ? 0 : mean(y), ys = cls ? 1 : (sd(y) || 1);
+    const yt = cls ? y : y.map(v => (v - ym) / ys);
+    const W = [], B = [];
+    for (let l = 0; l < L; l++) {
+      const a = sizes[l], b = sizes[l + 1], w = new Float64Array(a * b), sc = Math.sqrt(2 / a);
+      for (let i = 0; i < w.length; i++) w[i] = gauss() * sc;
+      W.push(w); B.push(new Float64Array(b));
+    }
+    const params = W.concat(B), mA = params.map(t => new Float64Array(t.length)), vA = params.map(t => new Float64Array(t.length));
+    const gW = W.map(w => new Float64Array(w.length)), gB = B.map(b => new Float64Array(b.length)), grads = gW.concat(gB);
+    const order = shuffle(range(n), rand), nVal = n >= 40 ? Math.round(n * 0.15) : 0;
+    const val = order.slice(0, nVal), tr = order.slice(nVal);
+    // Bigger data: bigger batches, a slightly faster learning rate and fewer epochs, so a fit
+    // stays around a second in the browser. Each epoch already sees many more rows.
+    const big = n > 1500;
+    const lr = opt.lr || (big ? 0.005 : 0.003), lam = opt.l2 === undefined ? 1e-4 : opt.l2, batch = opt.batch || (big ? 64 : 32);
+    const maxEpochs = opt.maxEpochs || Math.max(60, Math.min(300, Math.round(150000 / n))), patience = opt.patience || (big ? 15 : 25);
+    const Z = sizes.map(s => new Float64Array(s)), A = sizes.map(s => new Float64Array(s)), D = sizes.map(s => new Float64Array(s));
+    let t = 0, epoch = 0, best = Infinity, bestEpoch = 0, bestW = null, done = false;
+    const history = [];
+
+    function forward(x) {
+      const a0 = A[0]; for (let i = 0; i < p; i++) a0[i] = x[i];
+      for (let l = 0; l < L; l++) {
+        const a = sizes[l], b = sizes[l + 1], w = W[l], bi = B[l], inp = A[l], z = Z[l + 1], out = A[l + 1];
+        for (let j = 0; j < b; j++) {
+          let s = bi[j], o = j * a;
+          for (let i = 0; i < a; i++) s += w[o + i] * inp[i];
+          z[j] = s; out[j] = l < L - 1 ? (s > 0 ? s : 0) : s;
+        }
+      }
+      const o = A[L];
+      if (cls) { let m = -Infinity; for (let k = 0; k < K; k++) m = Math.max(m, o[k]); let tot = 0; for (let k = 0; k < K; k++) { o[k] = Math.exp(o[k] - m); tot += o[k]; } for (let k = 0; k < K; k++) o[k] /= tot; }
+      return o;
+    }
+    function lossOf(rows) {
+      if (!rows.length) return null;
+      let s = 0;
+      for (const r of rows) { const o = forward(X[r]); s += cls ? -Math.log(Math.max(1e-12, o[yt[r]])) : (o[0] - yt[r]) ** 2; }
+      return s / rows.length;
+    }
+    function trainEpoch() {
+      shuffle(tr, rand);
+      for (let s0 = 0; s0 < tr.length; s0 += batch) {
+        const rows = tr.slice(s0, s0 + batch);
+        grads.forEach(g => g.fill(0));
+        for (const r of rows) {
+          const o = forward(X[r]), dOut = D[L];
+          for (let k = 0; k < K; k++) dOut[k] = cls ? o[k] - (yt[r] === k ? 1 : 0) : (k === 0 ? o[0] - yt[r] : 0);
+          for (let l = L - 1; l >= 0; l--) {
+            const a = sizes[l], b = sizes[l + 1], w = W[l], gw = gW[l], gb = gB[l], inp = A[l], dz = D[l + 1], dIn = D[l];
+            if (l > 0) dIn.fill(0);
+            for (let j = 0; j < b; j++) {
+              const g = dz[j]; if (!g) continue;
+              gb[j] += g; const o2 = j * a;
+              for (let i = 0; i < a; i++) { gw[o2 + i] += g * inp[i]; if (l > 0) dIn[i] += g * w[o2 + i]; }
+            }
+            if (l > 0) { const z = Z[l]; for (let i = 0; i < a; i++) if (z[i] <= 0) dIn[i] = 0; }
+          }
+        }
+        // Adam update, with a light L2 penalty on weights.
+        t++;
+        const c1 = 1 - Math.pow(0.9, t), c2 = 1 - Math.pow(0.999, t), inv = 1 / rows.length;
+        params.forEach((P, q) => {
+          const G = grads[q], M = mA[q], V = vA[q], isW = q < L;
+          for (let i = 0; i < P.length; i++) {
+            const g = G[i] * inv + (isW ? lam * P[i] : 0);
+            M[i] = 0.9 * M[i] + 0.1 * g; V[i] = 0.999 * V[i] + 0.001 * g * g;
+            P[i] -= lr * (M[i] / c1) / (Math.sqrt(V[i] / c2) + 1e-8);
+          }
+        });
+      }
+    }
+    function snapshot() { return { W: W.map(w => w.slice()), B: B.map(b => b.slice()) }; }
+    function step(k) {
+      for (let e = 0; e < k && !done; e++) {
+        trainEpoch(); epoch++;
+        const trL = lossOf(tr.length > 600 ? tr.slice(0, 600) : tr), vL = lossOf(val);
+        const watch = vL === null ? trL : vL;
+        history.push({ epoch, train: trL, val: vL });
+        if (watch < best - 1e-6) { best = watch; bestEpoch = epoch; bestW = snapshot(); }
+        if (epoch - bestEpoch >= patience || epoch >= maxEpochs) done = true;
+      }
+      return done;
+    }
+    function model() {
+      const keepW = bestW || snapshot();
+      const predictRow = x => {
+        const saved = snapshot();
+        keepW.W.forEach((w, l) => W[l].set(w)); keepW.B.forEach((b, l) => B[l].set(b));
+        const o = Array.from(forward(x));
+        saved.W.forEach((w, l) => W[l].set(w)); saved.B.forEach((b, l) => B[l].set(b));
+        return o;
+      };
+      const many = Xn => {
+        const saved = snapshot();
+        keepW.W.forEach((w, l) => W[l].set(w)); keepW.B.forEach((b, l) => B[l].set(b));
+        const out = Xn.map(x => Array.from(forward(x)));
+        saved.W.forEach((w, l) => W[l].set(w)); saved.B.forEach((b, l) => B[l].set(b));
+        return out;
+      };
+      const info = { sizes, history: history.slice(), bestEpoch, weights: keepW, nTrain: tr.length, nVal: val.length };
+      if (cls) return Object.assign(classifier(Xn => many(Xn)), { nn: info, predictRow });
+      return { nn: info, predictRow, predict: Xn => many(Xn).map(o => o[0] * ys + ym) };
+    }
+    // Predictions from the current (not best-so-far) weights, for live teaching demos.
+    const peek = Xn => Xn.map(x => Array.from(forward(x)));
+    return { step, model, peek, history, sizes, get epoch() { return epoch; }, get bestEpoch() { return bestEpoch; }, get done() { return done; }, weights: () => ({ W, B }) };
+  }
 
   // ---------- Cross-validation ----------
   function makeFolds(n, k, rand, yClass) {
@@ -909,7 +1039,7 @@
 
   root.MLEngine = {
     rng, shuffle, range, mean, sd, variance, quantile, median, pearson, tTestP, invert, gram,
-    parseCSV, profile, isUsableFeature, toNumber, fitEncoder, fitRidgeCore, fitLasso, buildTree,
+    parseCSV, profile, isUsableFeature, toNumber, fitEncoder, fitRidgeCore, fitLasso, buildTree, mlpTrainer,
     MODELS, makeFolds, crossValidate, fitFull, regressionMetrics, classificationMetrics,
     supervisedData, permutationImportance, partialDependence, pickProb, treePredictRow, kmeans, silhouette, pca
   };
