@@ -87,6 +87,7 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Now press **Example: too few results** and run. **Inconclusive** &mdash; and the ordinary t-test on that same data says p = 0.69.
 - This is the slide that matters: *"If we had run a t-test, we would have written 'no significant difference, methods equivalent' and signed it. The honest answer is that four results per lab cannot tell us. It says we would need about 16."*
 - Finish with **Example: a real bias**: a 3.9-unit shift against a 2-unit margin, **Fail**, with the note that no amount of extra data fixes it.
+- If someone asks *"our two labs send separate spreadsheets"*: switch **How is the data laid out?** to **Two files**, and drop one export into each box. They do not need matching column names or row order &mdash; the tool finds the result column in each, and pairs on the sample identifier across the two files.
 
 ## 5. Finding groups with no target: penguins (1 minute)
 - Drag `penguins.csv`, choose **Nothing: find groups and patterns**, run.

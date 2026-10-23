@@ -301,19 +301,57 @@
   <section class="wrap step" id="equiv">
     <div class="step-head"><h2>Results from both methods</h2></div>
     <div class="card">
-      <p class="summary">One row per result: which method or lab produced it, and the value. Add a sample identifier and the same samples can be matched up as pairs, which is far more sensitive. <a class="learn-link" href="learn.html#equivalence" target="_blank" rel="noopener noreferrer">Learn how this works &#8599;</a></p>
+      <p class="summary">Two ways in: one file where a column says which method produced each result, or a separate file from each lab. Either way, add a sample identifier and the same samples can be matched up as pairs, which is far more sensitive. <a class="learn-link" href="learn.html#equivalence" target="_blank" rel="noopener noreferrer">Learn how this works &#8599;</a></p>
       <div class="row-actions">
         <button class="btn ghost small" id="eq-sample" type="button">Example: a transfer that passes</button>
         <button class="btn ghost small" id="eq-sample2" type="button">Example: a real bias</button>
         <button class="btn ghost small" id="eq-sample3" type="button">Example: too few results</button>
         <button class="btn ghost small" id="eq-clear" type="button">Clear</button>
       </div>
-      <label class="full" for="eq-data">Results (CSV or tab separated, with a header row)</label>
-      <textarea id="eq-data" rows="6" spellcheck="false" placeholder="SampleID,Method_Lab,Result_Value&#10;S-01,Lab A,98.7&#10;S-01,Lab B,98.9"></textarea>
-      <input type="file" id="eq-file" accept=".csv,.tsv,.txt" class="file-input">
+      <div class="controls">
+        <label>How is the data laid out?
+          <select id="eq-layout">
+            <option value="one" selected>One file &mdash; a column says which method</option>
+            <option value="two">Two files &mdash; one per method</option>
+          </select>
+        </label>
+      </div>
+      <div id="eq-one">
+        <label class="full" for="eq-data">Results (CSV or tab separated, with a header row)</label>
+        <textarea id="eq-data" rows="6" spellcheck="false" placeholder="SampleID,Method_Lab,Result_Value&#10;S-01,Lab A,98.7&#10;S-01,Lab B,98.9"></textarea>
+        <input type="file" id="eq-file" accept=".csv,.tsv,.txt" class="file-input">
+      </div>
+      <div id="eq-two" class="two-up" hidden>
+        <div class="side">
+          <h4>Reference method <span class="chip">the one you trust</span></h4>
+          <label class="full" for="eq-a-name">What to call it</label>
+          <input id="eq-a-name" type="text" value="Reference method">
+          <input type="file" id="eq-a-file" accept=".csv,.tsv,.txt" class="file-input">
+          <label class="full" for="eq-a-data">or paste its results</label>
+          <textarea id="eq-a-data" rows="5" spellcheck="false" placeholder="SampleID,Result&#10;S-01,98.7"></textarea>
+          <p class="hint" id="eq-a-read" aria-live="polite"></p>
+          <div class="controls" id="eq-a-map" hidden>
+            <label>Result column <select id="eq-a-value"></select></label>
+            <label>Sample identifier <select id="eq-a-sample"></select></label>
+          </div>
+        </div>
+        <div class="side">
+          <h4>New method <span class="chip">the one being tested</span></h4>
+          <label class="full" for="eq-b-name">What to call it</label>
+          <input id="eq-b-name" type="text" value="New method">
+          <input type="file" id="eq-b-file" accept=".csv,.tsv,.txt" class="file-input">
+          <label class="full" for="eq-b-data">or paste its results</label>
+          <textarea id="eq-b-data" rows="5" spellcheck="false" placeholder="SampleID,Result&#10;S-01,98.9"></textarea>
+          <p class="hint" id="eq-b-read" aria-live="polite"></p>
+          <div class="controls" id="eq-b-map" hidden>
+            <label>Result column <select id="eq-b-value"></select></label>
+            <label>Sample identifier <select id="eq-b-sample"></select></label>
+          </div>
+        </div>
+      </div>
       <p class="hint" id="eq-read" aria-live="polite"></p>
       <div id="eq-settings" hidden>
-        <div class="controls">
+        <div class="controls" id="eq-map-one">
           <label>Method column
             <select id="eq-group"></select>
           </label>
@@ -324,13 +362,15 @@
             <select id="eq-sampleid"></select>
           </label>
         </div>
-        <div class="controls">
+        <div class="controls" id="eq-methods">
           <label>Reference method
             <select id="eq-ref"></select>
           </label>
           <label>New method being tested
             <select id="eq-test"></select>
           </label>
+        </div>
+        <div class="controls">
           <label>Equivalence margin
             <input id="eq-margin" type="number" step="any" min="0" value="2">
           </label>

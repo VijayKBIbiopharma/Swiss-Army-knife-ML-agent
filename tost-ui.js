@@ -10,6 +10,10 @@
   const pFmt = p => (p === null || p === undefined || !isFinite(p) ? '–' : p < 0.0001 ? '<0.0001' : p.toFixed(4));
 
   let table = null, last = null;
+  // Two-file layout: each side is parsed on its own, then stacked into the long table the
+  // rest of the panel already works with, so nothing downstream has to know the difference.
+  const sides = { a: null, b: null };
+  const layout = () => $('eq-layout').value;
 
   function download(name, data, type) {
     const url = URL.createObjectURL(new Blob([data], { type: type + ';charset=utf-8' }));
@@ -42,6 +46,62 @@
     $('eq-settings').hidden = false;
     fillMethods();
     describe();
+  }
+
+  /* One file per method is how the data usually arrives: each lab sends its own export.
+     Both sides are stacked into a single long table with a Method column, which is exactly
+     what the single-file layout produces, so the two paths meet here and never diverge. */
+  function loadSide(which, text, name) {
+    let t;
+    try { t = E.parseCSV(text); } catch (e) { return fail('Could not read that file: ' + e.message); }
+    if (!t.rows.length) return fail('No rows found in that file.');
+    const prof = E.profile(t);
+    const numeric = prof.columns.filter(c => c.kind === 'numeric').map(c => c.name);
+    const value = numeric.find(c => VALUE.test(c)) || numeric[numeric.length - 1] || t.columns[0];
+    const sample = t.columns.filter(c => c !== value).find(c => SAMPLE.test(c)) || '';
+    sides[which] = { table: t, value, sample };
+    const opt = (sel, cols, val, blank) => { $(sel).innerHTML = (blank ? '<option value="">(none)</option>' : '') + cols.map(c => '<option' + (c === val ? ' selected' : '') + '>' + h(c) + '</option>').join(''); };
+    opt('eq-' + which + '-value', t.columns, value);
+    opt('eq-' + which + '-sample', t.columns, sample, true);
+    $('eq-' + which + '-map').hidden = false;
+    if (name && !$('eq-' + which + '-name').dataset.touched) $('eq-' + which + '-name').value = name.replace(/\.(csv|tsv|txt)$/i, '').slice(0, 40);
+    $('eq-' + which + '-read').textContent = t.rows.length + ' rows, ' + t.columns.length + ' columns.';
+    combineSides();
+  }
+  function combineSides() {
+    if (!sides.a || !sides.b) { $('eq-settings').hidden = true; describe(); return; }
+    const nameA = $('eq-a-name').value.trim() || 'Reference method';
+    const nameB = $('eq-b-name').value.trim() || 'New method';
+    if (nameA === nameB) return fail('Give the two methods different names.');
+    const valueName = 'Result';
+    const rows = [];
+    const take = (side, label) => {
+      const t = side.table, vi = t.columns.indexOf($('eq-' + (side === sides.a ? 'a' : 'b') + '-value').value);
+      const si = $('eq-' + (side === sides.a ? 'a' : 'b') + '-sample').value ? t.columns.indexOf($('eq-' + (side === sides.a ? 'a' : 'b') + '-sample').value) : -1;
+      t.rows.forEach(r => rows.push([label, vi >= 0 ? r[vi] : '', si >= 0 ? r[si] : '']));
+    };
+    take(sides.a, nameA); take(sides.b, nameB);
+    table = { columns: ['Method', valueName, 'Sample'], rows };
+    $('eq-group').innerHTML = '<option>Method</option>';
+    $('eq-value').innerHTML = '<option>' + valueName + '</option>';
+    $('eq-sampleid').innerHTML = '<option value="">(none)</option><option selected>Sample</option>';
+    if (!rows.some(r => r[2] !== '')) $('eq-sampleid').value = '';
+    $('eq-settings').hidden = false;
+    $('eq-error').hidden = true;
+    fillMethods();
+    $('eq-ref').value = nameA; $('eq-test').value = nameB;
+    $('eq-paired-wrap').hidden = !pairableCount();
+    describe();
+  }
+
+  function showLayout() {
+    const two = layout() === 'two';
+    $('eq-one').hidden = two; $('eq-two').hidden = !two;
+    // In the two-file layout the method and result columns are already decided per side.
+    $('eq-map-one').hidden = two; $('eq-methods').hidden = two;
+    table = null; sides.a = sides.b = null;
+    $('eq-settings').hidden = true; $('eq-out').innerHTML = ''; $('eq-read').textContent = ''; $('eq-error').hidden = true;
+    ['a', 'b'].forEach(w => { $('eq-' + w + '-map').hidden = true; $('eq-' + w + '-read').textContent = ''; });
   }
 
   function fillMethods() {
@@ -300,10 +360,18 @@
     $('eq-data').value = ''; $('eq-out').innerHTML = ''; $('eq-read').textContent = '';
     $('eq-settings').hidden = true; $('eq-error').hidden = true; $('eq-file').value = '';
     $('eq-paired-wrap').hidden = true; $('eq-paired').checked = false;
+    sides.a = sides.b = null;
+    ['a', 'b'].forEach(w => {
+      $('eq-' + w + '-data').value = ''; $('eq-' + w + '-file').value = '';
+      $('eq-' + w + '-read').textContent = ''; $('eq-' + w + '-map').hidden = true;
+      delete $('eq-' + w + '-name').dataset.touched;
+    });
+    $('eq-a-name').value = 'Reference method'; $('eq-b-name').value = 'New method';
   }
 
   function init() {
     const load = (text, margin) => {
+      if (layout() !== 'one') { $('eq-layout').value = 'one'; showLayout(); }
       $('eq-data').value = text; $('eq-error').hidden = true; $('delete-top').hidden = false;
       loadText(text);
       // The examples set the margin they were built to illustrate: 2% of the reference is a
@@ -321,7 +389,20 @@
       fr.onload = () => load(String(fr.result));
       fr.readAsText(f);
     });
-    ['eq-group', 'eq-sampleid'].forEach(id => $(id).addEventListener('change', () => { fillMethods(); describe(); }));
+    $('eq-layout').addEventListener('change', showLayout);
+    ['a', 'b'].forEach(w => {
+      const pull = text => { $('eq-' + w + '-data').value = text; $('delete-top').hidden = false; loadSide(w, text); };
+      $('eq-' + w + '-data').addEventListener('change', () => { if ($('eq-' + w + '-data').value.trim()) pull($('eq-' + w + '-data').value); });
+      $('eq-' + w + '-file').addEventListener('change', e => {
+        const f = e.target.files && e.target.files[0]; if (!f) return;
+        const fr = new FileReader();
+        fr.onload = () => { $('eq-' + w + '-data').value = String(fr.result); $('delete-top').hidden = false; loadSide(w, String(fr.result), f.name); };
+        fr.readAsText(f);
+      });
+      $('eq-' + w + '-name').addEventListener('input', () => { $('eq-' + w + '-name').dataset.touched = '1'; combineSides(); });
+      ['value', 'sample'].forEach(k => $('eq-' + w + '-' + k).addEventListener('change', combineSides));
+    });
+    ['eq-group', 'eq-sampleid'].forEach(id => $(id).addEventListener('change', () => { if (layout() === 'one') { fillMethods(); describe(); } }));
     ['eq-ref', 'eq-test'].forEach(id => $(id).addEventListener('change', () => { $('eq-paired-wrap').hidden = !pairableCount(); }));
     $('eq-value').addEventListener('change', describe);
     $('eq-run').addEventListener('click', run);

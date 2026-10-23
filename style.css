@@ -545,3 +545,11 @@ details.advanced > summary { cursor: pointer; font-size: .88rem; font-weight: 60
 .chart .ci-line { stroke-width: 3.5; stroke-linecap: round; }
 .chart .ci-line.good { stroke: var(--good); } .chart .ci-line.bad { stroke: var(--bad); } .chart .ci-line.warn { stroke: var(--warn); }
 .demo-read b.ok { color: var(--good); } .demo-read b.bad { color: var(--bad); } .demo-read b.warn { color: var(--warn); }
+
+/* Two files, one per method */
+.two-up { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px; }
+@media (max-width: 760px) { .two-up { grid-template-columns: 1fr; } }
+.two-up .side { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px 14px; background: var(--surface-2); }
+.two-up .side h4 { margin: 0 0 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.two-up .side textarea, .two-up .side input[type=text] { width: 100%; }
+.two-up .side .controls { margin-top: 8px; }
