@@ -40,6 +40,7 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Talking point: *"Anyone in the team can learn what the model is doing, with analogies, in their own time."*
 
 ## 7. Close (1 minute)
+- Press **Save as PDF** to show the shareable report (about 2 seconds), then open it.
 - Back in the agent, press **Finish and delete my data**. Everything is gone.
 - Ask: *"Where would we use this first?"* Have one internal use case ready, such as yield drivers on one line or a DOE for one stubborn defect.
 

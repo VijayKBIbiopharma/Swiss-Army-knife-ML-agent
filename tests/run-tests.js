@@ -185,6 +185,8 @@ test('privacy lint: no network, storage or tracking code', () => {
   for (const f of files) {
     fs.readFileSync(path.join(ROOT, f), 'utf8').split('\n').forEach((line, i) => {
       if (line.includes('PRIVACY-SELF-TEST')) return;
+      // Charts become PDF images from an in-memory copy only: a data: URL, never a web address.
+      if (line.includes('PRIVACY-LOCAL-IMAGE') && /\.src = 'data:image\/svg\+xml/.test(line) && !/https?:/.test(line)) return;
       const code = line.replace(/\/\/.*$/, '').replace(/'http:\/\/www\.w3\.org\/2000\/svg'/, '');
       for (const re of forbidden) if (re.test(code)) hits.push(f + ':' + (i + 1) + ' ' + re + ' → ' + line.trim());
     });
@@ -283,4 +285,23 @@ test('columns that copy the target (data leakage) are set aside', async () => {
   // A real but strong driver is not flagged.
   const reg = await A.run(E.parseCSV(S.find(s => s.id === 'molding').make()), { target: 'Yield' });
   assert.ok(!(reg.leaks || []).length);
+});
+
+test('PDF writer produces a well-formed file', () => {
+  const P = require(path.join(ROOT, 'pdf.js'));
+  const doc = P.create({ title: 'Test (report)', footer: 'footer' });
+  doc.h1('Heading').p('R² explains 89% of variation − with “quotes”, ≤ and ≥ signs. '.repeat(20)).h2('Table');
+  doc.table([['A', 'B'], ['1', 'two'], ['3', 'a much longer cell that has to wrap onto several lines in its column']]);
+  for (let i = 0; i < 80; i++) doc.p('Line ' + i, { bullet: '·' });
+  doc.band('Increase', 'Raise pressure toward 98', 'Expected change +1.9');
+  const bytes = doc.output();
+  const s = Buffer.from(bytes).toString('latin1');
+  assert.ok(s.startsWith('%PDF-1.4') && s.trimEnd().endsWith('%%EOF'));
+  const xref = Number(s.match(/startxref\n(\d+)/)[1]);
+  assert.strictEqual(s.slice(xref, xref + 4), 'xref');
+  const offs = [...s.slice(xref).matchAll(/(\d{10}) 00000 n/g)].map(m => Number(m[1]));
+  offs.forEach((o, i) => assert.ok(s.startsWith((i + 1) + ' 0 obj', o), 'object ' + (i + 1) + ' offset'));
+  assert.ok(/\/Count [2-9]/.test(s), 'long content flows onto more pages');
+  assert.ok(s.includes('R\xb2 explains'), 'superscript two kept in WinAnsi');
+  assert.ok(!/[\u0100-\uffff]/.test(s), 'single-byte text only');
 });

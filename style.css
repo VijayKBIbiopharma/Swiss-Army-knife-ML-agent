@@ -338,7 +338,20 @@ progress { flex: 1; height: 10px; accent-color: var(--steel); }
 .pm .p { color: var(--s2); font-weight: 700; } .pm .m { color: var(--s1); }
 
 @media print {
-  .top, #load, #setup, .row-actions, .privacy, .foot, #doe .controls, #doe .row-actions { display: none !important; }
+  /* Paper is always light, whatever the screen theme. */
+  :root, :root:not([data-theme="light"]), :root[data-theme="dark"] {
+    color-scheme: light;
+  --bg: #f3f4f1; --surface: #ffffff; --surface-2: #f7f8f6; --ink: #17222b; --muted: #56636c; --line: #d3d8d6; --grid: #e6e9e7;
+  --steel: #2c4a5e; --steel-soft: #9fb4c3; --accent: #f2c230; --accent-ink: #2b2100;
+  --good: #2f7a52; --warn: #9a5a00; --bad: #b3261e; --good-bg: #e6f2eb; --warn-bg: #fbf1de; --bad-bg: #fbe9e7; --info-bg: #e9eff4;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #6250d6;
+  --shadow: 0 1px 2px rgba(23,34,43,.06), 0 6px 20px rgba(23,34,43,.07);
+  }
+  .hero { display: none !important; }
+  .top, #load, #setup, .row-actions, .privacy, .foot, #doe .controls, #doe .row-actions, #doe .table-scroll:has(#factors), #design-purpose, #doe-error, .tip, .learn-link, .card:has(.whatif), #next > .hint { display: none !important; }
+  .howto summary { list-style: none; }
+  h2, h3 { break-after: avoid; }
+  svg.chart { break-inside: avoid; }
   body { background: #fff; }
   .card, .tile, .dmaic li { box-shadow: none; break-inside: avoid; }
 }

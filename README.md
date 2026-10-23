@@ -20,7 +20,7 @@ Drop in a CSV and it:
 
 6. **Teaches the concepts.** `learn.html` (ML Agent Academy) has 22 interactive lessons, each with an analogy, a hands-on visual and a quick check. Examples: grow a decision tree and watch it carve up the data, send a batch through five trees of a random forest and see them vote, step through k-means, drag the boosting rounds, see design shapes (factorial cube, central composite, Box-Behnken), and turn noise up on a Pareto chart.
 
-The downloadable report (HTML) contains the action plan, every chart with its explanation, the models in plain words, a glossary and the DOE run sheet.
+Three ways to share results: **Save as PDF** builds an A4 PDF file in the browser (action plan, every chart with its "how to read this" note, the DOE run sheet, the models in plain words and a glossary); **Print** sends a clean, light-themed version to the printer; **Download as web page** saves the same report as a single HTML file.
 
 **Live:** https://vjpowerhouse.github.io/Swiss-Army-knife-ML-agent/ · **Academy:** https://vjpowerhouse.github.io/Swiss-Army-knife-ML-agent/learn.html
 
@@ -64,6 +64,7 @@ node --test tests/run-tests.js
 | `agent.js` | Orchestration, model choice, findings and DMAIC next steps |
 | `charts.js` | Dependency-free SVG charts |
 | `app.js` | Page logic, report, delete and privacy self-test |
+| `pdf.js` | Dependency-free PDF writer for "Save as PDF" |
 | `explain.js` | Plain-English explanations and analogies shared by results, report and lessons |
 | `learn.html`, `learn.js` | ML Agent Academy: interactive lessons |
 | `samples.js` | Synthetic practice datasets |
