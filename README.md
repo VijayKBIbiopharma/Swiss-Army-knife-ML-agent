@@ -1,8 +1,8 @@
 # Swiss Army Knife ML Agent
 
-One private, in-browser tool for regression, classification, clustering, design of experiments (DOE), shelf-life estimation and sequence optimization, with a built-in academy that teaches every method.
+One private, in-browser tool for regression, classification, clustering, design of experiments (DOE), shelf-life estimation, method-transfer equivalence and sequence optimization, with a built-in academy that teaches every method.
 
-One tool is on screen at a time. A selector at the top (**What do you want to do?**) switches between **Analyze data**, **Shelf life (ICH Q1E)**, **Sequence optimizer** and **Privacy**, and each is linkable directly (`#stability`, `#sequence`). Inside each tool, panels open only when they earn their place: the practice datasets while nothing is loaded, the settings once there is something to set them for, the DOE builder when the agent has filled it in.
+One tool is on screen at a time. A selector at the top (**What do you want to do?**) switches between **Analyze data**, **Shelf life (ICH Q1E)**, **Method transfer (TOST)**, **Sequence optimizer** and **Privacy**, and each is linkable directly (`#stability`, `#equivalence`, `#sequence`). Inside each tool, panels open only when they earn their place: the practice datasets while nothing is loaded, the settings once there is something to set them for, the DOE builder when the agent has filled it in.
 
 Drop in a CSV and it:
 
@@ -29,7 +29,8 @@ Drop in a CSV and it:
 
 8. **Optimizes DNA sequences by genetic algorithm** (the "Sequence optimizer" tool). Paste a coding sequence and it evolves synonymous codons &mdash; the same protein, spelled differently &mdash; against four goals at once: raise the **Codon Adaptation Index** for CHO, HEK293 or E. coli; hold **GC content** inside a window, overall and in every 50-base stretch; keep the **5' end unfolded** so the ribosome can load; and **remove restriction sites** and long single-base runs, on both strands. It uses NSGA-II (non-dominated sorting, crowding distance, constrained domination), runs in a **Web Worker** so the page stays at full frame rate, and shows the convergence curves, the population diversity and a clickable **trade-off (Pareto) plot** live. The protein is re-translated and checked at the end. Results download as FASTA or a before-and-after CSV.
 9. **Estimates shelf life to ICH Q1E** (the "Shelf life" tool). Paste a stability study &mdash; batch, month, result, optionally a storage condition &mdash; set the specification limits, and it fits the degradation trend, runs Q1E's two poolability F tests (equal slopes, then equal intercepts, both at the 0.25 level), and reads the shelf life off the point where the 95% one-sided confidence limit meets the specification. It reports which model the tests chose and why, what each batch would give on its own, and applies Q1E's extrapolation cap (at most twice the data in hand, and never more than 12 months beyond it). Downloads as a Q1E report CSV, and joins the audit package when one is exported.
-10. **Teaches the concepts.** `learn.html` (ML Agent Academy) has 29 interactive lessons, each with an analogy, a hands-on visual and a quick check. Examples: grow a decision tree and watch it carve up the data, send a batch through five trees of a random forest and see them vote, step through k-means, drag the boosting rounds, see design shapes (factorial cube, central composite, Box-Behnken), and turn noise up on a Pareto chart.
+10. **Tests method-transfer equivalence by TOST** (the "Method transfer" tool). Paste results from two labs, instruments or analysts, declare the margin you are willing to accept, and it runs both one-sided tests and reports the confidence interval against that margin. Paired (same samples measured twice) or unpaired, Welch or pooled. It gives **three** answers, not two: equivalent, a real difference, or **inconclusive** &mdash; the case people routinely misreport as "no significant difference, therefore the same" &mdash; and for an inconclusive result it says how many results per method would settle it. Downloads as a CSV, and joins the audit package when one is exported.
+11. **Teaches the concepts.** `learn.html` (ML Agent Academy) has 30 interactive lessons, each with an analogy, a hands-on visual and a quick check. Examples: grow a decision tree and watch it carve up the data, send a batch through five trees of a random forest and see them vote, step through k-means, drag the boosting rounds, see design shapes (factorial cube, central composite, Box-Behnken), and turn noise up on a Pareto chart.
 
 Ways to share results, all built in the browser:
 - **Save as PDF**: an A4 report (action plan, what-if scenarios, every chart with its "how to read this" note, the DOE run sheet, the models in plain words, a glossary, and an audit trail).
@@ -81,6 +82,8 @@ node --test tests/run-tests.js
 | `merge.js` | Joining two files on a key, with replicate averaging |
 | `audit.js` | SHA-256, zip and Excel writers, audit trail and results workbook |
 | `stability.js` | ICH Q1E: regression, poolability F tests, confidence limits, shelf life |
+| `tost.js` | Equivalence testing: two one-sided tests, paired and unpaired |
+| `tost-ui.js` | Method-transfer panel: interval-against-margin chart, result strip, report |
 | `stab.js` | Shelf-life panel: input, poolability tables, trend chart, Q1E report |
 | `codon.js` | Genetic code, host codon-usage tables, CAI, GC windows, 5' folding, restriction sites |
 | `ga.js` | NSGA-II genetic algorithm for codon optimization |

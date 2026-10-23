@@ -1107,7 +1107,7 @@
     const header = ['Scenario'].concat(sim.drivers.map(d => d.name), [rep.task === 'classification' ? 'Chance of ' + A.classLabel(rep) : 'Predicted ' + rep.target], rep.desirability ? ['Overall D'] : []);
     return { header, rows: rows.map(r => [r.name].concat(sim.drivers.map(d => r.values[d.name]), [Number(r.score.toPrecision(6))], rep.desirability ? [Number(r.D.toPrecision(4))] : [])) };
   }
-  const auditContext = () => ({ sources: state.sources, merge: state.merge, options: state.runOptions, when: state.runAt, scenarios: scenarioTable(), design: state.design, table: state.table, stability: window.MLStabilityRun });
+  const auditContext = () => ({ sources: state.sources, merge: state.merge, options: state.runOptions, when: state.runAt, scenarios: scenarioTable(), design: state.design, table: state.table, stability: window.MLStabilityRun, tost: window.MLTostRun });
   const workbook = rep => AU.xlsx(AU.sheets(rep, auditContext()), { title: 'ML Agent results: ' + state.name });
   function saveExcel() {
     const rep = state.report; if (!rep) return;
@@ -1188,6 +1188,7 @@
     resetMerge(); $('m-preview').textContent = ''; $('m-result').innerHTML = ''; $('multi-table').innerHTML = ''; $('multi').open = false;
     if (window.MLSeq) window.MLSeq.clear();
     if (window.MLStab) window.MLStab.clear();
+    if (window.MLEquiv) window.MLEquiv.clear();
     foldPanels();
     $('sim').innerHTML = ''; $('sim').hidden = true;
     $('paste').value = ''; $('file').value = '';
@@ -1218,6 +1219,7 @@
   const TOOLS = {
     analyze: 'Drop in a table and the agent picks the model, names the drivers, and designs your next experiment.',
     stability: 'Fit a stability study, test whether the batches pool, and read the shelf life off the confidence limit.',
+    equivalence: 'Show that a new lab, instrument or analyst agrees with the old one, within a margin you declare.',
     sequence: 'Evolve synonymous codons for your host: same protein, better spelling, no restriction sites.',
     privacy: 'How the tool keeps your data on your own device, and how to check that for yourself.'
   };

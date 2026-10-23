@@ -89,6 +89,18 @@
     return ibeta(df / 2, 0.5, df / (df + t * t));
   }
 
+  /* Critical t for a one-sided tail area, by bisection on the two-sided p-value.
+     tQuantile(0.05, 10) = 1.8125, the 95th percentile of t with 10 degrees of freedom. */
+  function tQuantile(tail, df) {
+    if (!(df > 0)) return NaN;
+    let lo = 0, hi = 500;
+    for (let i = 0; i < 200; i++) {
+      const mid = (lo + hi) / 2;
+      if (tTestP(mid, df) / 2 > tail) lo = mid; else hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+
   // ---------- CSV parsing ----------
   function detectDelimiter(text) {
     const firstLine = text.split(/\r?\n/).find(l => l.trim().length) || '';
@@ -1038,7 +1050,7 @@
   }
 
   root.MLEngine = {
-    rng, shuffle, range, mean, sd, variance, quantile, median, pearson, tTestP, ibeta, invert, gram,
+    rng, shuffle, range, mean, sd, variance, quantile, median, pearson, tTestP, tQuantile, ibeta, invert, gram,
     parseCSV, profile, isUsableFeature, toNumber, fitEncoder, fitRidgeCore, fitLasso, buildTree, mlpTrainer,
     MODELS, makeFolds, crossValidate, fitFull, regressionMetrics, classificationMetrics,
     supervisedData, permutationImportance, partialDependence, pickProb, treePredictRow, kmeans, silhouette, pca

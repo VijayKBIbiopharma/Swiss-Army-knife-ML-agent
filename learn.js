@@ -1035,6 +1035,56 @@
   });
 
   add({
+    id: 'equivalence', group: 'Six Sigma and process control', title: 'Equivalence (TOST): proving sameness, not just failing to find a difference',
+    analogy: 'A jury verdict of "not guilty" is not the same as "innocent". An ordinary t-test can only fail to convict. TOST is the test that can actually acquit: it asks whether the difference is small enough to be beside the point.',
+    intro: 'Run a t-test on two labs, get p = 0.42, and it is tempting to write "no significant difference, methods equivalent". That does not follow: a small, noisy study fails to find almost anything. TOST flips the question. You declare a margin first, then test both edges of it. Drag the margin and the scatter below and watch the two tests disagree.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-controls">' + slider('margin', 'Equivalence margin (±)', 0.5, 6, 0.1, 2) + slider('noise', 'Scatter in each lab', 0.3, 5, 0.1, 1) + slider('n', 'Results per lab', 4, 30, 1, 12) + '</div><div data-role="plot"></div><p class="demo-read" data-role="read"></p>';
+      const TT = window.MLTost;
+      const draw = () => {
+        const margin = Number(q(el, 'margin').value), noise = Number(q(el, 'noise').value), n = Number(q(el, 'n').value);
+        setOut(el, 'margin', margin.toFixed(1)); setOut(el, 'noise', noise.toFixed(1)); setOut(el, 'n', n);
+        const rand = E.rng(5), rows = [];
+        // The two labs genuinely differ by 0.4: small, and the point is whether that matters.
+        for (let i = 0; i < n; i++) {
+          rows.push({ group: 'A', value: 100 + normal(rand) * noise });
+          rows.push({ group: 'B', value: 100.4 + normal(rand) * noise });
+        }
+        let r;
+        try { r = TT.analyze(rows, { reference: 'A', test: 'B', margin: margin }); } catch (err) { q(el, 'read').textContent = err.message; return; }
+        const span = Math.max(margin * 1.5, Math.abs(r.ciLow) * 1.15, Math.abs(r.ciHigh) * 1.15);
+        const f = frame(640, 230, [-span, span], [0, 1], { yFmt: () => '', xLabel: 'Difference: Lab B minus Lab A' });
+        let b = '<rect class="region-c3" fill-opacity=".16" x="' + f.sx(-margin) + '" y="' + f.sy(1) + '" width="' + (f.sx(margin) - f.sx(-margin)) + '" height="' + (f.sy(0) - f.sy(1)) + '"/>';
+        b += f.axes;
+        [[-margin, '−margin'], [margin, '+margin']].forEach(([v, lab]) => {
+          b += '<line class="ref" x1="' + f.sx(v) + '" x2="' + f.sx(v) + '" y1="' + f.sy(1) + '" y2="' + f.sy(0) + '"/>' +
+            '<text class="lbl-strong" x="' + f.sx(v) + '" y="' + (f.sy(1) - 6) + '" text-anchor="middle">' + lab + '</text>';
+        });
+        b += '<line class="target-line" x1="' + f.sx(0) + '" x2="' + f.sx(0) + '" y1="' + f.sy(1) + '" y2="' + f.sy(0) + '"/>';
+        const y = f.sy(0.5), cls = r.equivalent ? 'good' : r.differs ? 'bad' : 'warn';
+        b += '<line class="ci-line ' + cls + '" x1="' + f.sx(r.ciLow) + '" x2="' + f.sx(r.ciHigh) + '" y1="' + y + '" y2="' + y + '"/>';
+        [r.ciLow, r.ciHigh].forEach(v => { b += '<line class="ci-line ' + cls + '" x1="' + f.sx(v) + '" x2="' + f.sx(v) + '" y1="' + (y - 10) + '" y2="' + (y + 10) + '"/>'; });
+        b += dot(f.sx(r.diff), y, 'query', 6);
+        q(el, 'plot').innerHTML = svg(640, 230, 'Confidence interval against the equivalence margin', b);
+        const tTest = r.pDiff < 0.05 ? 'finds a significant difference (p ' + r.pDiff.toFixed(3) + ')' : 'finds no significant difference (p ' + r.pDiff.toFixed(3) + ')';
+        const verdict = r.equivalent ? '<b class="ok">Equivalent</b>: the whole interval fits inside the margin.'
+          : r.differs ? '<b class="bad">Not equivalent</b>: a real difference, and bigger than the margin allows.'
+            : '<b class="warn">Inconclusive</b>: the interval is wider than the margin but still covers zero, so there is simply not enough data to say.';
+        q(el, 'read').innerHTML = 'The ordinary t-test ' + tTest + '. TOST says: ' + verdict + '<br>' +
+          '90% interval <b>' + fmt(r.ciLow) + ' to ' + fmt(r.ciHigh) + '</b> against a margin of ±' + fmt(margin) + '. ' +
+          (!r.equivalent && !r.differs ? 'Notice that the t-test is quiet here while TOST refuses to conclude: "not significant" was never the same as "the same".' : r.equivalent && r.pDiff >= 0.05 ? 'Here both agree, but only TOST is entitled to the word "equivalent".' : '');
+      };
+      ['margin', 'noise', 'n'].forEach(k => { q(el, k).oninput = draw; });
+      draw();
+    },
+    steps: ['Set the margin first, from what actually matters to the product. Choosing it after seeing the data is how studies get talked into passing.', 'Test two one-sided hypotheses: that the difference is above −margin, and that it is below +margin.', 'Both must pass. That is the same statement as the 90% confidence interval sitting entirely inside the margins.', 'Three outcomes, not two: equivalent, a real difference, or not enough data to tell.'],
+    when: 'Transferring a method to another lab, instrument or analyst; qualifying a second supplier; showing a process change did not shift the result.',
+    watch: 'A wide interval that covers zero is not evidence of sameness. The margin is a business and product decision, not a statistical one, and a pass that uses 95% of the margin will not survive the next drift.',
+    where: 'Pick "Method transfer" from the selector at the top of the agent.',
+    quiz: { q: 'Two labs are compared. The t-test gives p = 0.42, and the 90% interval for the difference runs from −3.1 to +1.8 against a margin of ±2. What can you conclude?', options: ['The methods are equivalent, since p > 0.05', 'Nothing yet: the interval is wider than the margin', 'The methods differ, since the interval is wide'], answer: 1, why: 'The interval runs past −2, so equivalence is not shown; it still covers zero, so no difference is shown either. That is the inconclusive case, and it usually means too few results.' }
+  });
+
+  add({
     id: 'codon-optimization', group: 'Optimizing with evolution', title: 'Codon optimization: evolving a gene without changing the protein',
     analogy: 'Spelling the same word in two languages. "Colour" and "color" read the same to a person, but one is what the local reader expects. The protein is the meaning; the codons are the spelling, and each host has its own preference.',
     intro: 'Most amino acids can be written with several codons, so a protein has astronomically many possible genes. A genetic algorithm breeds a population of spellings: it keeps the ones that score well, mixes them, and mutates a codon here and there. Drag through the generations below and watch a deliberately badly-spelled gene improve, one objective at a time.',

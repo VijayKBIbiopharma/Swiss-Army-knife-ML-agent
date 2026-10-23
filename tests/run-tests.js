@@ -820,3 +820,129 @@ test('stability input is checked before anything is fitted', () => {
   // Numbers arriving as text are still numbers.
   assert.strictEqual(ST.analyze([{ batch: 'A', time: '0', y: '100' }, { batch: 'A', time: '6', y: '98' }, { batch: 'A', time: '12', y: '96' }], { lsl: 95, direction: 'decreasing' }).rows.length, 3);
 });
+
+const TT = require(path.join(ROOT, 'tost.js'));
+const twoGroups = (ref, test, withIds) => ref.map((v, i) => ({ group: 'A', value: v, sample: withIds ? 'S' + i : '' }))
+  .concat(test.map((v, i) => ({ group: 'B', value: v, sample: withIds ? 'S' + i : '' })));
+const REF10 = [100, 101, 99, 100.5, 99.5, 100.2, 99.8, 100.1, 100.3, 99.7];
+
+test('TOST: the exact boundary cases land where algebra says', () => {
+  // When the observed difference sits exactly on the margin, that one-sided test is a coin
+  // flip: t = 0, so p = 0.5 precisely.
+  const atUpper = TT.analyze(twoGroups(REF10, REF10.map(v => v + 2)), { reference: 'A', test: 'B', margin: 2 });
+  assert.ok(Math.abs(atUpper.diff - 2) < 1e-12);
+  assert.ok(Math.abs(atUpper.p2 - 0.5) < 1e-9, 'p2 ' + atUpper.p2);
+  assert.ok(!atUpper.equivalent);
+  const atLower = TT.analyze(twoGroups(REF10, REF10.map(v => v - 2)), { reference: 'A', test: 'B', margin: 2 });
+  assert.ok(Math.abs(atLower.p1 - 0.5) < 1e-9);
+
+  // With no difference at all and a margin of exactly t(0.95,df) x SE, both tests sit on the
+  // 0.05 line, which is the definition of the boundary of equivalence.
+  const probe = TT.analyze(twoGroups(REF10, REF10.slice()), { reference: 'A', test: 'B', margin: 1 });
+  const edge = TT.analyze(twoGroups(REF10, REF10.slice()), { reference: 'A', test: 'B', margin: E.tQuantile(0.05, probe.df) * probe.se });
+  assert.ok(Math.abs(edge.p1 - 0.05) < 1e-6 && Math.abs(edge.p2 - 0.05) < 1e-6, edge.p1 + ' / ' + edge.p2);
+  assert.ok(Math.abs(edge.diff) < 1e-12);
+});
+
+test('TOST and the confidence interval always say the same thing', () => {
+  /* The whole point of TOST is that "both one-sided tests pass at alpha" and "the
+     100(1-2a)% interval fits inside the margins" are one statement. If these ever disagree
+     the module is wrong, so it is checked over a few hundred shapes of data. */
+  const r = E.rng(7);
+  let checked = 0;
+  for (let i = 0; i < 400; i++) {
+    const n1 = 3 + Math.floor(r() * 12), n2 = 3 + Math.floor(r() * 12), shift = (r() - 0.5) * 6, sd = 0.5 + r() * 3;
+    const a = [], b = [];
+    for (let j = 0; j < n1; j++) a.push(100 + (r() - 0.5) * sd * 3.4);
+    for (let j = 0; j < n2; j++) b.push(100 + shift + (r() - 0.5) * sd * 3.4);
+    const res = TT.analyze(twoGroups(a, b), { reference: 'A', test: 'B', margin: 0.5 + r() * 5 });
+    const byInterval = res.ciLow > -res.margin && res.ciHigh < res.margin;
+    assert.strictEqual(byInterval, res.equivalent, 'disagreement at i=' + i);
+    checked++;
+  }
+  assert.strictEqual(checked, 400);
+});
+
+test('TOST reports three outcomes, and tells "not proven" from "different"', () => {
+  const opt = { reference: 'A', test: 'B', margin: 2 };
+  const PRECISE = [100, 100.3, 99.8, 100.1, 99.9, 100.2, 99.7, 100.4, 100, 99.95];
+
+  // Tight agreement: the interval is a fraction of the margin.
+  const tight = TT.analyze(twoGroups(PRECISE, [100.1, 100.2, 99.9, 100.3, 100, 100.1, 99.8, 100.2, 100.05, 100]), opt);
+  assert.strictEqual(tight.verdict, 'equivalent');
+  assert.ok(tight.equivalent && tight.bandUsed < 0.2 && tight.needed === null);
+
+  // A 3-unit bias against a 2-unit margin: a real difference, and too big to accept.
+  const biased = TT.analyze(twoGroups(PRECISE, PRECISE.map(v => v + 3)), opt);
+  assert.strictEqual(biased.verdict, 'different');
+  assert.ok(biased.differs && !biased.equivalent);
+  assert.strictEqual(biased.needed, null, 'no sample size rescues a difference bigger than the margin');
+
+  /* Five noisy results each: neither equivalent nor different. This is the case people
+     wrongly write up as "no significant difference, therefore the methods are the same" —
+     the ordinary t-test is quiet (p 0.69) precisely because the study is too small. */
+  const thin = TT.analyze(twoGroups([98, 102, 99, 103, 100], [99, 103, 98, 104, 101]), opt);
+  assert.strictEqual(thin.verdict, 'inconclusive');
+  assert.ok(!thin.equivalent && !thin.differs);
+  assert.ok(thin.ciLow < -thin.margin && thin.ciHigh > 0, 'the interval runs past the margin but still covers zero');
+  assert.ok(thin.pDiff > 0.05, 'the ordinary t-test is quiet here, which is exactly the trap');
+  assert.strictEqual(thin.needed, 16, 'it should say how many results per method would settle it');
+});
+
+test('TOST: pairing, percentage margins, and the invariances that must hold', () => {
+  const rnd = E.rng(21);
+  const norm = () => { const u = Math.max(1e-12, rnd()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
+  const rows = [];
+  for (let i = 0; i < 12; i++) {
+    const truth = 90 + norm() * 6;              // samples differ a lot from each other
+    rows.push({ group: 'A', value: truth + norm() * 0.25, sample: 'S' + i });
+    rows.push({ group: 'B', value: truth + 0.3 + norm() * 0.25, sample: 'S' + i });
+  }
+  const paired = TT.analyze(rows, { reference: 'A', test: 'B', margin: 2, paired: true });
+  const unpaired = TT.analyze(rows, { reference: 'A', test: 'B', margin: 2 });
+  assert.ok(Math.abs(paired.diff - unpaired.diff) < 1e-9, 'the mean difference is the same either way');
+  // Pairing removes sample-to-sample spread, so the same data becomes far more conclusive.
+  assert.ok(paired.se < unpaired.se / 5);
+  assert.strictEqual(paired.verdict, 'equivalent');
+  assert.strictEqual(unpaired.verdict, 'inconclusive');
+  assert.strictEqual(paired.df, 11);
+  assert.strictEqual(paired.pairs.length, 12);
+
+  // A percentage margin is a percentage of the reference mean.
+  const pct = TT.analyze(rows, { reference: 'A', test: 'B', margin: 3, marginType: 'percent' });
+  assert.ok(Math.abs(pct.margin - Math.abs(pct.refStats.mean) * 0.03) < 1e-9);
+
+  // Swapping which method is the reference flips the sign and nothing else.
+  const flipped = TT.analyze(rows, { reference: 'B', test: 'A', margin: 2 });
+  assert.ok(Math.abs(flipped.diff + unpaired.diff) < 1e-9);
+  assert.strictEqual(flipped.verdict, unpaired.verdict);
+  assert.ok(Math.abs(flipped.pTost - unpaired.pTost) < 1e-9);
+
+  // Changing the unit of measurement changes nothing that matters.
+  const scaled = rows.map(x => ({ group: x.group, value: x.value * 1000, sample: x.sample }));
+  const big = TT.analyze(scaled, { reference: 'A', test: 'B', margin: 2000 });
+  assert.ok(Math.abs(big.pTost - unpaired.pTost) < 1e-9);
+  assert.strictEqual(big.verdict, unpaired.verdict);
+
+  // Welch and pooled agree exactly when the groups are the same size and spread.
+  const even = twoGroups(REF10, REF10.map(v => v + 0.5));
+  const w = TT.analyze(even, { reference: 'A', test: 'B', margin: 2 });
+  const p = TT.analyze(even, { reference: 'A', test: 'B', margin: 2, welch: false });
+  assert.ok(Math.abs(w.df - p.df) < 1e-6 && Math.abs(w.se - p.se) < 1e-12);
+});
+
+test('equivalence input is checked before anything is tested', () => {
+  const ok = twoGroups(REF10, REF10.map(v => v + 0.4));
+  assert.throws(() => TT.analyze(ok, { reference: 'A', test: 'B' }), /margin greater than zero/);
+  assert.throws(() => TT.analyze(ok, { reference: 'A', test: 'B', margin: -1 }), /margin greater than zero/);
+  assert.throws(() => TT.analyze([{ group: 'A', value: 1 }, { group: 'A', value: 2 }], { margin: 1 }), /Two methods are needed/);
+  assert.throws(() => TT.analyze([{ group: 'A', value: 1 }, { group: 'B', value: 2 }], { margin: 1 }), /at least 2 results/);
+  assert.throws(() => TT.analyze(twoGroups([5, 5, 5], [5, 5, 5]), { reference: 'A', test: 'B', margin: 1 }), /no scatter/);
+  assert.throws(() => TT.analyze(ok.concat([{ group: 'C', value: 99 }, { group: 'C', value: 98 }]), { margin: 1 }), /Choose which two/);
+  assert.throws(() => TT.analyze(ok, { reference: 'A', test: 'B', margin: 2, paired: true }), /sample identifier/);
+  // Blanks and text are dropped rather than read as zero.
+  const dirty = ok.concat([{ group: 'A', value: null }, { group: 'B', value: '' }, { group: 'A', value: 'n/a' }]);
+  const r = TT.analyze(dirty, { reference: 'A', test: 'B', margin: 2 });
+  assert.strictEqual(r.refStats.n + r.testStats.n, ok.length);
+  assert.ok(r.refStats.mean > 90, 'a blank result must never be read as zero');
+});

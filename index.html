@@ -35,6 +35,7 @@
       <select id="tool">
         <option value="analyze">Analyze data &mdash; models, drivers, what-if, DOE</option>
         <option value="stability">Shelf life &mdash; ICH Q1E stability study</option>
+        <option value="equivalence">Method transfer &mdash; TOST equivalence test</option>
         <option value="sequence">Sequence optimizer &mdash; codon optimization</option>
         <option value="privacy">How your data stays private</option>
       </select>
@@ -288,6 +289,88 @@
   </section>
   </div>
 
+  <div class="tabpanel" id="tab-equivalence" role="tabpanel" aria-labelledby="tab-btn-equivalence" hidden>
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow">Method transfer &middot; equivalence &middot; TOST</p>
+      <h1>Is the new lab the same as the old one?</h1>
+      <p class="lede">An ordinary t-test cannot answer that: failing to find a difference is not proof of sameness, it is often just too little data. TOST asks the right question &mdash; is the difference small enough to ignore? &mdash; and gives a yes, a no, or an honest "not yet".</p>
+    </div>
+  </section>
+
+  <section class="wrap step" id="equiv">
+    <div class="step-head"><h2>Results from both methods</h2></div>
+    <div class="card">
+      <p class="summary">One row per result: which method or lab produced it, and the value. Add a sample identifier and the same samples can be matched up as pairs, which is far more sensitive. <a class="learn-link" href="learn.html#equivalence" target="_blank" rel="noopener noreferrer">Learn how this works &#8599;</a></p>
+      <div class="row-actions">
+        <button class="btn ghost small" id="eq-sample" type="button">Example: a transfer that passes</button>
+        <button class="btn ghost small" id="eq-sample2" type="button">Example: a real bias</button>
+        <button class="btn ghost small" id="eq-sample3" type="button">Example: too few results</button>
+        <button class="btn ghost small" id="eq-clear" type="button">Clear</button>
+      </div>
+      <label class="full" for="eq-data">Results (CSV or tab separated, with a header row)</label>
+      <textarea id="eq-data" rows="6" spellcheck="false" placeholder="SampleID,Method_Lab,Result_Value&#10;S-01,Lab A,98.7&#10;S-01,Lab B,98.9"></textarea>
+      <input type="file" id="eq-file" accept=".csv,.tsv,.txt" class="file-input">
+      <p class="hint" id="eq-read" aria-live="polite"></p>
+      <div id="eq-settings" hidden>
+        <div class="controls">
+          <label>Method column
+            <select id="eq-group"></select>
+          </label>
+          <label>Result column
+            <select id="eq-value"></select>
+          </label>
+          <label>Sample identifier (optional)
+            <select id="eq-sampleid"></select>
+          </label>
+        </div>
+        <div class="controls">
+          <label>Reference method
+            <select id="eq-ref"></select>
+          </label>
+          <label>New method being tested
+            <select id="eq-test"></select>
+          </label>
+          <label>Equivalence margin
+            <input id="eq-margin" type="number" step="any" min="0" value="2">
+          </label>
+          <label>Margin is
+            <select id="eq-margin-type">
+              <option value="percent" selected>% of the reference mean</option>
+              <option value="absolute">in measurement units</option>
+            </select>
+          </label>
+        </div>
+        <label class="check" id="eq-paired-wrap" hidden><input type="checkbox" id="eq-paired"> Match the same samples as pairs</label>
+        <details class="advanced">
+          <summary>Advanced settings</summary>
+          <div class="controls">
+            <label>Significance level (one sided)
+              <select id="eq-alpha">
+                <option value="0.05" selected>0.05 (a 90% interval)</option>
+                <option value="0.025">0.025 (a 95% interval)</option>
+                <option value="0.1">0.10 (an 80% interval)</option>
+              </select>
+            </label>
+            <label>Spread of the two methods
+              <select id="eq-var">
+                <option value="welch" selected>May differ (Welch)</option>
+                <option value="pooled">Assume the same (pooled)</option>
+              </select>
+            </label>
+          </div>
+          <p class="hint">TOST at 0.05 is the same statement as a 90% confidence interval sitting inside the margins. Welch is the safer default: it does not assume the two methods are equally precise.</p>
+        </details>
+        <div class="row-actions">
+          <button class="btn primary" id="eq-run" type="button">Test for equivalence</button>
+        </div>
+      </div>
+      <p class="error" id="eq-error" role="alert" hidden></p>
+      <div id="eq-out"></div>
+    </div>
+  </section>
+  </div>
+
   <div class="tabpanel" id="tab-sequence" role="tabpanel" aria-labelledby="tab-btn-sequence" hidden>
   <section class="wrap step" id="seq">
     <div class="step-head"><h2>Sequence optimizer</h2></div>
@@ -410,7 +493,9 @@
 <script src="explain.js"></script>
 <script src="pdf.js"></script>
 <script src="app.js"></script>
+<script src="tost.js"></script>
 <script src="stab.js"></script>
+<script src="tost-ui.js"></script>
 <script src="seq.js"></script>
 </body>
 </html>

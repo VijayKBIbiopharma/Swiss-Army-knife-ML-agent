@@ -394,6 +394,7 @@ progress { flex: 1; height: 10px; accent-color: var(--steel); }
 .lesson-nav { display: flex; justify-content: space-between; gap: 10px; margin: 20px 0; }
 .chart .region-c1 { fill: var(--s1); }
 .chart .region-c2 { fill: var(--s2); }
+.chart .region-c3 { fill: var(--s3); }
 .chart .curve { fill: none; stroke: var(--steel); stroke-width: 2.5; }
 .chart .curve.alt { stroke: var(--s2); stroke-dasharray: 6 4; }
 .chart .curve.good { stroke: var(--good); }
@@ -527,3 +528,20 @@ details.advanced > summary { cursor: pointer; font-size: .88rem; font-weight: 60
 .doe-wrap[open] > summary { border-radius: 12px 12px 0 0; border-bottom: 0; margin-bottom: 0; }
 .doe-wrap[open] > .card { border-top-left-radius: 0; border-top-right-radius: 0; }
 .doe-wrap > summary:focus-visible, .samples-card > summary:focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; }
+
+/* Equivalence (TOST) */
+.tost-chart .band { fill: var(--good); opacity: .12; }
+.tost-chart .zero { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 3 3; }
+.tost-chart .ci { stroke-width: 4; stroke-linecap: round; }
+.tost-chart .ci-cap { stroke-width: 3; }
+.tost-chart .ci.ok, .tost-chart .ci-cap.ok { stroke: var(--good); }
+.tost-chart .ci.bad, .tost-chart .ci-cap.bad { stroke: var(--bad); }
+.tost-chart .ci.warn, .tost-chart .ci-cap.warn { stroke: var(--warn); }
+.tost-chart .ci-dot.ok { fill: var(--good); } .tost-chart .ci-dot.bad { fill: var(--bad); } .tost-chart .ci-dot.warn { fill: var(--warn); }
+.strip-chart .mean-mark { stroke-width: 2.5; }
+.strip-chart .mean-mark.c1 { stroke: var(--s1); } .strip-chart .mean-mark.c2 { stroke: var(--s2); }
+#eq-data { width: 100%; }
+.eq-result h4 { margin: 18px 0 6px; }
+.chart .ci-line { stroke-width: 3.5; stroke-linecap: round; }
+.chart .ci-line.good { stroke: var(--good); } .chart .ci-line.bad { stroke: var(--bad); } .chart .ci-line.warn { stroke: var(--warn); }
+.demo-read b.ok { color: var(--good); } .demo-read b.bad { color: var(--bad); } .demo-read b.warn { color: var(--warn); }

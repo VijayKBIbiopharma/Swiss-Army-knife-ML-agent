@@ -10,7 +10,7 @@ ML Agent is a folder of static files: HTML, CSS and JavaScript. There is no serv
 | Outbound connections | None. The pages carry a Content-Security-Policy with `connect-src 'none'` and `default-src 'none'`, so the browser blocks any request the page might try to make. `web.config` sends the same policy as an HTTP header. |
 | Storage | None. No cookies, localStorage, IndexedDB or service workers. Data is wiped on "Finish and delete my data", after 30 idle minutes, and when the page is closed or left. |
 | AI or third-party services | None. No LLM, no analytics, no CDN, no web fonts. Every file is served from your server. |
-| Dependencies | None. No npm packages or libraries; about 7,400 lines of plain JavaScript you can read, including the neural network, the genetic algorithm and the ICH Q1E statistics. |
+| Dependencies | None. No npm packages or libraries; about 8,100 lines of plain JavaScript you can read, including the neural network, the genetic algorithm and the ICH Q1E and equivalence statistics. |
 | Validation status | Decision support and training. Not validated for GxP release decisions or regulatory submissions. Shelf-life figures, capability indices and optimized sequences all carry that statement on screen and in every export. |
 | Background threads | The sequence optimizer uses one Web Worker, loaded from this site's own `ga-worker.js`. `worker-src 'self'` blocks workers from anywhere else, and a worker inherits the page's policy, so it cannot open a connection either. Opened straight from a file (`file://`) some browsers block workers; the tool detects this and runs the same code on the page instead. |
 | Exports | PDF, Excel (.xlsx) and the audit package (.zip) are built inside the browser and handed to the browser's own download. They are the user's files; nothing is kept by the tool or the server. |
@@ -67,9 +67,10 @@ No output from the PowerShell command means every file matches.
 4. Open developer tools (F12) → Network, run again, and confirm that only the tool's own files appear.
 5. Load **Bioreactor log + densitometer QC**, press **Join the files**, run, and press **Download audit package (.zip)**. Unzip it and run `sha256sum -c SHA256SUMS.txt` inside: every file must say OK.
 6. Choose **Shelf life** in the selector, press **Load an example study**, enter a lower limit of 95 and run. It must report about 27 months, fully pooled.
-7. Choose **Sequence optimizer**, press **Load an example gene** and **Optimize the sequence**. It must finish with "Protein unchanged" and 0 sites left. If your browser blocks workers the run still completes, just with the page doing the work.
-8. Open **Learn the concepts** and click through a lesson.
-9. Press **Finish and delete my data**. Data in every tab must clear.
+7. Choose **Method transfer**, press **Example: a transfer that passes** and run. It must report Pass, with a 90% interval inside the margin.
+8. Choose **Sequence optimizer**, press **Load an example gene** and **Optimize the sequence**. It must finish with "Protein unchanged" and 0 sites left. If your browser blocks workers the run still completes, just with the page doing the work.
+9. Open **Learn the concepts** and click through a lesson.
+10. Press **Finish and delete my data**. Data in every tool must clear.
 
 ## Updating
 Replace the folder with a new package. Users get the new version on their next page load.

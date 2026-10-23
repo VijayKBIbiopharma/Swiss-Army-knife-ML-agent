@@ -19,15 +19,7 @@
     if (df1 <= 0 || df2 <= 0) return NaN;
     return E.ibeta(df2 / 2, df1 / 2, df2 / (df2 + df1 * f));
   }
-  // Critical t for a one-sided tail area, by bisection on the two-sided p-value.
-  function tQuantile(tail, df) {
-    let lo = 0, hi = 500;
-    for (let i = 0; i < 200; i++) {
-      const mid = (lo + hi) / 2;
-      if (E.tTestP(mid, df) / 2 > tail) lo = mid; else hi = mid;
-    }
-    return (lo + hi) / 2;
-  }
+  const tQuantile = E.tQuantile;
 
   const sum = a => a.reduce((x, y) => x + y, 0);
   function lineFit(ts, ys) {

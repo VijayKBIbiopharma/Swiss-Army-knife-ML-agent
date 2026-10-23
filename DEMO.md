@@ -80,6 +80,14 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Talking point: *"Same tool, same two minutes, and it shows its working: which test, which p-value, which batch decided."*
 - Honest caveat: *"This is decision support. A shelf life in a submission needs validated software and an independent check of the arithmetic."*
 
+## 4e. Method transfer in 90 seconds (for QC and analytical audiences)
+- Pick **Method transfer &mdash; TOST equivalence test** from the selector, then **Example: a transfer that passes**. It sets a realistic &plusmn;2% margin.
+- Run it. **Pass**: the 90% interval (&minus;1.40 to 1.60) sits inside &plusmn;1.97, using 81% of the margin.
+- Tick **Match the same samples as pairs** and run again: the interval tightens to &minus;0.67 to 0.87, using 44%. Talking point: *"Same data, same labs. Measuring the same samples at both sites and pairing them halves the uncertainty for free."*
+- Now press **Example: too few results** and run. **Inconclusive** &mdash; and the ordinary t-test on that same data says p = 0.69.
+- This is the slide that matters: *"If we had run a t-test, we would have written 'no significant difference, methods equivalent' and signed it. The honest answer is that four results per lab cannot tell us. It says we would need about 16."*
+- Finish with **Example: a real bias**: a 3.9-unit shift against a 2-unit margin, **Fail**, with the note that no amount of extra data fixes it.
+
 ## 5. Finding groups with no target: penguins (1 minute)
 - Drag `penguins.csv`, choose **Nothing: find groups and patterns**, run.
 - Show the groups chart and profiles: one group is entirely Gentoo penguins on Biscoe island. The agent found the species without being told.

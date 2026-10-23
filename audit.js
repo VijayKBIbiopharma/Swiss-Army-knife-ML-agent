@@ -169,6 +169,10 @@
       analysis.push(['Shelf life (ICH Q1E)', 'Reported ' + st.reported.toFixed(2) + ' months (statistical ' + st.shelfLife.toFixed(2) + (st.capped ? ', capped by the extrapolation rule' : '') + ')']);
       analysis.push(['Shelf-life basis', st.modelLabel + '; ' + Math.round(st.confidence * 100) + '% one-sided limit against ' + (st.lsl !== null ? 'LSL ' + st.lsl : '') + (st.lsl !== null && st.usl !== null ? ' and ' : '') + (st.usl !== null ? 'USL ' + st.usl : '') + '; pooling tested at ' + st.poolAlpha + '; limiting batch ' + st.limiting]);
     }
+    if (ctx.tost) {
+      const tt = ctx.tost;
+      analysis.push(['Method equivalence (TOST)', tt.test + ' vs ' + tt.reference + ': ' + tt.verdict + ', difference ' + r4(tt.diff) + ' with a ' + Math.round(tt.confidence * 100) + '% interval of ' + r4(tt.ciLow) + ' to ' + r4(tt.ciHigh) + ' against a margin of ' + r4(tt.margin)]);
+    }
     if (rep.desirability) analysis.push(['Multi-result optimization', rep.desirability.specs.map(sp => sp.name + ' ' + sp.goal + ' [' + sp.low + ', ' + sp.high + ']' + (sp.target !== null ? ' target ' + sp.target : '') + ' weight ' + sp.weight).join('; ')]);
     S.push({ title: 'Analysis settings', rows: analysis });
     S.push({ title: 'Agent log', rows: (rep.log || []).map((l, i) => [String(i + 1), l.text]) });
@@ -238,6 +242,20 @@
       rows.push([], ['Batch', 'Points', 'First month', 'Last month', 'Slope per month', 'Value at t=0', 'R2', 'Shelf life alone']);
       st.batches.forEach(b => rows.push([b.name, b.n, r4(b.first), r4(b.last), r4(b.slope), r4(b.intercept), r4(b.r2), r4(b.alone)]));
       out.push({ name: 'Shelf life', rows });
+    }
+    if (ctx.tost) {
+      const tt = ctx.tost;
+      out.push({ name: 'Method equivalence', rows: [['Item', 'Value'], ['Run at', tt.when], ['Reference method', tt.reference], ['Method under test', tt.test], ['Design', tt.design],
+        ['Method column', tt.columns.group], ['Result column', tt.columns.value], ['Sample identifier', tt.columns.sample || ''],
+        ['Equivalence margin', r4(tt.margin)], ['Margin quoted as', tt.marginType === 'percent' ? tt.marginInput + '% of the reference mean' : 'absolute units'],
+        ['Significance level (one sided)', tt.alpha], ['Interval', Math.round(tt.confidence * 100) + '%'],
+        ['Reference n / mean / sd', tt.refStats.n + ' / ' + r4(tt.refStats.mean) + ' / ' + r4(tt.refStats.sd)],
+        ['Test n / mean / sd', tt.testStats.n + ' / ' + r4(tt.testStats.mean) + ' / ' + r4(tt.testStats.sd)],
+        ['Mean difference', r4(tt.diff)], ['Standard error', r4(tt.se)], ['Degrees of freedom', r4(tt.df)],
+        ['Interval lower', r4(tt.ciLow)], ['Interval upper', r4(tt.ciHigh)], ['Margin used up', r4(tt.bandUsed)],
+        ['p, difference above minus margin', r4(tt.p1)], ['p, difference below plus margin', r4(tt.p2)], ['Overall TOST p', r4(tt.pTost)],
+        ['Two-sided p for any difference', r4(tt.pDiff)], ['Verdict', tt.verdict],
+        ['Results per method that would settle it', tt.needed === null ? '' : tt.needed]] });
     }
     if (ctx.scenarios && ctx.scenarios.rows.length) out.push({ name: 'What-if scenarios', rows: [ctx.scenarios.header].concat(ctx.scenarios.rows) });
     if (ctx.design) out.push({ name: 'DOE run sheet', rows: [['RunOrder', 'StdOrder'].concat(ctx.design.factors.map(f => f.name), [ctx.design.response])].concat(ctx.design.design.runs.map(r => [r.run, r.std].concat(r.actual.map(v => (typeof v === 'number' ? v : isFinite(Number(v)) && v !== '' ? Number(v) : v)), ['']))) });
