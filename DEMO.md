@@ -10,7 +10,8 @@ Every step below was run end to end. The times are from a laptop browser; your n
 ## 0b. The selector, for a mixed audience (30 seconds)
 - The selector names the **technique**, not one department's use of it, and **Where this is used** underneath lists four or five areas across industries for whatever is selected.
 - Useful when the room is not all from one function: flick through the techniques and let people find their own problem in the list before any data is loaded.
-- Better still, ask the room: set **my industry** and **my function** to theirs, and the panel rewrites itself in their language. Switching technique keeps the choice, so you can walk all four past the same audience without losing the thread.
+- Better still, ask the room: set the **modality** and their **function or group**, and the panel lists the unit operations they work on every day, each with what machine learning does at that step. Switching technique keeps the choice, so you can walk all four past the same audience without losing the thread.
+- The quickest way to land it with a process audience: Microbial, Downstream process development, and read out step 3, *solubilisation and refolding &mdash; redox ratio, pH, protein concentration and additives searched together, a space far too large to run exhaustively*. Then switch the technique to genetic algorithms and point at the sequence optimizer doing exactly that.
 - Say the caveat out loud once: *"These are uses of the method across industry. This page reads tables, and DNA sequences in the optimizer. It does not read images, audio or free text."*
 
 ## 1. Privacy first (1 minute)

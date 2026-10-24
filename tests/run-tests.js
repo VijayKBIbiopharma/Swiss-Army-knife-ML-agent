@@ -973,26 +973,41 @@ test('every tool has an applications write-up, and none of it overclaims', () =>
   }
   // The panel must carry the caveat, not just the data file.
   assert.ok(/not a claim about what this page reads/.test(app), 'the panel must print the scope caveat, not just carry it in the data file');
-  /* The tailored examples must cover every industry and function offered, for every
-     technique. A missing combination shows the reader an empty panel, which is worse than
-     not offering the choice. */
-  const { INDUSTRIES, FUNCTIONS, TAILORED } = apps;
-  assert.ok(INDUSTRIES.length >= 8 && FUNCTIONS.length >= 6);
-  for (const t of tools) {
-    assert.ok(TAILORED[t], 'no tailored examples for ' + t);
-    for (const [key, label] of INDUSTRIES) {
-      const line = TAILORED[t].industries[key];
-      assert.ok(line && line.length > 60, t + ' has nothing for ' + label);
-      assert.ok((line.match(/,/g) || []).length >= 2, t + '/' + label + ' should read as a list of uses');
-    }
-    for (const [key, label] of FUNCTIONS) {
-      const line = TAILORED[t].functions[key];
-      assert.ok(line && line.length > 50, t + ' has nothing for ' + label);
+  /* Every modality and function offered must have unit operations behind it, and every
+     technique must say what it does for every function. A missing combination shows an
+     empty panel, which is worse than not offering the choice. */
+  const { MODALITIES, FUNCTIONS, UNITOPS, BYFUNCTION } = apps;
+  assert.strictEqual(MODALITIES.length, 2, 'two modalities: mammalian and microbial');
+  assert.ok(FUNCTIONS.length >= 6, FUNCTIONS.length + ' functions');
+  const seen = new Set();
+  for (const [m, mLabel] of MODALITIES) {
+    assert.ok(UNITOPS[m], 'no unit operations for ' + mLabel);
+    for (const [f, fLabel] of FUNCTIONS) {
+      const ops = UNITOPS[m][f];
+      assert.ok(ops && ops.length >= 4, mLabel + ' / ' + fLabel + ' has ' + (ops ? ops.length : 0) + ' unit operations');
+      for (const [op, ml] of ops) {
+        assert.ok(op && op.length > 4, mLabel + '/' + fLabel + ': a unit operation needs a name');
+        assert.ok(ml && ml.length > 60, mLabel + '/' + fLabel + '/' + op + ': the application line is too thin');
+        seen.add(m + '|' + f + '|' + op);
+      }
     }
   }
-  // Every industry and function the data offers must also be a real option in the page.
-  assert.ok(/apps-industry/.test(app) && /apps-function/.test(app), 'the panel must offer both pickers');
+  assert.ok(seen.size > 70, 'expected a full set of unit operations, got ' + seen.size);
+  for (const t of tools) {
+    assert.ok(BYFUNCTION[t], 'no per-function lines for ' + t);
+    for (const [f, fLabel] of FUNCTIONS) {
+      const line = BYFUNCTION[t][f];
+      assert.ok(line && line.length > 50, t + ' says nothing for ' + fLabel);
+    }
+  }
+  // The pickers, and the promise that the choice is not stored.
+  assert.ok(/apps-modality/.test(app) && /apps-function/.test(app), 'the panel must offer both pickers');
   assert.ok(/Nothing is stored/.test(app), 'the choice must be documented as session-only');
+  // Upstream and downstream unit operations should be the real ones, by name.
+  const mamDsp = UNITOPS.mammalian.dspd.map(o => o[0]).join(' ');
+  assert.ok(/Protein A/.test(mamDsp) && /viral/i.test(mamDsp), 'mammalian downstream should name capture and viral steps: ' + mamDsp);
+  const micDsp = UNITOPS.microbial.dspd.map(o => o[0]).join(' ');
+  assert.ok(/lysis/i.test(micDsp) && /refold/i.test(micDsp), 'microbial downstream should name lysis and refolding: ' + micDsp);
 
   // The selector is named by technology, not by one industry's use case.
   for (const bad of ['Chromatography', 'Bioreactor', 'Densitometer']) assert.ok(!new RegExp('<option[^>]*>[^<]*' + bad).test(html), 'selector should not name a specific application: ' + bad);
