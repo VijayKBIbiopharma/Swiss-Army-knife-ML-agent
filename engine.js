@@ -101,6 +101,55 @@
     return (lo + hi) / 2;
   }
 
+  /* Standard normal CDF by Hart's algorithm, accurate to near machine precision.
+     Tolerance factors and power curves are found by integrating this and then root-finding
+     on the result, so an approximation good to only 1e-7 would limit how far the answer can
+     be trusted. A specification limit is worth the extra twenty lines. */
+  function normCdf(z) {
+    if (!isFinite(z)) return z > 0 ? 1 : 0;
+    const a = Math.abs(z);
+    let c;
+    if (a > 37) c = 0;
+    else {
+      const e = Math.exp(-a * a / 2);
+      if (a < 7.07106781186547) {
+        let b = 3.52624965998911e-02 * a + 0.700383064443688;
+        b = b * a + 6.37396220353165; b = b * a + 33.912866078383;
+        b = b * a + 112.079291497871; b = b * a + 221.213596169931;
+        b = b * a + 220.206867912376;
+        let d = 8.83883476483184e-02 * a + 1.75566716318264;
+        d = d * a + 16.064177579207; d = d * a + 86.7807322029461;
+        d = d * a + 296.564248779674; d = d * a + 637.333633378831;
+        d = d * a + 793.826512519948; d = d * a + 440.413735824752;
+        c = e * b / d;
+      } else {
+        let b = a + 0.65;
+        b = a + 4 / b; b = a + 3 / b; b = a + 2 / b; b = a + 1 / b;
+        c = e / (b * 2.506628274631);
+      }
+    }
+    return z > 0 ? 1 - c : c;
+  }
+  const normPdf = z => Math.exp(-z * z / 2) / Math.sqrt(2 * Math.PI);
+  /* Inverse normal: Acklam's rational approximation, then one Newton step against the CDF
+     above, which takes it from about 1e-9 to the limit of double precision. */
+  function normInv(p) {
+    if (!(p > 0)) return p === 0 ? -Infinity : NaN;
+    if (!(p < 1)) return p === 1 ? Infinity : NaN;
+    const a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.357751867269, -30.66479806614716, 2.506628277459239];
+    const b = [-54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972, -13.28068155288572];
+    const c = [-0.007784894002430293, -0.3223964580411365, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
+    const d = [0.007784695709041462, 0.3224671290700398, 2.445134137142996, 3.754408661907416];
+    const lo = 0.02425;
+    let z;
+    if (p < lo) { const q = Math.sqrt(-2 * Math.log(p)); z = (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1); }
+    else if (p > 1 - lo) { const q = Math.sqrt(-2 * Math.log(1 - p)); z = -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1); }
+    else { const q = p - 0.5, r = q * q; z = (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1); }
+    const pdf = normPdf(z);
+    if (pdf > 1e-300) z -= (normCdf(z) - p) / pdf;
+    return z;
+  }
+
   // ---------- CSV parsing ----------
   function detectDelimiter(text) {
     const firstLine = text.split(/\r?\n/).find(l => l.trim().length) || '';
@@ -1124,6 +1173,7 @@
 
   root.MLEngine = {
     rng, shuffle, range, mean, sd, variance, quantile, median, pearson, tTestP, tQuantile, ibeta, invert, gram,
+    normCdf, normPdf, normInv, lgamma,
     parseCSV, profile, isUsableFeature, toNumber, fitEncoder, fitRidgeCore, fitLasso, buildTree, mlpTrainer,
     MODELS, makeFolds, crossValidate, fitFull, fitPLS, regressionMetrics, classificationMetrics,
     supervisedData, permutationImportance, partialDependence, pickProb, treePredictRow, kmeans, silhouette, pca

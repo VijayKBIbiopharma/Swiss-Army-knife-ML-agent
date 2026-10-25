@@ -38,6 +38,7 @@
         <option value="golden">PCA &amp; multivariate SPC (golden batch)</option>
         <option value="equivalence">Equivalence &amp; non-inferiority testing (TOST)</option>
         <option value="variance">Variance components, ANOVA &amp; Gage R&amp;R</option>
+        <option value="limits">Tolerance intervals, power &amp; sample size</option>
         <option value="sequence">Genetic algorithms &amp; multi-objective optimization</option>
         <option value="privacy">Privacy &amp; data handling</option>
       </select>
@@ -570,6 +571,139 @@
   </section>
   </div>
 
+  <div class="tabpanel" id="tab-limits" role="tabpanel" aria-labelledby="tab-btn-limits" hidden>
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow">Tolerance intervals &middot; power &middot; sample size</p>
+      <h1>What limits can this data actually defend &mdash; and how much data would it take?</h1>
+      <p class="lede">The mean plus three standard deviations is not a specification: on ten batches it covers far less than people think, because the standard deviation is itself a guess. A tolerance interval does the honest version, and the same arithmetic run backwards tells you how many batches or results a study needs before it is worth running.</p>
+    </div>
+  </section>
+
+  <section class="wrap step" id="limits">
+    <div class="step-head"><h2>The question</h2></div>
+    <div class="card">
+      <div class="controls">
+        <label>What do you need?
+          <select id="tl-mode">
+            <option value="spec" selected>Set or defend a specification limit (tolerance interval)</option>
+            <option value="size">Work out how many results a study needs (power)</option>
+          </select>
+        </label>
+      </div>
+      <p class="tool-desc" id="tl-mode-desc" aria-live="polite"></p>
+
+      <!-- ---------- specification setting ---------- -->
+      <div id="tl-spec">
+        <p class="summary">One column of results, one row each: the batches, lots or runs you want the limits to cover. <a class="learn-link" href="learn.html#tolerance-intervals" target="_blank" rel="noopener noreferrer">Learn how this works &#8599;</a></p>
+        <div class="row-actions">
+          <button class="btn ghost small" id="tl-ex1" type="button">Example: limits the data supports</button>
+          <button class="btn ghost small" id="tl-ex2" type="button">Example: limits too tight for the process</button>
+          <button class="btn ghost small" id="tl-ex3" type="button">Example: too few batches to say</button>
+          <button class="btn ghost small" id="tl-clear" type="button">Clear</button>
+        </div>
+        <details class="shape" id="tl-shape">
+          <summary>What the data should look like</summary>
+          <div class="shape-body">
+            <p class="hint">A header row and one numeric column. Extra columns are fine &mdash; you pick which one to use.</p>
+            <div class="table-scroll"><table class="shape-table"><thead><tr><th>BatchID</th><th>Purity_Pct</th></tr></thead>
+              <tbody><tr><td>B-2401</td><td>98.1</td></tr><tr><td>B-2402</td><td>97.4</td></tr><tr><td>B-2403</td><td>98.9</td></tr>
+              <tr class="dim"><td colspan="2">&hellip; one row per batch</td></tr></tbody></table></div>
+            <p class="hint">These must be independent results on the scale the specification is written on: one number per batch, not every replicate of every assay. Replicates make the spread look smaller than batch-to-batch reality and would give you limits that no future batch can hold.</p>
+          </div>
+        </details>
+        <label class="full" for="tl-data">Results (CSV or tab separated, with a header row)</label>
+        <textarea id="tl-data" rows="6" spellcheck="false" placeholder="BatchID,Purity_Pct&#10;B-2401,98.1&#10;B-2402,97.4"></textarea>
+        <input type="file" id="tl-file" accept=".csv,.tsv,.txt" class="file-input">
+        <p class="hint" id="tl-read" aria-live="polite"></p>
+        <div id="tl-settings" hidden>
+          <div class="controls">
+            <label>Result column <select id="tl-value"></select></label>
+            <label>Cover this much of future production
+              <select id="tl-p">
+                <option value="0.99" selected>99% of the population</option>
+                <option value="0.95">95% of the population</option>
+                <option value="0.9973">99.73% (the &plusmn;3 sigma idea, done properly)</option>
+                <option value="0.90">90% of the population</option>
+              </select>
+            </label>
+            <label>Confidence
+              <select id="tl-conf">
+                <option value="0.95" selected>95%</option>
+                <option value="0.99">99%</option>
+                <option value="0.90">90%</option>
+              </select>
+            </label>
+            <label>Which limits
+              <select id="tl-sided">
+                <option value="2" selected>Both, an upper and a lower</option>
+                <option value="lower">A lower limit only (a minimum, such as potency)</option>
+                <option value="upper">An upper limit only (a maximum, such as an impurity)</option>
+              </select>
+            </label>
+          </div>
+          <div class="controls">
+            <label>Current lower spec limit (optional) <input id="tl-lsl" type="text" inputmode="decimal" placeholder="e.g. 95"></label>
+            <label>Current upper spec limit (optional) <input id="tl-usl" type="text" inputmode="decimal" placeholder="e.g. 101"></label>
+          </div>
+          <p class="hint">Give the limits you already have and it will say whether this data supports them, and if not, how many more results it would take &mdash; or that no amount would be enough, which is the answer that saves the most time.</p>
+          <div class="row-actions">
+            <button class="btn primary" id="tl-run" type="button">Work out the limits</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------- study sizing ---------- -->
+      <div id="tl-size" hidden>
+        <p class="summary">No data needed: this is the calculation you do before the study, from what you already know about the scatter. <a class="learn-link" href="learn.html#power-sample-size" target="_blank" rel="noopener noreferrer">Learn how this works &#8599;</a></p>
+        <div class="controls">
+          <label>What is the study for?
+            <select id="tl-design">
+              <option value="tost" selected>Showing two things are equivalent (method transfer, a change)</option>
+              <option value="two">Detecting a difference between two groups</option>
+              <option value="one">Comparing one group against a fixed target</option>
+            </select>
+          </label>
+        </div>
+        <p class="tool-desc" id="tl-design-desc" aria-live="polite"></p>
+        <div class="controls">
+          <label id="tl-sd-wrap">Standard deviation you expect <input id="tl-sd" type="text" inputmode="decimal" value="1.2"></label>
+          <label id="tl-margin-wrap">Equivalence margin (&plusmn;) <input id="tl-margin" type="text" inputmode="decimal" value="2"></label>
+          <label id="tl-diff-wrap">Difference you expect is really there <input id="tl-diff" type="text" inputmode="decimal" value="0.5"></label>
+          <label>Target power
+            <select id="tl-power">
+              <option value="0.8" selected>80%</option>
+              <option value="0.9">90%</option>
+              <option value="0.95">95%</option>
+            </select>
+          </label>
+          <label>Significance level
+            <select id="tl-alpha">
+              <option value="0.05" selected>0.05</option>
+              <option value="0.01">0.01</option>
+              <option value="0.1">0.10</option>
+            </select>
+          </label>
+          <label id="tl-paired-wrap">Design
+            <select id="tl-paired">
+              <option value="0" selected>Separate samples in each group</option>
+              <option value="1">The same samples measured both ways (paired)</option>
+            </select>
+          </label>
+        </div>
+        <p class="hint" id="tl-size-hint"></p>
+        <div class="row-actions">
+          <button class="btn primary" id="tl-size-run" type="button">Work out the sample size</button>
+          <button class="btn ghost small" id="tl-size-clear" type="button">Reset</button>
+        </div>
+      </div>
+
+      <p class="error" id="tl-error" role="alert" hidden></p>
+      <div id="tl-out"></div>
+    </div>
+  </section>
+  </div>
+
   <div class="tabpanel" id="tab-sequence" role="tabpanel" aria-labelledby="tab-btn-sequence" hidden>
   <section class="wrap step" id="seq">
     <div class="step-head"><h2>Sequence optimizer</h2></div>
@@ -700,6 +834,8 @@
 <script src="tost-ui.js"></script>
 <script src="variance.js"></script>
 <script src="variance-ui.js"></script>
+<script src="tolerance.js"></script>
+<script src="tolerance-ui.js"></script>
 <script src="seq.js"></script>
 </body>
 </html>

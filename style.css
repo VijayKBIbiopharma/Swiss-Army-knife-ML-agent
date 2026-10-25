@@ -550,6 +550,18 @@ details.advanced > summary { cursor: pointer; font-size: .88rem; font-weight: 60
 .share-chart .share.c3 { fill: var(--s3); } .share-chart .share.c4 { fill: var(--s4); }
 .share-chart .on-bar { fill: #fff; }
 .vc-result h4 { margin: 18px 0 6px; }
+.tl-result h4 { margin: 18px 0 6px; }
+#tl-data { width: 100%; }
+.tol-chart .ci { stroke-width: 7; stroke-linecap: butt; }
+.tol-chart .ci.ok { stroke: var(--good); } .tol-chart .ci.bad { stroke: var(--bad); } .tol-chart .ci.warn { stroke: var(--warn); }
+.tol-chart .ci-cap { stroke-width: 2.5; }
+.tol-chart .ci-cap.ok { stroke: var(--good); } .tol-chart .ci-cap.bad { stroke: var(--bad); } .tol-chart .ci-cap.warn { stroke: var(--warn); }
+.tol-chart .ci-dot.ok { fill: var(--good); } .tol-chart .ci-dot.bad { fill: var(--bad); } .tol-chart .ci-dot.warn { fill: var(--warn); }
+.tol-chart .ci-dot { stroke: var(--surface); stroke-width: 1.5; }
+.tol-chart .naive-mark { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 3 3; }
+tr.hi-row > td { background: var(--surface-2); font-weight: 600; }
+.chart .line.s2, .chart text.s2 { stroke: var(--s2); }
+.chart text.s2 { fill: var(--s2); stroke: none; }
 #vc-data { width: 100%; }
 #eq-data { width: 100%; }
 .eq-result h4 { margin: 18px 0 6px; }

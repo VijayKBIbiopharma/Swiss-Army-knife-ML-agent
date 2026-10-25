@@ -14,6 +14,7 @@ const A = require(path.join(ROOT, 'agent.js'));
 const S = require(path.join(ROOT, 'samples.js'));
 const SPC = require(path.join(ROOT, 'spc.js'));
 const VC = require(path.join(ROOT, 'variance.js'));
+const TOL = require(path.join(ROOT, 'tolerance.js'));
 
 test('CSV parser handles quotes, BOM, tabs and blank lines', () => {
   const t = E.parseCSV('﻿Name,Note,Value\r\n"Smith, J","said ""hi""",3\n\nLee,,4\n');
@@ -595,6 +596,36 @@ test('audit package: SHA-256, zip and xlsx structure, audit trail content', asyn
   assert.ok(grrSheet.rows.some(r => r[0] === 'Verdict'));
   // Both workbooks must still build, with the extra sheet in place.
   for (const c of [vcCtx, grrCtx]) assert.strictEqual(new DataView(AU.xlsx(AU.sheets(rep, c), { title: 'T' }).buffer).getUint32(0, true), 0x04034b50);
+
+  /* A specification limit and a sample size are decisions someone has to defend later, so
+     they have to appear in the package that documents the decision. */
+  const ti = TOL.toleranceInterval([98.1, 97.4, 98.9, 97.8, 98.3, 98.6, 97.2, 98.0, 98.4, 97.9], { p: 0.99, conf: 0.95, sided: 2, lsl: 95, usl: 101 });
+  const tolCtx = Object.assign({}, ctx, { tolerance: {
+    kind: 'tolerance', when: '2026-01-02T00:00:00.000Z', column: 'Purity_Pct',
+    n: ti.n, mean: ti.mean, sd: ti.sd, df: ti.df, p: ti.p, conf: ti.conf, sided: ti.sided, bound: ti.bound,
+    k: ti.k, limitingK: ti.limitingK, lower: ti.lower, upper: ti.upper, min: ti.min, max: ti.max,
+    lsl: ti.lsl, usl: ti.usl, inside: ti.inside, needed: ti.needed, achievable: ti.achievable,
+    normalityP: ti.normality.p, normalityStat: ti.normality.adjusted, normal: ti.normality.normal } });
+  const tolTxt = AU.trailText(AU.trail(rep, tolCtx));
+  for (const want of ['Tolerance interval', 'Purity_Pct', 'Normality of the results', 'Limits supported by the data']) {
+    assert.ok(tolTxt.includes(want), 'tolerance trail mentions ' + want);
+  }
+  const tolSheet = AU.sheets(rep, tolCtx).find(x => x.name === 'Tolerance limits');
+  assert.ok(tolSheet && tolSheet.rows.some(r => r[0] === 'Tolerance factor k'), 'a tolerance run must get its own sheet');
+  assert.ok(tolSheet.rows.some(r => r[0] === 'Normality p-value'), 'the normality check must be on the record, not just on screen');
+
+  const ss = TOL.sampleSizeTost({ margin: 2, diff: 0.5, sd: 1.2, alpha: 0.05 }, 0.8);
+  const sizeCtx = Object.assign({}, ctx, { tolerance: {
+    kind: 'samplesize', when: '2026-01-02T00:00:00.000Z', design: 'tost', target: 0.8,
+    n: ss.n, power: ss.power, opt: { sd: 1.2, alpha: 0.05, margin: 2, diff: 0.5, paired: false },
+    curve: [[5, 0.4], [9, 0.81]] } });
+  const sizeTxt = AU.trailText(AU.trail(rep, sizeCtx));
+  for (const want of ['Sample size calculation', 'Sample size required', 'two one-sided tests']) {
+    assert.ok(sizeTxt.includes(want), 'sample size trail mentions ' + want);
+  }
+  const sizeSheet = AU.sheets(rep, sizeCtx).find(x => x.name === 'Sample size');
+  assert.ok(sizeSheet && sizeSheet.rows.some(r => r[0] === 'Results needed'));
+  for (const c of [tolCtx, sizeCtx]) assert.strictEqual(new DataView(AU.xlsx(AU.sheets(rep, c), { title: 'T' }).buffer).getUint32(0, true), 0x04034b50);
 });
 
 const CD = require(path.join(ROOT, 'codon.js'));
@@ -1407,4 +1438,194 @@ test('PLS beats ordinary regression where the columns outnumber the useful infor
   const pred1 = m1.predict(tr.X)[0];
   const pred2 = m2.predict(scaled.X)[0];
   assert.ok(Math.abs(pred1 - pred2) < 1e-6 * Math.max(1, Math.abs(pred1)), 'PLS should be invariant to rescaling the inputs: ' + pred1 + ' vs ' + pred2);
+});
+
+
+test('the normal CDF and its inverse are accurate to double precision', () => {
+  // The tolerance factors integrate this and then root-find on the result, so the
+  // approximation that is fine for a capability index is not fine here.
+  const want = [[1, 0.8413447460685429], [1.96, 0.9750021048517795], [-3, 0.0013498980316301],
+    [4, 0.9999683287581669], [0, 0.5], [-0.5, 0.3085375387259869]];
+  for (const [z, w] of want) assert.ok(Math.abs(E.normCdf(z) - w) < 1e-14, 'Phi(' + z + ') = ' + E.normCdf(z));
+  for (const p of [0.001, 0.025, 0.5, 0.95, 0.975, 0.999, 0.9999]) {
+    assert.ok(Math.abs(E.normCdf(E.normInv(p)) - p) < 1e-13, 'round trip at ' + p);
+  }
+  assert.ok(Math.abs(E.normInv(0.975) - 1.959963984540054) < 1e-12);
+});
+
+test('non-central t with no offset reduces to the central t distribution', () => {
+  /* nctCdf integrates the normal CDF over the distribution of s; tTestP goes through the
+     incomplete beta. Two unrelated routes to the same number, so agreement is evidence. */
+  for (const [t, df] of [[1.5, 5], [2.228, 10], [-1, 8], [0.5, 30], [3, 3], [0, 7]]) {
+    const mine = TOL.nctCdf(t, df, 0);
+    const central = t >= 0 ? 1 - E.tTestP(t, df) / 2 : E.tTestP(-t, df) / 2;
+    assert.ok(Math.abs(mine - central) < 1e-7, 't=' + t + ' df=' + df + ': ' + mine + ' vs ' + central);
+  }
+});
+
+test('tolerance factors match published tables', () => {
+  // One sided, 95% confidence. These are the Natrella values.
+  for (const [n, p, want] of [[3, 0.95, 7.655], [5, 0.95, 4.202], [10, 0.90, 2.355], [10, 0.95, 2.911],
+    [20, 0.95, 2.396], [25, 0.99, 3.158], [30, 0.95, 2.220], [100, 0.95, 1.927]]) {
+    const got = TOL.toleranceFactor(n, p, 0.95, 1);
+    assert.ok(Math.abs(got - want) < 0.003, 'one-sided k(n=' + n + ', p=' + p + ') = ' + got.toFixed(4) + ', table ' + want);
+  }
+  // Two sided, 95% confidence.
+  for (const [n, p, want] of [[5, 0.95, 5.079], [10, 0.90, 2.856], [10, 0.99, 4.437], [100, 0.95, 2.233]]) {
+    const got = TOL.toleranceFactor(n, p, 0.95, 2);
+    assert.ok(Math.abs(got - want) < 0.005, 'two-sided k(n=' + n + ', p=' + p + ') = ' + got.toFixed(4) + ', table ' + want);
+  }
+  /* As the sample grows the factor falls to the plain normal quantile, because there is no
+     longer any doubt about sigma. How fast it falls is known in closed form from the delta
+     method, by a route with nothing in common with the integration above, so the excess over
+     the quantile is a far stronger check than "it is roughly z". */
+  for (const [n, p] of [[2000, 0.95], [20000, 0.95], [200000, 0.99]]) {
+    const zp = E.normInv(p), zc = E.normInv(0.95), df = n - 1;
+    const excess = TOL.toleranceFactor(n, p, 0.95, 1) - zp;
+    const predicted = zc * Math.sqrt(1 / n + zp * zp / (2 * df));
+    assert.ok(Math.abs(excess / predicted - 1) < 0.03, 'one-sided excess at n=' + n + ': ' + excess.toExponential(3) + ' vs predicted ' + predicted.toExponential(3));
+    const zq = E.normInv((1 + p) / 2);
+    const excess2 = TOL.toleranceFactor(n, p, 0.95, 2) - zq;
+    const predicted2 = zq * (zc / Math.sqrt(2 * df) + 1 / (2 * n));
+    assert.ok(Math.abs(excess2 / predicted2 - 1) < 0.03, 'two-sided excess at n=' + n + ': ' + excess2.toExponential(3) + ' vs predicted ' + predicted2.toExponential(3));
+  }
+  // And it must always be wider than the naive quantile, never narrower.
+  for (const n of [5, 10, 30, 100]) {
+    assert.ok(TOL.toleranceFactor(n, 0.95, 0.95, 2) > E.normInv(0.975), 'n=' + n);
+    assert.ok(TOL.toleranceFactor(n, 0.95, 0.95, 1) > E.normInv(0.95), 'n=' + n);
+  }
+  // Monotone in every direction it must be: more data narrows, more coverage or more
+  // confidence widens, and two-sided is always wider than one-sided.
+  for (let n = 5; n < 60; n += 7) {
+    assert.ok(TOL.toleranceFactor(n, 0.95, 0.95, 2) > TOL.toleranceFactor(n + 7, 0.95, 0.95, 2));
+    assert.ok(TOL.toleranceFactor(n, 0.99, 0.95, 2) > TOL.toleranceFactor(n, 0.95, 0.95, 2));
+    assert.ok(TOL.toleranceFactor(n, 0.95, 0.99, 2) > TOL.toleranceFactor(n, 0.95, 0.95, 2));
+    assert.ok(TOL.toleranceFactor(n, 0.95, 0.95, 2) > TOL.toleranceFactor(n, 0.95, 0.95, 1));
+  }
+});
+
+test('tolerance intervals really cover what they claim (Monte Carlo)', () => {
+  /* The tables confirm the arithmetic; this confirms the definition. Draw many samples,
+     build the interval from each, and measure how often it genuinely covers p of the
+     population. That fraction must come out at the stated confidence. */
+  const rand = E.rng(20260101);
+  const norm = () => { const u = Math.max(1e-12, rand()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rand()); };
+  const REPS = 30000, se = Math.sqrt(0.95 * 0.05 / REPS);
+  for (const [n, p, sided] of [[10, 0.90, 2], [12, 0.95, 1]]) {
+    const k = TOL.toleranceFactor(n, p, 0.95, sided);
+    let hit = 0;
+    for (let r = 0; r < REPS; r++) {
+      const x = []; let m = 0;
+      for (let i = 0; i < n; i++) { const v = norm(); x.push(v); m += v; }
+      m /= n;
+      const sd = Math.sqrt(x.reduce((s, v) => s + (v - m) ** 2, 0) / (n - 1));
+      const content = sided === 2 ? E.normCdf(m + k * sd) - E.normCdf(m - k * sd) : 1 - E.normCdf(m - k * sd);
+      if (content >= p) hit++;
+    }
+    const got = hit / REPS;
+    assert.ok(Math.abs(got - 0.95) < 6 * se, 'n=' + n + ' p=' + p + ' sided=' + sided + ': real coverage ' + got.toFixed(4) + ', claimed 0.95');
+  }
+});
+
+test('a tolerance interval reports the specification decision and what it would take', () => {
+  const x = [98.1, 97.4, 98.9, 97.8, 98.3, 98.6, 97.2, 98.0, 98.4, 97.9];
+  const fits = TOL.toleranceInterval(x, { p: 0.99, conf: 0.95, sided: 2, lsl: 95, usl: 101 });
+  assert.strictEqual(fits.n, 10);
+  assert.strictEqual(fits.inside, true);
+  assert.ok(fits.lower > 95 && fits.upper < 101);
+  assert.strictEqual(fits.needed, null, 'nothing is needed when it already fits');
+  // The interval must be much wider than the mean plus three standard deviations people reach for.
+  assert.ok(fits.k > 3 && fits.upper > fits.naive.upper, 'k=' + fits.k);
+
+  // Same process, limits it cannot support: it must say how many results would settle it.
+  const tight = TOL.toleranceInterval(x, { p: 0.99, conf: 0.95, sided: 2, lsl: 97, usl: 99 });
+  assert.strictEqual(tight.inside, false);
+  assert.ok(tight.achievable === false || tight.needed > 10, JSON.stringify({ a: tight.achievable, n: tight.needed }));
+  // Limits so tight that no amount of data would support them must be called impossible,
+  // not answered with a sample size nobody can run.
+  const hopeless = TOL.toleranceInterval(x, { p: 0.99, conf: 0.95, sided: 2, lsl: 98, usl: 98.1 });
+  assert.strictEqual(hopeless.inside, false);
+  assert.strictEqual(hopeless.achievable, false, 'a limit inside the natural spread is unreachable at any n');
+  assert.strictEqual(hopeless.needed, null);
+
+  // One-sided, which is what a purity or an impurity limit actually is.
+  const lower = TOL.toleranceInterval(x, { p: 0.99, conf: 0.95, sided: 1, bound: 'lower', lsl: 95 });
+  assert.strictEqual(lower.upper, null, 'a lower bound must not invent an upper one');
+  assert.ok(lower.lower > 95 && lower.insideLower === true);
+  assert.ok(lower.k < fits.k, 'one-sided is narrower than two-sided');
+  // Blanks are not zeros.
+  assert.strictEqual(TOL.toleranceInterval([98.1, '', 97.4, null, 98.9], { p: 0.9, conf: 0.9 }).n, 3);
+  assert.throws(() => TOL.toleranceInterval([1], {}), /at least 2/i);
+});
+
+test('normality is tested rather than assumed, because the tails are the whole answer', () => {
+  const rand = E.rng(77);
+  const norm = () => { const u = Math.max(1e-12, rand()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rand()); };
+  // False positives on genuinely normal data must sit near the stated 5%.
+  let flagged = 0, R = 1200;
+  for (let i = 0; i < R; i++) {
+    const x = []; for (let j = 0; j < 30; j++) x.push(norm());
+    if (TOL.andersonDarling(x).p < 0.05) flagged++;
+  }
+  assert.ok(Math.abs(flagged / R - 0.05) < 0.025, 'false positive rate ' + (flagged / R).toFixed(4));
+  // Strong skew must be caught nearly every time, or the check is decoration.
+  let caught = 0;
+  for (let i = 0; i < 200; i++) {
+    const x = []; for (let j = 0; j < 30; j++) x.push(Math.exp(norm() * 1.2));
+    if (TOL.andersonDarling(x).p < 0.05) caught++;
+  }
+  assert.ok(caught / 200 > 0.9, 'lognormal detection ' + (caught / 200).toFixed(3));
+  // Too few results to test is said out loud, not quietly passed.
+  const thin = TOL.andersonDarling([1, 2, 3, 4]);
+  assert.strictEqual(thin.normal, null);
+  assert.ok(/few/i.test(thin.note));
+  assert.strictEqual(TOL.andersonDarling([5, 5, 5, 5, 5, 5, 5, 5, 5]).normal, null);
+});
+
+test('power and sample size match the textbook numbers', () => {
+  // The canonical teaching values for a two-sample t-test at 5%, two-sided.
+  assert.strictEqual(TOL.sampleSizeTwoSample({ delta: 0.5, sd: 1, alpha: 0.05, sided: 2 }, 0.8).n, 64);
+  assert.strictEqual(TOL.sampleSizeTwoSample({ delta: 1, sd: 1, alpha: 0.05, sided: 2 }, 0.8).n, 17);
+  assert.strictEqual(TOL.sampleSizeTwoSample({ delta: 0.5, sd: 1, alpha: 0.05, sided: 2 }, 0.9).n, 86);
+  assert.strictEqual(TOL.sampleSizeOneSample({ delta: 0.5, sd: 1, alpha: 0.05, sided: 2 }, 0.8).n, 34);
+  assert.ok(Math.abs(TOL.powerTwoSample({ n: 64, delta: 0.5, sd: 1, alpha: 0.05, sided: 2 }).power - 0.8015) < 0.002);
+
+  /* With no real difference the test must reject exactly as often as the significance level
+     allows. A power routine that fails this is miscalibrated everywhere else too. */
+  for (const [n, a] of [[20, 0.05], [10, 0.01], [50, 0.1]]) {
+    assert.ok(Math.abs(TOL.powerTwoSample({ n, delta: 0, sd: 1, alpha: a, sided: 2 }).power - a) < 1e-4, 'size at n=' + n);
+  }
+  // Power rises with n and with the difference, and falls as the scatter grows.
+  assert.ok(TOL.powerTwoSample({ n: 40, delta: 0.5, sd: 1 }).power > TOL.powerTwoSample({ n: 20, delta: 0.5, sd: 1 }).power);
+  assert.ok(TOL.powerTwoSample({ n: 20, delta: 1, sd: 1 }).power > TOL.powerTwoSample({ n: 20, delta: 0.5, sd: 1 }).power);
+  assert.ok(TOL.powerTwoSample({ n: 20, delta: 0.5, sd: 2 }).power < TOL.powerTwoSample({ n: 20, delta: 0.5, sd: 1 }).power);
+  // Only scale matters, not units.
+  assert.ok(Math.abs(TOL.powerTwoSample({ n: 20, delta: 5, sd: 10 }).power - TOL.powerTwoSample({ n: 20, delta: 0.5, sd: 1 }).power) < 1e-9);
+  // A difference no study could reach must be reported as capped, not as a sample size.
+  assert.strictEqual(TOL.sampleSizeTwoSample({ delta: 0.0001, sd: 1 }, 0.8, 200).n, null);
+});
+
+test('TOST power is exact at the boundary, which pins the whole calculation', () => {
+  /* When the true difference sits exactly on the margin, the chance of declaring
+     equivalence is the significance level. It is the one point where the answer is known in
+     advance, so it is the strongest available check on the joint calculation. */
+  for (const [n, m, a] of [[25, 2, 0.05], [40, 0.5, 0.1], [15, 1.5, 0.01], [60, 1, 0.05]]) {
+    const got = TOL.powerTost({ n, margin: m, diff: m, sd: 1, alpha: a }).power;
+    assert.ok(got <= a + 1e-6 && got > a * 0.9, 'n=' + n + ' alpha=' + a + ' gave ' + got.toFixed(5));
+  }
+  // A difference well outside the margin is essentially never declared equivalent.
+  assert.ok(TOL.powerTost({ n: 30, margin: 1, diff: 3, sd: 1 }).power < 1e-6);
+  // A margin far wider than the scatter is always met.
+  assert.ok(TOL.powerTost({ n: 10, margin: 100, diff: 0, sd: 1 }).power > 0.9999);
+  // Monotone in n, and in the margin.
+  const curve = [6, 12, 24, 48].map(n => TOL.powerTost({ n, margin: 1, diff: 0, sd: 1 }).power);
+  for (let i = 1; i < curve.length; i++) assert.ok(curve[i] > curve[i - 1], curve.join(','));
+  assert.ok(TOL.powerTost({ n: 20, margin: 2, diff: 0, sd: 1 }).power > TOL.powerTost({ n: 20, margin: 1, diff: 0, sd: 1 }).power);
+  // Paired studies are more sensitive than unpaired ones at the same count.
+  assert.ok(TOL.powerTost({ n: 20, margin: 1, diff: 0, sd: 1, paired: true }).power >
+    TOL.powerTost({ n: 20, margin: 1, diff: 0, sd: 1, paired: false }).power);
+  // And the sample size search inverts its own power function.
+  const need = TOL.sampleSizeTost({ margin: 1, diff: 0.2, sd: 1, alpha: 0.05 }, 0.8);
+  assert.ok(TOL.powerTost({ n: need.n, margin: 1, diff: 0.2, sd: 1 }).power >= 0.8);
+  assert.ok(TOL.powerTost({ n: need.n - 1, margin: 1, diff: 0.2, sd: 1 }).power < 0.8, 'the answer must be the smallest n that works');
 });

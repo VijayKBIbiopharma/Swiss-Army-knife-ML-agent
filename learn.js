@@ -1293,6 +1293,88 @@
   });
 
   add({
+    id: 'tolerance-intervals', group: 'Six Sigma and process control', title: 'Tolerance intervals: the limits your data can defend',
+    analogy: 'A confidence interval asks where the bullseye is. A tolerance interval asks where the arrows will land. Shoot more arrows and you learn the bullseye’s position as precisely as you like — but the arrows keep scattering just as much as they always did. The two questions have different answers, and a specification is the second one.',
+    intro: 'Three batches come in at 98.1, 97.4 and 98.9, so somebody writes the specification as the mean plus or minus three standard deviations and moves on. That interval does not cover 99.7% of future production; on three batches it covers nothing like it, because the standard deviation in the formula is itself a guess made from three numbers. A tolerance interval does the honest version, and the price of honesty is visible below.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-controls">' + slider('n', 'Batches you have', 3, 120, 1, 10) + slider('p', 'Share of production to cover (%)', 90, 99.9, 0.1, 99) + '</div><div data-role="plot"></div><p class="demo-read" data-role="read"></p>';
+      const T = window.MLTolerance;
+      const draw = () => {
+        const n = Number(q(el, 'n').value), pPct = Number(q(el, 'p').value), p = pPct / 100;
+        setOut(el, 'n', n); setOut(el, 'p', pPct.toFixed(1));
+        const k = T.toleranceFactor(n, p, 0.95, 2);
+        const kKnown = E.normInv((1 + p) / 2);
+        // The factor against sample size, so the shape of the price is visible.
+        const pts = [];
+        for (const m of [3, 4, 5, 6, 8, 10, 15, 20, 30, 50, 80, 120]) pts.push([m, T.toleranceFactor(m, p, 0.95, 2)]);
+        const top = Math.max(pts[0][1], k) * 1.05;
+        const f = frame(640, 250, [0, 125], [0, top], { xLabel: 'Batches in hand', yLabel: 'Factor applied to s' });
+        let b = f.axes;
+        b += '<line class="ref" x1="' + f.L + '" x2="' + (f.W - f.R) + '" y1="' + f.sy(kKnown) + '" y2="' + f.sy(kKnown) + '"/>';
+        b += '<text class="lbl-strong" x="' + (f.W - f.R - 4) + '" y="' + (f.sy(kKnown) - 7) + '" text-anchor="end">if sigma were known: ' + fmt(kKnown) + '</text>';
+        b += '<line class="target-line" x1="' + f.L + '" x2="' + (f.W - f.R) + '" y1="' + f.sy(3) + '" y2="' + f.sy(3) + '"/>';
+        b += '<text x="' + (f.L + 6) + '" y="' + (f.sy(3) - 7) + '">the "3" people use</text>';
+        b += '<path class="line" d="' + pathOf(pts, f) + '"/>';
+        pts.forEach(pt => { b += dot(f.sx(pt[0]), f.sy(pt[1]), 'c1', 4, pt[0] + ' batches: k = ' + fmt(pt[1])); });
+        b += dot(f.sx(n), f.sy(k), 'query', 7, 'you are here');
+        q(el, 'plot').innerHTML = svg(640, 250, 'Tolerance factor against sample size', b);
+        const inflation = k / kKnown;
+        q(el, 'read').innerHTML = 'On <b>' + n + '</b> batches, covering <b>' + pPct.toFixed(1) + '%</b> of production with 95% confidence needs <b>k = ' + fmt(k) + '</b>, not ' + fmt(kKnown) + '. ' +
+          'That is <b>' + fmt(inflation) + ' times</b> wider than if you knew sigma exactly' + (k > 3 ? ', and wider than the 3 almost everybody writes down' : '') + '.' +
+          '<br>Drag the batch count to 3 and watch the factor go through the roof. That is not the arithmetic being awkward: it is telling you that three batches genuinely cannot pin down the tails of a distribution. Drag it to 120 and it settles towards ' + fmt(kKnown) + ', which is the most any amount of data can buy you.';
+      };
+      ['n', 'p'].forEach(key => { q(el, key).oninput = draw; });
+      draw();
+    },
+    steps: ['Decide what the limit has to promise: what share of production it covers, and with what confidence. Both are choices, and both belong in the protocol.', 'The factor k depends on the sample size, the share and the confidence — and nothing else.', 'The limits are the mean plus or minus k times the sample standard deviation.', 'Compare that against the specification you hold. If the interval fits inside, the data supports the limits; if not, either more data or a better process is needed.'],
+    when: 'Setting or defending a release specification, an in-process action level, a shelf-life limit, or an incoming material specification.',
+    watch: 'This assumes independent, normally distributed results on the scale the specification is written on. One number per batch: if each row is an average of replicates, the spread looks smaller than batch-to-batch reality and the limits will be broken later. Normality matters more here than almost anywhere else, because a specification is a statement about the tails, which is exactly where the wrong distribution hurts — so the tool tests it rather than assuming it.',
+    where: 'Pick "Tolerance intervals, power & sample size" from the selector at the top of the agent.',
+    quiz: { q: 'You have 10 batches and want limits covering 99% of production with 95% confidence. Roughly what multiple of the standard deviation do you need?', options: ['About 2.6, since that is the 99% normal quantile', 'About 3, the usual rule of thumb', 'About 4.4, because sigma is only estimated from 10 results'], answer: 2, why: 'The exact two-sided factor is 4.44. The 2.58 quantile would be right if sigma were known exactly; with 10 results it is not, and the extra width is the cost of that uncertainty. Using 3 here would give limits that cover far less than 99%.' }
+  });
+
+  add({
+    id: 'power-sample-size', group: 'Six Sigma and process control', title: 'Power and sample size: is this study worth running?',
+    analogy: 'A smoke detector with a dead battery never goes off. Silence from it is not evidence that the building is safe — it is no evidence at all. An underpowered study is the same instrument: when it reports "no significant difference", it has told you nothing, and the trap is that the report looks identical to the one from a study that genuinely found nothing.',
+    intro: 'Power is the chance that a study finds a real effect. Work it out before the study and you know whether the question can be answered for the money; work it out afterwards and you are explaining why a quarter of instrument time produced an inconclusive result. The two cases below need very different numbers, and the one people underestimate is the second.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-controls">' + slider('d', 'Difference that really exists', 0, 3, 0.05, 1) + slider('sd', 'Scatter (standard deviation)', 0.3, 3, 0.1, 1) + slider('m', 'Equivalence margin (±)', 0.5, 5, 0.1, 2) + '</div><div data-role="plot"></div><p class="demo-read" data-role="read"></p>';
+      const T = window.MLTolerance;
+      const draw = () => {
+        const d = Number(q(el, 'd').value), sd = Number(q(el, 'sd').value), m = Number(q(el, 'm').value);
+        setOut(el, 'd', d.toFixed(2)); setOut(el, 'sd', sd.toFixed(1)); setOut(el, 'm', m.toFixed(1));
+        const ns = [];
+        for (let n = 3; n <= 120; n += 3) ns.push(n);
+        const diffPts = ns.map(n => [n, T.powerTwoSample({ n: n, delta: d, sd: sd, alpha: 0.05, sided: 2 }).power]);
+        const eqPts = ns.map(n => [n, T.powerTost({ n: n, margin: m, diff: d, sd: sd, alpha: 0.05 }).power]);
+        const f = frame(640, 260, [0, 125], [0, 1], { xLabel: 'Results per group', yLabel: 'Chance of a conclusive answer', yFmt: v => Math.round(v * 100) + '%' });
+        let b = f.axes;
+        b += '<line class="ref" x1="' + f.L + '" x2="' + (f.W - f.R) + '" y1="' + f.sy(0.8) + '" y2="' + f.sy(0.8) + '"/>';
+        b += '<text x="' + (f.L + 6) + '" y="' + (f.sy(0.8) - 7) + '">80%, the usual bar</text>';
+        b += '<path class="line" d="' + pathOf(diffPts, f) + '"/>';
+        b += '<path class="line s2" d="' + pathOf(eqPts, f) + '"/>';
+        b += '<text class="lbl-strong" x="' + (f.W - f.R - 4) + '" y="' + (f.sy(diffPts[diffPts.length - 1][1]) - 8) + '" text-anchor="end">detecting a difference</text>';
+        b += '<text class="lbl-strong s2" x="' + (f.W - f.R - 4) + '" y="' + (f.sy(eqPts[eqPts.length - 1][1]) + 18) + '" text-anchor="end">showing equivalence</text>';
+        q(el, 'plot').innerHTML = svg(640, 260, 'Power against sample size for both questions', b);
+        const nDiff = T.sampleSizeTwoSample({ delta: d, sd: sd, alpha: 0.05, sided: 2 }, 0.8).n;
+        const nEq = Math.abs(d) >= m ? null : T.sampleSizeTost({ margin: m, diff: d, sd: sd, alpha: 0.05 }, 0.8).n;
+        q(el, 'read').innerHTML =
+          'To <b>detect</b> a difference of ' + fmt(d) + ' at 80% power: <b>' + (d === 0 ? 'impossible — there is nothing to detect' : nDiff === null ? 'more than any realistic study' : nDiff + ' per group') + '</b>.<br>' +
+          'To <b>show equivalence</b> within ±' + fmt(m) + ', when the true difference is ' + fmt(d) + ': <b>' + (nEq === null ? 'impossible — the real difference is already at or beyond the margin' : nEq + ' per group') + '</b>.<br>' +
+          (nEq !== null && nDiff !== null && nEq > nDiff ? 'Note which is larger. Proving sameness generally costs more than finding a difference, which is the opposite of what most people assume when they plan a transfer. ' : '') +
+          'Now set the difference to 0 and watch the equivalence curve: with no real bias, equivalence becomes much cheaper to show. An honest guess at the bias is worth more at this stage than an optimistic one, because an optimistic guess is how a study ends up half the size it needed to be.';
+      };
+      ['d', 'sd', 'm'].forEach(key => { q(el, key).oninput = draw; });
+      draw();
+    },
+    steps: ['State the difference that would actually change a decision. Not the smallest detectable one — the smallest one worth acting on.', 'Put a number on the scatter, from previous runs or from a variance study.', 'Pick the power you want. 80% is conventional, and still means a one-in-five chance of missing a real effect.', 'Read off the sample size, then decide whether the study is worth it. Finding out it is not is a useful result, delivered before the money is spent.'],
+    when: 'Before a comparability study, a method transfer, a supplier qualification, a process change, or any validation protocol that has to state its acceptance criteria in advance.',
+    watch: 'Every one of these answers rests on the standard deviation you fed in. If that came from three runs it is barely known, and the sample size inherits the doubt — so a variance study or a Gage R&R is often the right first step. And power calculated after the fact, on the difference you happened to observe, is not power; it is the p-value wearing a disguise.',
+    where: 'Pick "Tolerance intervals, power & sample size" from the selector, then "Work out how many results a study needs".',
+    quiz: { q: 'A method transfer with 6 results per lab reports p = 0.48 and the team writes "no significant difference, methods equivalent". What is wrong?', options: ['Nothing, p > 0.05 means no difference', 'The study had little chance of detecting a difference, so finding none is uninformative — and equivalence needs its own test against a margin', 'They should have used a one-sided test'], answer: 1, why: 'Two errors at once. A small study fails to find almost anything, so "not significant" is close to meaningless. And equivalence is a different claim that requires a margin set in advance and its own test; failing to reject is not the same as demonstrating sameness.' }
+  });
+
+  add({
     id: 'codon-optimization', group: 'Optimizing with evolution', title: 'Codon optimization: evolving a gene without changing the protein',
     analogy: 'Spelling the same word in two languages. "Colour" and "color" read the same to a person, but one is what the local reader expects. The protein is the meaning; the codons are the spelling, and each host has its own preference.',
     intro: 'Most amino acids can be written with several codons, so a protein has astronomically many possible genes. A genetic algorithm breeds a population of spellings: it keeps the ones that score well, mixes them, and mutates a codon here and there. Drag through the generations below and watch a deliberately badly-spelled gene improve, one objective at a time.',

@@ -188,6 +188,21 @@
         analysis.push(['Gage R&R verdict', vv.verdict + ' at ' + r4(vv.judgedOn === 'tolerance' ? vv.pctTolerance : vv.pctStudyGrr) + '% of ' + vv.judgedOn + (vv.tolerance !== null ? ' (LSL ' + vv.lsl + ', USL ' + vv.usl + ')' : '') + '; ' + (vv.ndc === null ? 'distinct categories not finite' : vv.ndc + ' distinct categories')]);
       }
     }
+    if (ctx.tolerance) {
+      const tv = ctx.tolerance;
+      if (tv.kind === 'tolerance') {
+        analysis.push(['Tolerance interval', tv.n + ' results from "' + tv.column + '"; ' + Math.round(tv.p * 1000) / 10 + '% coverage at ' + Math.round(tv.conf * 100) + '% confidence, ' + (tv.sided === 1 ? tv.bound + ' bound only' : 'two sided') + '; k ' + r4(tv.k) + ' against ' + r4(tv.limitingK) + ' for a known sigma']);
+        analysis.push(['Limits supported by the data', (tv.lower === null ? '' : 'lower ' + r4(tv.lower)) + (tv.lower !== null && tv.upper !== null ? ', ' : '') + (tv.upper === null ? '' : 'upper ' + r4(tv.upper)) +
+          (tv.inside === null ? '; no specification limits were given to compare against' : tv.inside ? '; the specification in force is supported' : '; the specification in force is NOT supported' + (tv.achievable === false ? ' and no sample size would support it' : tv.needed ? ' but about ' + tv.needed + ' results would' : ''))]);
+        analysis.push(['Normality of the results', tv.normalityP === null ? 'not tested (too few results); the interval assumes a normal distribution' : 'Anderson-Darling p ' + r4(tv.normalityP) + ' (statistic ' + r4(tv.normalityStat) + '), ' + (tv.normal ? 'no evidence against normality' : 'NORMALITY DOUBTFUL, so the limits are provisional')]);
+      } else {
+        const o = tv.opt || {};
+        analysis.push(['Sample size calculation', (tv.design === 'tost' ? 'equivalence by two one-sided tests' : tv.design === 'two' ? 'difference between two groups' : 'one group against a target') +
+          '; assumed standard deviation ' + r4(o.sd) + ', alpha ' + o.alpha + ', target power ' + tv.target +
+          (tv.design === 'tost' ? ', margin ' + r4(o.margin) + ', expected difference ' + r4(o.diff) + (o.paired ? ', paired' : ', unpaired') : ', difference to detect ' + r4(o.delta))]);
+        analysis.push(['Sample size required', (tv.n === null ? 'not reachable at any realistic size' : tv.n + (tv.design === 'one' ? ' in total' : ' per group')) + (tv.n === null ? '' : ', giving power ' + r4(tv.power))]);
+      }
+    }
     if (rep.desirability) analysis.push(['Multi-result optimization', rep.desirability.specs.map(sp => sp.name + ' ' + sp.goal + ' [' + sp.low + ', ' + sp.high + ']' + (sp.target !== null ? ' target ' + sp.target : '') + ' weight ' + sp.weight).join('; ')]);
     S.push({ title: 'Analysis settings', rows: analysis });
     S.push({ title: 'Agent log', rows: (rep.log || []).map((l, i) => [String(i + 1), l.text]) });
@@ -314,6 +329,33 @@
         rows.push([], ['Component', 'Variance', 'Std dev', 'Share of variance', '% of total spread']);
         vv.components.forEach(c => rows.push([c.source, r4(c.variance), r4(c.sd), r4(c.share), r4(c.pctStudy)]));
         out.push({ name: 'Measurement system', rows });
+      }
+    }
+    if (ctx.tolerance) {
+      const tv = ctx.tolerance;
+      if (tv.kind === 'tolerance') {
+        out.push({ name: 'Tolerance limits', rows: [['Item', 'Value'], ['Run at', tv.when], ['Result column', tv.column],
+          ['Results', tv.n], ['Mean', r4(tv.mean)], ['Standard deviation', r4(tv.sd)], ['Degrees of freedom', tv.df],
+          ['Proportion covered', tv.p], ['Confidence', tv.conf], ['Limits', tv.sided === 1 ? tv.bound + ' only' : 'two sided'],
+          ['Tolerance factor k', r4(tv.k)], ['Factor if sigma were known', r4(tv.limitingK)],
+          ['Lower tolerance limit', tv.lower === null ? '' : r4(tv.lower)], ['Upper tolerance limit', tv.upper === null ? '' : r4(tv.upper)],
+          ['Lowest result', r4(tv.min)], ['Highest result', r4(tv.max)],
+          ['Specification lower', tv.lsl === null ? '' : tv.lsl], ['Specification upper', tv.usl === null ? '' : tv.usl],
+          ['Specification supported', tv.inside === null ? 'not assessed' : tv.inside ? 'yes' : 'no'],
+          ['Results that would suffice', tv.achievable === false ? 'none at any sample size' : tv.needed === null ? '' : tv.needed],
+          ['Anderson-Darling statistic', tv.normalityStat === null ? '' : r4(tv.normalityStat)],
+          ['Normality p-value', tv.normalityP === null ? 'not tested' : r4(tv.normalityP)]] });
+      } else {
+        const o = tv.opt || {};
+        const rows = [['Item', 'Value'], ['Run at', tv.when],
+          ['Question', tv.design === 'tost' ? 'equivalence by two one-sided tests' : tv.design === 'two' ? 'difference between two groups' : 'one group against a target'],
+          ['Standard deviation assumed', r4(o.sd)], ['Significance level', o.alpha], ['Target power', tv.target]];
+        if (tv.design === 'tost') rows.push(['Equivalence margin', r4(o.margin)], ['Difference expected', r4(o.diff)], ['Paired', o.paired ? 'yes' : 'no']);
+        else rows.push(['Difference to detect', r4(o.delta)]);
+        rows.push(['Results needed', tv.n === null ? 'not reachable' : tv.n], ['Power at that size', tv.n === null ? '' : r4(tv.power)], []);
+        rows.push(['Results per group', 'Power']);
+        (tv.curve || []).forEach(c => rows.push([c[0], r4(c[1])]));
+        out.push({ name: 'Sample size', rows });
       }
     }
     if (ctx.scenarios && ctx.scenarios.rows.length) out.push({ name: 'What-if scenarios', rows: [ctx.scenarios.header].concat(ctx.scenarios.rows) });

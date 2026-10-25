@@ -65,6 +65,18 @@
         { name: 'Why this comes before everything else', note: true, text: 'A capability index, a trend report and a comparability study all take the measurement at face value. If a third of what you observe is the assay, every one of those numbers is partly about the assay, and no amount of further analysis will separate them after the fact. Splitting the variation first is what tells you whether the rest of the work is measuring your process or your instrument.' }
       ]
     },
+    limits: {
+      tech: 'Tolerance intervals, statistical power and sample size',
+      scope: 'In this tool: one column of independent results for a limit, or the scatter you expect and the difference that matters for a study size.',
+      groups: [
+        { name: 'Specification setting', text: 'Release and shelf-life limits argued from measured capability, limits defended at a filing or an inspection, in-process action and alert levels, a specification widened or tightened on evidence, the gap between what a process holds and what was committed to on three batches.' },
+        { name: 'Study design', text: 'Comparability and method-transfer studies sized before instrument time is booked, characterisation runs costed honestly, stability designs with enough batches to matter, Gage R&R and variance studies sized so their own estimates mean something.' },
+        { name: 'Process validation', text: 'Process performance qualification batch numbers justified statistically, continued process verification limits set from the qualification data, acceptance criteria agreed in advance rather than fitted afterwards, sampling plans defended on coverage.' },
+        { name: 'Materials and suppliers', text: 'Incoming specifications set from supplier history, a second-source qualification sized to a margin agreed first, certificate-of-analysis limits checked against what the vendor can really hold, hold-time and usable-life limits taken from the data behind them.' },
+        { name: 'Deciding not to run a study', text: 'The calculation that shows a planned comparison could never have reached a conclusion, the margin that no achievable study can support, the difference too small to detect against the method noise, and the honest case for improving the measurement first.' },
+        { name: 'Why not mean plus three standard deviations', note: true, text: 'On a handful of batches the standard deviation is itself a rough guess, and plugging it into a formula meant for a known sigma produces limits that cover far less than they claim. On ten results the honest factor for 99% coverage is about 4.4, not 3. That gap is the whole reason specifications set on early batches get broken later, and it is arithmetic rather than bad luck.' }
+      ]
+    },
     sequence: {
       tech: 'Genetic algorithms and multi-objective optimization (NSGA-II)',
       scope: 'In this tool: pointed at codon optimization, evolving synonymous codons while the protein stays identical.',
@@ -282,6 +294,16 @@
       mfg: 'Name how much of batch-to-batch spread is the equipment, the shift or the material, before a CAPA is written against the wrong one.',
       qc: 'Measurement system analysis on each instrument, and incoming lot variation tested against the method that measures it.',
       qa: 'Variation attributed to a named source in trend reports and investigations, with the measurement system qualified so capability is about product rather than assay.'
+    },
+    limits: {
+      cld: 'Size a clone screen so the winner is a real winner, and set generation-limit criteria from the data rather than from convention.',
+      uspd: 'Size characterisation and scale-down studies honestly, and set in-process action levels from measured capability.',
+      dspd: 'Set pool and intermediate acceptance limits from what the train really delivers, and size the runs needed to defend them.',
+      afs: 'Set specification and system-suitability limits with the coverage stated, and size method-transfer studies so they can actually conclude.',
+      msat: 'Justify process performance qualification batch numbers, and set continued verification limits from the qualification data.',
+      mfg: 'Alert and action levels that reflect real capability, and sampling plans defended on how much of production they cover.',
+      qc: 'Release limits argued from capability rather than from history, and the number of replicates a result needs to be trusted.',
+      qa: 'Specification limits with the statistical argument attached for filings and inspections, and study protocols with the sample size justified in advance.'
     },
     sequence: {
       cld: 'Codon-optimise the construct for the host while removing restriction sites and holding GC inside the synthesis window.',

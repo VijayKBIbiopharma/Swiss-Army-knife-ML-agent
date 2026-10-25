@@ -113,6 +113,14 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Finish with **Example: one analyst out of step**: 47% of the window, **NOT ACCEPTABLE**, and the output points at reproducibility &mdash; disagreement between analysts &mdash; rather than the instrument. *"That is a training and method-description fix, not a capital request. The split tells you which."*
 - If someone asks what this replaces: this is the part of JMP a QC lab uses most.
 
+## 4h. The specification nobody can hold (3 minutes, the one that saves money)
+- Pick **Tolerance intervals, power & sample size** and press **Example: limits too tight for the process**.
+- 24 batches, limits of 97.5 to 99. The verdict is **NOT SUPPORTED**, and the reason is the sentence to read aloud: *"This process cannot hold those limits, and no amount of extra data will change that."* The interval uses **464%** of the specification window.
+- The point: *"Those limits were committed to on three batches. Twenty-four batches later we can prove they were never achievable. This is the calculation that should have been done first."*
+- Then press **Example: too few batches to say**: four batches, and the tool says about **nine** would bring it inside. *"Same verdict on the screen, completely different action: one is a process problem, the other is just not enough data yet. Knowing which is the whole value."*
+- Note the tolerance factor on four batches: **8.2**, against the 3 everyone writes down. *"That is why specifications set on three batches get broken."*
+- Switch to **Work out how many results a study needs**, leave it on equivalence, and press the button: 9 per method. Then set the expected difference to 1.5 against the same ±2 margin and re-run &mdash; the number climbs steeply. *"An optimistic guess about bias is how a transfer study ends up half the size it needed to be."*
+
 ## 5. Finding groups with no target: penguins (1 minute)
 - Drag `penguins.csv`, choose **Nothing: find groups and patterns**, run.
 - Show the groups chart and profiles: one group is entirely Gentoo penguins on Biscoe island. The agent found the species without being told.

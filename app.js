@@ -1143,7 +1143,7 @@
     const header = ['Scenario'].concat(sim.drivers.map(d => d.name), [rep.task === 'classification' ? 'Chance of ' + A.classLabel(rep) : 'Predicted ' + rep.target], rep.desirability ? ['Overall D'] : []);
     return { header, rows: rows.map(r => [r.name].concat(sim.drivers.map(d => r.values[d.name]), [Number(r.score.toPrecision(6))], rep.desirability ? [Number(r.D.toPrecision(4))] : [])) };
   }
-  const auditContext = () => ({ sources: state.sources, merge: state.merge, options: state.runOptions, when: state.runAt, scenarios: scenarioTable(), design: state.design, table: state.table, stability: window.MLStabilityRun, tost: window.MLTostRun, golden: window.MLGoldenRun, variance: window.MLVarianceRun });
+  const auditContext = () => ({ sources: state.sources, merge: state.merge, options: state.runOptions, when: state.runAt, scenarios: scenarioTable(), design: state.design, table: state.table, stability: window.MLStabilityRun, tost: window.MLTostRun, golden: window.MLGoldenRun, variance: window.MLVarianceRun, tolerance: window.MLToleranceRun });
   const workbook = rep => AU.xlsx(AU.sheets(rep, auditContext()), { title: 'ML Agent results: ' + state.name });
   function saveExcel() {
     const rep = state.report; if (!rep) return;
@@ -1227,6 +1227,7 @@
     if (window.MLEquiv) window.MLEquiv.clear();
     if (window.MLGoldenUI) window.MLGoldenUI.clear();
     if (window.MLVarUI) window.MLVarUI.clear();
+    if (window.MLLimits) window.MLLimits.clear();
     foldPanels();
     $('sim').innerHTML = ''; $('sim').hidden = true;
     $('paste').value = ''; $('file').value = '';
@@ -1260,6 +1261,7 @@
     golden: 'Learn the path your good batches follow, then watch any batch against it: one number for all sensors at once, and the sensor to blame when it drifts.',
     equivalence: 'Two one-sided tests: show that a new lab, instrument or supplier agrees with the old one, within a margin you declare first.',
     variance: 'Split a spread into named sources and see what share each owns, or point the same arithmetic at your own instrument and find out whether the method can see what you are chasing.',
+    limits: 'Work out which specification limits your data can actually defend, and how many results a study needs before it is worth running.',
     sequence: 'A genetic algorithm searching several competing objectives at once, pointed here at codon optimization.',
     privacy: 'How the tool keeps your data on your own device, and how to check that for yourself.'
   };
