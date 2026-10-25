@@ -210,12 +210,34 @@
         <label>Response name
           <input id="response-name" type="text" value="Response">
         </label>
+        <label id="total-wrap" hidden>Batch total (what the components add up to)
+          <input id="mix-total" type="text" inputmode="decimal" value="100">
+        </label>
+        <label id="degree-wrap" hidden>Lattice fineness
+          <select id="mix-degree">
+            <option value="2">Coarse (2 steps per component)</option>
+            <option value="3" selected>Medium (3 steps)</option>
+            <option value="4">Fine (4 steps)</option>
+          </select>
+        </label>
         <label class="check"><input id="randomize" type="checkbox" checked> Randomize run order</label>
       </div>
       <p class="hint" id="design-purpose"></p>
       <div class="row-actions"><button class="btn primary" id="generate" type="button">Generate run sheet</button></div>
       <p class="error" id="doe-error" role="alert" hidden></p>
       <div id="design-out"></div>
+      <div id="mix-analyse" hidden>
+        <h4>Analyse a finished mixture experiment</h4>
+        <p class="hint">A mixture cannot be analysed with the usual factorial arithmetic: because the components always add to the same total, there is no intercept to estimate and the ordinary model is singular. Paste the completed run sheet here and it will be fitted with a Scheff&eacute; blending model instead. <a class="learn-link" href="learn.html#mixture-designs" target="_blank" rel="noopener noreferrer">Learn how this works &#8599;</a></p>
+        <label class="full" for="mix-data">Completed run sheet (components and the measured response)</label>
+        <textarea id="mix-data" rows="5" spellcheck="false" placeholder="Buffer,Sugar,Surfactant,Water,Stability&#10;60,30,0,10,88.2"></textarea>
+        <div class="row-actions">
+          <button class="btn primary" id="mix-fit" type="button">Fit the blending model</button>
+          <button class="btn ghost small" id="mix-example" type="button">Load a worked example</button>
+        </div>
+        <p class="error" id="mix-error" role="alert" hidden></p>
+        <div id="mix-out"></div>
+      </div>
     </div>
     </details>
   </section>

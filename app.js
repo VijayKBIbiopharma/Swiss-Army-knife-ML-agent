@@ -890,15 +890,33 @@
   function factorList() {
     return state.factors.map(f => ({ name: String(f.name).trim(), low: f.low, high: f.high, categorical: !(isNum(f.low) && isNum(f.high)) }));
   }
+  const isMixture = () => !!(D.DESIGNS[$('design-type').value] || {}).mixture;
   function renderFactors() {
-    $('factors').innerHTML = '<thead><tr><th>Factor</th><th>Low level</th><th>High level</th><th></th></tr></thead><tbody>' +
+    /* A mixture component is a share of one blend, so "low and high level" is the wrong
+       question for it: what it has is a minimum and a maximum percentage. */
+    const mix = isMixture();
+    $('factors').innerHTML = '<thead><tr><th>' + (mix ? 'Component' : 'Factor') + '</th><th>' + (mix ? 'Minimum %' : 'Low level') + '</th><th>' + (mix ? 'Maximum %' : 'High level') + '</th><th></th></tr></thead><tbody>' +
       state.factors.map((f, i) => '<tr><td><input type="text" data-i="' + i + '" data-k="name" value="' + h(f.name) + '" aria-label="Factor ' + (i + 1) + ' name"></td>' +
-        '<td><input type="text" data-i="' + i + '" data-k="low" value="' + h(f.low) + '" aria-label="Factor ' + (i + 1) + ' low level"></td>' +
-        '<td><input type="text" data-i="' + i + '" data-k="high" value="' + h(f.high) + '" aria-label="Factor ' + (i + 1) + ' high level"></td>' +
+        '<td><input type="text" data-i="' + i + '" data-k="low" value="' + h(f.low) + '" aria-label="' + (mix ? 'Component ' + (i + 1) + ' minimum percent' : 'Factor ' + (i + 1) + ' low level') + '"></td>' +
+        '<td><input type="text" data-i="' + i + '" data-k="high" value="' + h(f.high) + '" aria-label="' + (mix ? 'Component ' + (i + 1) + ' maximum percent' : 'Factor ' + (i + 1) + ' high level') + '"></td>' +
         '<td><button class="icon-btn" type="button" data-remove="' + i + '" aria-label="Remove factor ' + (i + 1) + '">✕</button></td></tr>').join('') + '</tbody>';
     renderDesignTypes();
   }
-  function designPurpose() { $('design-purpose').innerHTML = h(D.DESIGNS[$('design-type').value].purpose) + ' ' + learnLink('designs', 'See the design shapes'); }
+  function designPurpose() {
+    const type = $('design-type').value, spec = D.DESIGNS[type] || {};
+    const extra = spec.mixture ? learnLink('mixture-designs', 'How mixtures differ') : type === 'dsd' ? learnLink('definitive-screening', 'Why this beats a Plackett-Burman screen') : learnLink('designs', 'See the design shapes');
+    $('design-purpose').innerHTML = h(spec.purpose || '') + ' ' + extra;
+    const mix = !!spec.mixture;
+    $('total-wrap').hidden = !mix;
+    $('degree-wrap').hidden = type !== 'mixLattice';
+    // Centre points mean nothing in a blend: there is no "everything at mid-level" mixture.
+    $('centers').closest('label').hidden = mix;
+    $('mix-analyse').hidden = !mix;
+    /* A definitive screening design carries its own centre run, so the usual default of three
+       would quietly inflate it past the run count it is chosen for. Start at none; adding
+       some is then a deliberate choice that buys a pure-error estimate. */
+    if (type === 'dsd' && Number($('centers').value) === 3) $('centers').value = 0;
+  }
   function renderDesignTypes(preferred) {
     const k = state.factors.length;
     const sel = $('design-type');
@@ -918,13 +936,19 @@
     const names = fs.map(f => f.name);
     if (names.some(n => !n)) return showError('doe-error', 'Every factor needs a name.');
     if (new Set(names).size !== names.length) return showError('doe-error', 'Factor names must be different.');
-    const bad = fs.find(f => String(f.low).trim() === '' || String(f.high).trim() === '' || String(f.low).trim() === String(f.high).trim());
-    if (bad) return showError('doe-error', '"' + bad.name + '" needs two different levels.');
+    if (isMixture()) {
+      const badPct = fs.find(f => [f.low, f.high].some(v => String(v).trim() !== '' && !isNum(v)));
+      if (badPct) return showError('doe-error', '"' + badPct.name + '" needs its minimum and maximum as percentages of the blend, or left blank for 0 and 100.');
+    } else {
+      const bad = fs.find(f => String(f.low).trim() === '' || String(f.high).trim() === '' || String(f.low).trim() === String(f.high).trim());
+      if (bad) return showError('doe-error', '"' + bad.name + '" needs two different levels.');
+    }
     let design;
     try {
       design = D.generate(fs.map(f => ({ name: f.name, low: f.categorical ? String(f.low).trim() : Number(f.low), high: f.categorical ? String(f.high).trim() : Number(f.high), categorical: f.categorical })), {
         type: $('design-type').value, centerPoints: Number($('centers').value) || 0, replicates: Number($('reps').value) || 1,
-        randomize: $('randomize').checked, seed: seed || (Date.now() % 1e9)
+        randomize: $('randomize').checked, seed: seed || (Date.now() % 1e9),
+        total: Number($('mix-total').value) || 100, degree: Number($('mix-degree').value) || 3
       });
     } catch (e) { return showError('doe-error', e.message); }
     state.design = { design, factors: fs, response: $('response-name').value.trim() || 'Response' };
@@ -934,9 +958,111 @@
       '<p>Run the experiments in <b>RunOrder</b> (randomized to protect against drift), record ' + h(resp) + ', then load the file in step 1. The agent will recognize the design and analyze it.</p></div>' +
       '<div class="row-actions"><button class="btn primary" type="button" id="download-design">Download run sheet (.csv)</button></div>' +
       '<div class="table-scroll"><table class="runsheet"><thead><tr><th class="num-cell">Run</th><th class="num-cell">Std</th>' + fs.map(f => '<th class="num-cell">' + h(f.name) + '</th>').join('') + '<th>' + h(resp) + '</th></tr></thead><tbody>' +
-      design.runs.map(r => '<tr><td class="num-cell">' + r.run + '</td><td class="num-cell">' + r.std + '</td>' + r.actual.map(v => '<td class="num-cell">' + h(v) + '</td>').join('') + '<td class="blank"></td></tr>').join('') + '</tbody></table></div>';
+      design.runs.map(r => '<tr><td class="num-cell">' + r.run + '</td><td class="num-cell">' + r.std + '</td>' +
+        r.actual.map((v, j) => '<td class="num-cell">' + h(v) + (design.mixture ? '<span class="share-note">' + (r.proportions[j] * 100).toFixed(1) + '%</span>' : '') + '</td>').join('') +
+        '<td class="blank"></td></tr>').join('') + '</tbody></table></div>';
     $('download-design').addEventListener('click', () => download('doe-run-sheet.csv', D.toCSV(design, fs, resp), 'text/csv'));
   }
+  /* ---------- Analysing a finished mixture ----------
+     Kept here beside the builder rather than in the main pipeline: the usual analysis path
+     assumes factors that move independently, and a blend does not. */
+  function mixtureExample() {
+    // A formulation where the buffer and the sugar help each other and the surfactant hurts
+    // above a few percent: a synergy and an antagonism, so both readings are on show.
+    const comps = [{ name: 'Buffer', low: 40, high: 70 }, { name: 'Sugar', low: 5, high: 30 },
+      { name: 'Surfactant', low: 0, high: 10 }, { name: 'Water', low: 10, high: 40 }];
+    // Edge midpoints as well as corners: without interior blends a curved model cannot be
+    // fitted, and demonstrating synergy is the point of the example.
+    const d = D.generate(comps, { type: 'mixVertices', randomize: false, total: 100, seed: 7, edges: true });
+    const rand = E.rng(99);
+    const norm = () => { const u = Math.max(1e-12, rand()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rand()); };
+    const lines = [comps.map(c => c.name).concat(['Stability_Pct']).join(',')];
+    d.runs.forEach(r => {
+      const p = r.proportions;
+      const y = 92 * p[0] + 78 * p[1] + 40 * p[2] + 60 * p[3] + 55 * p[0] * p[1] - 70 * p[0] * p[2] + norm() * 0.5;
+      lines.push(r.actual.concat([y.toFixed(2)]).join(','));
+    });
+    return lines.join('\n');
+  }
+  function fitMixture() {
+    showError('mix-error', '');
+    $('mix-out').innerHTML = '';
+    const text = $('mix-data').value.trim();
+    if (!text) return showError('mix-error', 'Paste the completed run sheet first, or load the worked example.');
+    let t;
+    try { t = E.parseCSV(text); } catch (e) { return showError('mix-error', 'Could not read that: ' + e.message); }
+    if (!t.rows.length || t.columns.length < 3) return showError('mix-error', 'Expected a header row, one column per component, and a column holding the measured response.');
+    const prof = E.profile(t);
+    const numeric = prof.columns.filter(c => c.kind === 'numeric').map(c => c.name);
+    if (numeric.length < 3) return showError('mix-error', 'At least two component columns and one response column need to hold numbers.');
+    // The response is the last numeric column; everything numeric before it is a component.
+    const respName = numeric[numeric.length - 1];
+    const compNames = numeric.slice(0, -1);
+    const ci = compNames.map(c => t.columns.indexOf(c)), ri = t.columns.indexOf(respName);
+    const pts = [], y = [];
+    let dropped = 0;
+    t.rows.forEach(row => {
+      const amounts = ci.map(j => E.toNumber(row[j]));
+      const resp = E.toNumber(row[ri]);
+      if (resp === null || amounts.some(v => v === null)) { dropped++; return; }
+      const tot = amounts.reduce((a, b) => a + b, 0);
+      if (!(tot > 0)) { dropped++; return; }
+      pts.push(amounts.map(v => v / tot));
+      y.push(resp);
+    });
+    if (pts.length < compNames.length) return showError('mix-error', 'Only ' + pts.length + ' usable blends for ' + compNames.length + ' components. A blending model needs at least as many blends as components.');
+    /* The totals should already be constant; if they are not, each row is still normalised
+       to its own total, which is the right thing to do but worth saying out loud. */
+    const totals = t.rows.map(row => ci.map(j => E.toNumber(row[j])).reduce((a, b) => a + (b || 0), 0)).filter(v => v > 0);
+    const spread = Math.max.apply(null, totals) - Math.min.apply(null, totals);
+    let res;
+    try { res = D.analyzeMixture(pts, y, compNames); } catch (e) { return showError('mix-error', e.message); }
+
+    const pure = res.coefs.filter(c => c.pure).slice().sort((a, b) => b.beta - a.beta);
+    const cross = res.coefs.filter(c => !c.pure).slice().sort((a, b) => Math.abs(b.beta) - Math.abs(a.beta));
+    const real = cross.filter(c => c.p !== null && c.p < 0.05);
+    // The best blend among those actually run: no extrapolating outside the tested region.
+    let best = 0;
+    for (let i = 1; i < pts.length; i++) if (y[i] > y[best]) best = i;
+
+    const pFmt = v => (v === null || !isFinite(v) ? '–' : v < 0.0001 ? '<0.0001' : v.toFixed(4));
+    const fx = v => (v === null || !isFinite(v) ? '–' : Number(v).toFixed(3));
+    const anyExtrap = res.anyExtrapolated;
+    const plain = (anyExtrap
+      ? 'The component coefficients rank the components, strongest first: ' + pure.map(c => c.label + ' ' + fx(c.beta)).join(', ') + '. Each one is the model\'s value for that component on its own — but your limits mean no such blend was run, or could be, so treat them as a ranking rather than as predictions. '
+      : 'Read the component coefficients as the response from that component on its own: ' +
+        pure.slice(0, 2).map(c => c.label + ' at ' + fx(c.beta)).join(' is the strongest, ') + ', and the weakest is ' + pure[pure.length - 1].label + ' at ' + fx(pure[pure.length - 1].beta) + '. ') +
+      (res.quadratic
+        ? (real.length
+          ? 'The blend terms matter here: ' + real.slice(0, 2).map(c => c.label + ' is ' + (c.beta > 0 ? 'positive (' + fx(c.beta) + '), so that pair does better together than the average of the two apart' : 'negative (' + fx(c.beta) + '), so that pair works against each other')).join(', and ') + '. That is exactly the kind of effect a factorial design on these components could not have found.'
+          : 'None of the blend terms reach significance, so on this evidence the components simply add up: the best formulation is the best components in the largest allowed amounts, with no synergy to exploit.')
+        : (res.singular
+          ? 'Only a straight additive model could be fitted. There are enough blends here for a curved one (' + res.n + ' blends for ' + res.termsWanted + ' terms) but they do not sit in enough different places to support it — corners alone cannot show curvature. Add the edge midpoints and the centre of the region and it becomes estimable.'
+          : 'Only a straight additive model could be fitted from these ' + res.n + ' blends; a curved one needs at least ' + res.termsWanted + '. So no synergy or antagonism can be assessed either way.'));
+
+    $('mix-out').innerHTML = '<div class="card mix-result"><h4>Blending model (Scheff&eacute;)</h4>' +
+      '<div class="plain ' + (real.length ? 'marginal' : 'capable') + '"><h4>In plain English</h4><p>' + h(plain) + '</p></div>' +
+      '<p class="sub-head">' + res.n + ' blends, ' + res.q + ' components, ' + (res.quadratic ? 'quadratic' : 'linear') + ' model' +
+      (res.r2 === null ? '' : ', R&sup2; ' + (res.r2 * 100).toFixed(1) + '%') + (res.rmse === null ? '' : ', typical miss ' + fx(res.rmse)) + '.</p>' +
+      '<div class="table-scroll"><table><thead><tr><th>Term</th><th class="num-cell">Coefficient</th><th class="num-cell">Std error</th><th class="num-cell">p</th><th>Reading</th></tr></thead><tbody>' +
+      res.coefs.map(c => '<tr><td>' + h(c.label) + '</td><td class="num-cell">' + fx(c.beta) + '</td><td class="num-cell">' + fx(c.se) + '</td><td class="num-cell">' + pFmt(c.p) + '</td><td>' +
+        (c.pure ? (c.extrapolated ? h(c.label) + ' alone — <b>not a blend you ran</b> (highest tested ' + (c.maxObserved * 100).toFixed(0) + '%)' : 'response from ' + h(c.label) + ' alone')
+          : c.p !== null && c.p < 0.05 ? (c.beta > 0 ? '<span class="verdict capable">synergy</span>' : '<span class="verdict not">antagonism</span>')
+            : '<span class="verdict marginal">not shown</span>') + '</td></tr>').join('') +
+      '</tbody></table></div>' +
+      '<p class="hint">There is no intercept, and that is correct rather than an omission: the components always add to the same total, so a constant term cannot be told apart from the components themselves.</p>' +
+      '<h4>Best blend among those actually run</h4><p>' + compNames.map((c, j) => h(c) + ' ' + (pts[best][j] * 100).toFixed(1) + '%').join(', ') + ' &rarr; ' + h(respName) + ' ' + fx(y[best]) + '.</p>' +
+      '<ul class="insights">' +
+      '<li class="info">This is the best of the blends you ran, not a predicted optimum. Searching the model for a better blend is worth doing, but it only means something inside the region you actually tested.</li>' +
+      (anyExtrap ? '<li class="warn">Your components have minimums and maximums, so a pure-component blend was never formulable. The pure coefficients above are the model extrapolated to a corner of the triangle that no run came near — useful for ranking the components, not as a number to quote.</li>' : '') +
+      (res.singular ? '<li class="warn">A curved blending model could not be fitted from these blends even though there are enough of them: they sit on too few distinct faces of the region. Adding the edge midpoints and the centre would let synergy be assessed.</li>' : '') +
+      (res.df < 3 ? '<li class="warn">Only ' + res.df + ' degree' + (res.df === 1 ? '' : 's') + ' of freedom left after fitting, so the standard errors above are barely estimated. Treat the p-values as indicative.</li>' : '') +
+      (spread > 1e-6 ? '<li class="warn">The component totals are not constant across rows (they vary by ' + fx(spread) + '), so each blend was converted to proportions of its own total. If that was not intended, check the run sheet.</li>' : '') +
+      (dropped ? '<li class="info">' + dropped + ' row' + (dropped === 1 ? '' : 's') + ' skipped for missing numbers.</li>' : '') +
+      '<li class="info">Response taken as "' + h(respName) + '" (the last numeric column); components taken as ' + compNames.map(h).join(', ') + '. Reorder the columns if that is not what you meant.</li>' +
+      '</ul></div>';
+  }
+
   function prefillDOE(rep) {
     const rec = rep.doeRecommendation;
     state.factors = rec.factors.map(f => ({ name: f.name, low: f.low, high: f.high }));
@@ -1397,7 +1523,11 @@
       if (state.factors.length >= 19) return showError('doe-error', 'Up to 19 factors are supported.');
       state.factors.push({ name: 'Factor ' + (state.factors.length + 1), low: -1, high: 1 }); renderFactors();
     });
-    $('design-type').addEventListener('change', designPurpose);
+    // Switching to or from a mixture changes what the two level columns even mean, so the
+    // table is relabelled rather than left saying "low level" about a proportion.
+    $('design-type').addEventListener('change', () => { designPurpose(); renderFactors(); });
+    $('mix-fit').addEventListener('click', fitMixture);
+    $('mix-example').addEventListener('click', () => { $('mix-data').value = mixtureExample(); fitMixture(); });
     $('generate').addEventListener('click', () => generateDesign());
   }
   init();

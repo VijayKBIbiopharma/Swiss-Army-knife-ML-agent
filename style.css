@@ -551,6 +551,11 @@ details.advanced > summary { cursor: pointer; font-size: .88rem; font-weight: 60
 .share-chart .on-bar { fill: #fff; }
 .vc-result h4 { margin: 18px 0 6px; }
 .tl-result h4 { margin: 18px 0 6px; }
+.share-note { display: block; font-size: 11px; color: var(--muted); }
+.mix-result { margin-top: 14px; }
+.chart .simplex { fill: none; stroke: var(--line); stroke-width: 1.5; }
+#mix-data, #mix-analyse textarea { width: 100%; }
+#mix-analyse { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
 #tl-data { width: 100%; }
 .tol-chart .ci { stroke-width: 7; stroke-linecap: butt; }
 .tol-chart .ci.ok { stroke: var(--good); } .tol-chart .ci.bad { stroke: var(--bad); } .tol-chart .ci.warn { stroke: var(--warn); }

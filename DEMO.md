@@ -121,6 +121,14 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Note the tolerance factor on four batches: **8.2**, against the 3 everyone writes down. *"That is why specifications set on three batches get broken."*
 - Switch to **Work out how many results a study needs**, leave it on equivalence, and press the button: 9 per method. Then set the expected difference to 1.5 against the same ±2 margin and re-run &mdash; the number climbs steeply. *"An optimistic guess about bias is how a transfer study ends up half the size it needed to be."*
 
+## 4i. A screen you can act on, and a formulation (3 minutes)
+- Open the **DOE builder**, delete the categorical **Catalyst** factor, add three more, and pick **Definitive screening design**: 5 factors in **13 runs**.
+- The talking point: *"A Plackett-Burman screen of this size confounds main effects with interactions &mdash; if an interaction is real, you can end up changing the wrong setting. This one doesn't, and it also runs every factor at mid-level, so it can tell us the optimum is inside the range."*
+- The Academy lesson **Definitive screening** makes this visual: drag the factor count and watch the confounding bar sit at zero for the DSD and well above it for Plackett-Burman.
+- Now switch the design to **Mixture: extreme vertices (with limits)**. Watch the table relabel itself: **Component / Minimum % / Maximum %**. Enter Buffer 40&ndash;70, Sugar 5&ndash;30, Surfactant 0&ndash;10, Water 10&ndash;40 and generate.
+- Every run sums to exactly 100, and each cell shows both the amount and the share. *"A formulation has no dials. You cannot add buffer without everything else becoming a smaller share, which is why a factorial design cannot be used here at all."*
+- Press **Load a worked example** underneath and fit the blending model: it finds **Buffer &times; Sugar synergy** and **Buffer &times; Surfactant antagonism**, and flags that the pure-component coefficients are extrapolations because those blends were never formulable. *"It tells us what it does not know. That is the part I trust."*
+
 ## 5. Finding groups with no target: penguins (1 minute)
 - Drag `penguins.csv`, choose **Nothing: find groups and patterns**, run.
 - Show the groups chart and profiles: one group is entirely Gentoo penguins on Biscoe island. The agent found the species without being told.

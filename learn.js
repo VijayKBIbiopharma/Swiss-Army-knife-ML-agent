@@ -891,6 +891,101 @@
   });
 
   add({
+    id: 'definitive-screening', group: 'Design of experiments', title: 'Definitive screening: a screen you can actually act on',
+    analogy: 'A Plackett-Burman screen is an identity parade where two suspects are handcuffed together. Whatever the witness points at, you cannot tell which of the pair did it — and worse, an innocent one can be convicted because his partner was guilty. A definitive screening design un-cuffs them: every main effect stands on its own, separate from every pair.',
+    intro: 'Screening designs buy cheapness by confounding: a main effect and some two-factor interaction share a column, so a big reading could be either. Usually you shrug and assume interactions are small. Jones and Nachtsheim showed in 2011 that you no longer have to. For about the same number of runs, a definitive screening design keeps every main effect clear of every two-factor interaction, and runs each factor at its middle setting too, so curvature is visible instead of invisible. Drag the factor count and watch what each design actually confounds.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-controls">' + slider('k', 'Factors to screen', 5, 12, 1, 8) + '</div><div data-role="bars"></div><div data-role="plot"></div><p class="demo-read" data-role="read"></p>';
+      const worstAlias = runs => {
+        // Largest correlation between any main effect column and any two-factor interaction.
+        const k = runs[0].length;
+        let worst = 0;
+        const norm = v => Math.sqrt(v.reduce((s, x) => s + x * x, 0));
+        for (let a = 0; a < k; a++) for (let i = 0; i < k; i++) for (let j = i + 1; j < k; j++) {
+          if (a === i || a === j) continue;
+          const m = runs.map(r => r[a]), x = runs.map(r => r[i] * r[j]);
+          const dot = m.reduce((s, v, t) => s + v * x[t], 0);
+          const den = norm(m) * norm(x);
+          if (den > 1e-12) worst = Math.max(worst, Math.abs(dot / den));
+        }
+        return worst;
+      };
+      const draw = () => {
+        const k = Number(q(el, 'k').value);
+        setOut(el, 'k', k);
+        const pb = D.plackettBurman(k);
+        const dsd = D.definitiveScreening(k);
+        const rows = [
+          { label: 'Plackett-Burman', runs: pb.length, worst: worstAlias(pb), curv: false },
+          { label: 'Definitive screening', runs: dsd.runs.length, worst: worstAlias(dsd.runs), curv: true }
+        ];
+        if (k <= 8) { const f = D.fractional(k, k - 4); rows.unshift({ label: 'Fractional (res IV)', runs: f.runs.length, worst: worstAlias(f.runs), curv: false }); }
+        C.hbar(q(el, 'bars'), rows.map(r => ({
+          label: r.label, value: r.worst, text: r.worst < 1e-9 ? 'none' : r.worst.toFixed(2),
+          cls: r.worst < 1e-9 ? 'hi' : ''
+        })), { min: 0, max: 1, label: 'Worst confusion between a main effect and a two-factor interaction (0 is clean)' });
+        C.hbar(q(el, 'plot'), rows.map(r => ({ label: r.label, value: r.runs, text: r.runs + ' runs' })), { min: 0, max: Math.max.apply(null, rows.map(r => r.runs)) * 1.15, label: 'Runs required' });
+        const d = rows.find(r => r.curv), p = rows.find(r => r.label === 'Plackett-Burman');
+        q(el, 'read').innerHTML = 'With <b>' + k + '</b> factors, the definitive screening design needs <b>' + d.runs + '</b> runs against Plackett-Burman’s <b>' + p.runs + '</b> — and its main effects are <b>completely clean</b> of two-factor interactions, where Plackett-Burman’s are confounded at up to <b>' + p.worst.toFixed(2) + '</b>.' +
+          '<br>A correlation of ' + p.worst.toFixed(2) + ' means that column is partly measuring an interaction rather than the factor you named. If the interaction is real and you act on the main effect, you change the wrong setting.' +
+          '<br>The definitive design also runs every factor at its midpoint, so it can tell you the best setting is <i>inside</i> your range. A two-level screen is blind to that by construction: with only the ends measured, every factor looks like a straight line.';
+      };
+      q(el, 'k').oninput = draw; draw();
+    },
+    steps: ['Build a conference matrix: zero on the diagonal, plus or minus one elsewhere, columns at right angles.', 'Stack it with its own mirror image (every sign flipped). That foldover is what makes main effects immune to two-factor interactions.', 'Add one run at the centre of everything. Runs needed: about twice the number of factors, plus one.', 'Analyse main effects first, then look for curvature, then treat any interaction as a lead rather than a finding.'],
+    when: 'Screening four or more factors when you suspect interactions or an optimum inside the range — which in process development is most of the time.',
+    watch: 'Two-factor interactions are clean of main effects but not fully separable from each other, so a large interaction tells you to run a follow-up, not what to change. The design needs numeric factors, since it uses three levels of each. And it is a screen: a response-surface design is still the right tool once you know which few factors matter.',
+    where: 'Pick "Definitive screening design" in the DOE builder. The agent proposes it automatically for more than eight factors.',
+    quiz: { q: 'A Plackett-Burman screen on 8 factors flags factor D as large. What can you conclude?', options: ['D matters and should be changed', 'D matters, or some two-factor interaction confounded with D matters, and you cannot tell which', 'D does not matter'], answer: 1, why: 'In a Plackett-Burman design each main effect column is partly correlated with two-factor interactions. A large reading on D could be D, or an interaction that happens to share that column. A definitive screening design removes this ambiguity for the same sort of run count.' }
+  });
+
+  add({
+    id: 'mixture-designs', group: 'Design of experiments', title: 'Mixture designs: when the factors have to add up',
+    analogy: 'A recipe, not a control panel. On a control panel you can turn the temperature dial without touching anything else. In a recipe you cannot add more flour without every other ingredient becoming a smaller share of the loaf. The usual experimental designs assume dials. A formulation has no dials, and that single fact changes both the design and the model.',
+    intro: 'Buffer, sugar, surfactant and water make up one formulation, so their percentages always sum to 100. Try a factorial design on them and you ask for runs that do not exist; try the usual regression and the arithmetic fails outright, because with a fixed sum the intercept cannot be told apart from the components. The space of possible blends is a triangle (for three components) and the designs live inside it. Drag the limits below and watch the formulable region shrink.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-controls">' + slider('minA', 'Minimum of A (%)', 0, 50, 5, 20) + slider('maxC', 'Maximum of C (%)', 10, 100, 5, 40) + '</div><div class="demo-grid"><div><h4>Even lattice across everything</h4><div data-role="lat"></div></div><div><h4>Corners of what is actually formulable</h4><div data-role="ev"></div></div></div><p class="demo-read" data-role="read"></p>';
+      // Barycentric coordinates: a triangle is the honest picture of a three-part blend.
+      const tri = (role, pts, label) => {
+        const W = 300, H = 268, pad = 34;
+        const sx = (a, b, c) => pad + (b + c / 2) * (W - 2 * pad);
+        const sy = (a, b, c) => H - pad - c * Math.sqrt(3) / 2 * (W - 2 * pad);
+        let s = '';
+        const corners = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        s += '<path class="simplex" d="' + corners.map((p, i) => (i ? 'L' : 'M') + sx.apply(null, p).toFixed(1) + ' ' + sy.apply(null, p).toFixed(1)).join('') + 'Z"/>';
+        ['A', 'B', 'C'].forEach((n, i) => {
+          const p = corners[i];
+          s += '<text class="lbl-strong" x="' + sx.apply(null, p) + '" y="' + (sy.apply(null, p) + (i === 2 ? -10 : 18)) + '" text-anchor="middle">' + n + '</text>';
+        });
+        pts.forEach(p => { s += dot(sx.apply(null, p), sy.apply(null, p), 'c1', 5, 'A ' + Math.round(p[0] * 100) + '%, B ' + Math.round(p[1] * 100) + '%, C ' + Math.round(p[2] * 100) + '%'); });
+        q(el, role).innerHTML = svg(W, H, label, s) + '<p class="hint">' + pts.length + ' blends</p>';
+      };
+      const draw = () => {
+        const minA = Number(q(el, 'minA').value) / 100, maxC = Number(q(el, 'maxC').value) / 100;
+        setOut(el, 'minA', (minA * 100).toFixed(0)); setOut(el, 'maxC', (maxC * 100).toFixed(0));
+        tri('lat', D.simplexLattice(3, 3), 'Simplex lattice across the whole triangle');
+        let ev = null, msg = '';
+        try { ev = D.extremeVertices([minA, 0, 0], [1, 1, maxC], { centroid: true }); }
+        catch (e) { msg = e.message; }
+        if (ev) tri('ev', ev.points, 'Extreme vertices of the bounded region');
+        else q(el, 'ev').innerHTML = '<p class="hint">' + h(msg) + '</p>';
+        const outside = D.simplexLattice(3, 3).filter(p => p[0] < minA - 1e-9 || p[2] > maxC + 1e-9).length;
+        q(el, 'read').innerHTML = 'Every point in both pictures is a blend adding to 100%. ' +
+          (ev ? 'With A held at <b>' + (minA * 100).toFixed(0) + '%</b> or more and C capped at <b>' + (maxC * 100).toFixed(0) + '%</b>, the formulable region has <b>' + ev.vertices + ' corners</b>, and those corners are where the information is.' : h(msg)) +
+          '<br><b>' + outside + ' of the 10</b> even-lattice blends on the left break those limits — they are not formulations anyone could make. That is why a bounded formulation needs the extreme-vertices layout rather than a tidy lattice.' +
+          '<br>Notice what is missing from both pictures: a centre point in the factorial sense. There is no "all factors at mid-level" blend to return to, because the components are not free to move independently.';
+      };
+      ['minA', 'maxC'].forEach(k => { q(el, k).oninput = draw; });
+      draw();
+    },
+    steps: ['List the components and the realistic minimum and maximum percentage of each.', 'Pick the layout: a lattice or centroid design if anything goes, extreme vertices if the components have real limits.', 'Run the blends and measure the response.', 'Fit a Scheffé model, which has no intercept. Each component’s coefficient is the response from that component alone; a cross term says whether a pair beats the straight average of the two.'],
+    when: 'Formulation and buffer development, excipient screening, media and feed composition, anything where the answer is a recipe rather than a set of machine settings.',
+    watch: 'The ordinary factorial analysis is not merely inaccurate here, it is undefined: with the components summing to a constant the design matrix is singular and an intercept cannot exist. Also, a model fitted inside the formulable region says nothing outside it, and with tight limits that region can be small — so resist reading the coefficients as if a pure component had been tested when it never was.',
+    where: 'Pick one of the three "Mixture" designs in the DOE builder; paste the finished run sheet back in underneath to fit the blending model.',
+    quiz: { q: 'Why does a mixture model have no intercept?', options: ['Because the response is always positive', 'Because the components sum to a constant, so a constant term cannot be distinguished from the components themselves', 'Because mixture designs have no centre point'], answer: 1, why: 'With x1 + x2 + ... + xq = 1, the column of ones is exactly the sum of the component columns. An intercept would be perfectly collinear with them, so it cannot be estimated — and it is not needed: each component coefficient already carries the level of the response.' }
+  });
+
+  add({
     id: 'curvature', group: 'Design of experiments', title: 'Center points and curvature',
     analogy: 'Measuring a bridge only at both ends tells you nothing about whether it sags in the middle.',
     intro: 'A 2-level design only sees the ends of each factor\'s range, so it assumes straight lines between them. Center points measure the middle. If the middle result differs from what the straight line predicts, the response curves, and the optimum may lie inside the range.',

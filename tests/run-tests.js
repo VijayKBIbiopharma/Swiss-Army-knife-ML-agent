@@ -1629,3 +1629,147 @@ test('TOST power is exact at the boundary, which pins the whole calculation', ()
   assert.ok(TOL.powerTost({ n: need.n, margin: 1, diff: 0.2, sd: 1 }).power >= 0.8);
   assert.ok(TOL.powerTost({ n: need.n - 1, margin: 1, diff: 0.2, sd: 1 }).power < 0.8, 'the answer must be the smallest n that works');
 });
+
+test('conference matrices satisfy their defining property, or are not offered', () => {
+  /* A DSD built from a bad conference matrix would look plausible and be worthless, so the
+     property is checked here as well as inside the constructor. */
+  for (const n of [4, 6, 8, 10, 12, 14, 18, 20]) {
+    const C = D.conferenceMatrix(n);
+    assert.ok(C, 'no conference matrix of order ' + n);
+    assert.strictEqual(C.length, n);
+    for (let i = 0; i < n; i++) {
+      assert.strictEqual(C[i][i], 0, 'diagonal must be zero');
+      for (let j = 0; j < n; j++) {
+        if (i !== j) assert.strictEqual(Math.abs(C[i][j]), 1, 'off-diagonal must be +/-1');
+        let dot = 0;
+        for (let r = 0; r < n; r++) dot += C[r][i] * C[r][j];
+        assert.strictEqual(dot, i === j ? n - 1 : 0, 'C^T C must be (n-1)I at ' + i + ',' + j);
+      }
+    }
+  }
+  // An order with no construction available must return null rather than something wrong.
+  assert.strictEqual(D.conferenceMatrix(16), null, 'order 16 has no Paley construction here');
+  assert.strictEqual(D.conferenceMatrix(7), null, 'odd orders are not conference matrices');
+});
+
+test('definitive screening designs deliver the properties they are chosen for', () => {
+  for (let k = 3; k <= 14; k++) {
+    const d = D.definitiveScreening(k);
+    assert.ok(d, 'no DSD for ' + k + ' factors');
+    const R = d.runs;
+    // Run count: 2k+1 for an even number of factors, two more when a column is dropped.
+    assert.strictEqual(R.length, k % 2 === 0 ? 2 * k + 1 : 2 * k + 3, k + ' factors');
+    assert.ok(R.every(r => r.length === k && r.every(v => v === -1 || v === 0 || v === 1)), 'three levels only');
+    for (let j = 0; j < k; j++) {
+      assert.strictEqual(R.reduce((s, r) => s + r[j], 0), 0, 'column ' + j + ' must be balanced');
+      // Each factor sits at its middle setting three times: twice from the foldover, once at the centre.
+      assert.strictEqual(R.filter(r => r[j] === 0).length, 3, 'column ' + j + ' mid-level count');
+      // Main effects orthogonal to each other.
+      for (let m = j + 1; m < k; m++) assert.strictEqual(R.reduce((s, r) => s + r[j] * r[m], 0), 0, 'main effects ' + j + ',' + m);
+    }
+    /* The property that makes a DSD worth choosing over a Plackett-Burman screen: no main
+       effect is correlated with any two-factor interaction at all. */
+    for (let a = 0; a < k; a++) for (let i = 0; i < k; i++) for (let j = i + 1; j < k; j++) {
+      if (a === i || a === j) continue;
+      assert.strictEqual(R.reduce((s, r) => s + r[a] * r[i] * r[j], 0), 0, 'main effect ' + a + ' vs interaction ' + i + 'x' + j);
+    }
+    // Curvature must be estimable: intercept, main effects and all pure quadratics, full rank.
+    const X = R.map(r => [1].concat(r, r.map(v => v * v)));
+    assert.ok(E.invert(E.gram(X)), 'quadratic effects must be estimable at k=' + k);
+  }
+  // A Plackett-Burman screen of similar size does NOT have the alias property, which is the
+  // whole reason the DSD exists. Confirm the contrast rather than asserting it in prose.
+  const pb = D.plackettBurman(8);
+  let worst = 0;
+  for (let a = 0; a < 8; a++) for (let i = 0; i < 8; i++) for (let j = i + 1; j < 8; j++) {
+    if (a === i || a === j) continue;
+    worst = Math.max(worst, Math.abs(pb.reduce((s, r) => s + r[a] * r[i] * r[j], 0)));
+  }
+  assert.ok(worst > 0, 'a Plackett-Burman screen should confound main effects with interactions');
+
+  const g = D.generate(['A', 'B', 'C', 'D', 'E'].map(n => ({ name: n, low: 10, high: 20 })), { type: 'dsd', randomize: false });
+  assert.strictEqual(g.runs.length, 13);
+  assert.ok(g.runs.every(r => r.actual.every(v => v === 10 || v === 15 || v === 20)), 'levels decode to low, middle and high');
+  assert.throws(() => D.generate([{ name: 'A', low: 1, high: 2 }, { name: 'S', low: 'x', high: 'y', categorical: true }, { name: 'C', low: 1, high: 2 }], { type: 'dsd' }), /numeric/i);
+  assert.strictEqual(D.recommend(10).type, 'dsd', 'a DSD should be preferred over a Plackett-Burman screen at 10 factors');
+});
+
+test('mixture designs produce real blends that add up', () => {
+  const choose = (n, r) => { let v = 1; for (let i = 0; i < r; i++) v = v * (n - i) / (i + 1); return Math.round(v); };
+  for (const [q, deg] of [[3, 2], [3, 3], [4, 2], [5, 2], [4, 4]]) {
+    const pts = D.simplexLattice(q, deg);
+    assert.strictEqual(pts.length, choose(q + deg - 1, deg), 'lattice {' + q + ',' + deg + '} size');
+    assert.ok(pts.every(p => Math.abs(p.reduce((a, b) => a + b, 0) - 1) < 1e-12), 'every blend must add to one');
+    assert.ok(pts.every(p => p.every(v => v >= 0)), 'no negative amounts');
+  }
+  for (const q of [3, 4, 5]) {
+    const pts = D.simplexCentroid(q);
+    assert.strictEqual(pts.length, (1 << q) - 1);
+    assert.ok(pts.every(p => Math.abs(p.reduce((a, b) => a + b, 0) - 1) < 1e-12));
+    assert.strictEqual(pts.filter(p => p.filter(v => v > 0).length === 1).length, q, 'every pure component is included');
+  }
+  /* Bounded components: the corners of the feasible polytope. With these limits the region
+     is a hexagon, so six corners plus the centroid. */
+  const ev = D.extremeVertices([0.2, 0.1, 0], [0.6, 0.5, 0.4], { centroid: true });
+  assert.strictEqual(ev.vertices, 6);
+  assert.strictEqual(ev.points.length, 7);
+  assert.ok(ev.points.every(p => Math.abs(p.reduce((a, b) => a + b, 0) - 1) < 1e-9), 'bounded blends must still add to one');
+  assert.ok(ev.points.every(p => p.every((v, i) => v >= [0.2, 0.1, 0][i] - 1e-7 && v <= [0.6, 0.5, 0.4][i] + 1e-7)), 'every blend must respect its limits');
+  // Impossible limits are refused with a reason, in both directions.
+  assert.throws(() => D.extremeVertices([0.5, 0.5, 0.3], [0.9, 0.9, 0.9]), /more than the whole blend/i);
+  assert.throws(() => D.extremeVertices([0, 0, 0], [0.2, 0.2, 0.2]), /cannot fill the blend/i);
+
+  // Through generate: amounts must sum to the batch total exactly, after rounding.
+  const comps = [{ name: 'Buffer', low: 40, high: 70 }, { name: 'Sugar', low: 5, high: 30 }, { name: 'Surf', low: 0, high: 10 }, { name: 'Water', low: 10, high: 40 }];
+  for (const total of [100, 250, 12.5]) {
+    const m = D.generate(comps, { type: 'mixVertices', randomize: false, total });
+    assert.ok(m.mixture && m.runs.length > 4);
+    for (const r of m.runs) {
+      assert.ok(Math.abs(r.actual.reduce((a, b) => a + b, 0) - total) < 1e-9, 'run must weigh out to ' + total + ', got ' + r.actual.reduce((a, b) => a + b, 0));
+      assert.ok(Math.abs(r.proportions.reduce((a, b) => a + b, 0) - 1) < 1e-9);
+    }
+  }
+  // A lattice cannot honour bounds, so asking for one with bounds must say so, not silently
+  // hand back blends nobody can make.
+  assert.throws(() => D.generate([{ name: 'A', low: 20, high: 60 }, { name: 'B', low: 10, high: 50 }, { name: 'C', low: 0, high: 40 }], { type: 'mixLattice' }), /extreme vertices/i);
+  assert.throws(() => D.generate([{ name: 'A', low: 0, high: 100 }, { name: 'S', low: 'x', high: 'y', categorical: true }], { type: 'mixCentroid' }), /proportion/i);
+});
+
+test('the Scheffe blending model recovers a known formulation', () => {
+  /* Pure-component responses 10, 4, 7 with a strong synergy between the first two and an
+     antagonism between the first and third. */
+  const truth = p => 10 * p[0] + 4 * p[1] + 7 * p[2] + 12 * p[0] * p[1] - 6 * p[0] * p[2];
+  const pts = D.simplexLattice(3, 3).concat(D.simplexCentroid(3));
+  const names = ['A', 'B', 'C'];
+  const exact = D.analyzeMixture(pts, pts.map(truth), names);
+  assert.ok(exact.quadratic, 'these blends support the quadratic model');
+  assert.ok(exact.r2 > 0.999999, 'a noiseless fit must be exact: R2 ' + exact.r2);
+  const want = { A: 10, B: 4, C: 7, 'A x B': 12, 'A x C': -6, 'B x C': 0 };
+  for (const c of exact.coefs) assert.ok(Math.abs(c.beta - want[c.label]) < 1e-8, c.label + ' = ' + c.beta);
+  /* The interpretive property that makes this form worth using: a pure-component
+     coefficient IS the predicted response for that component on its own. */
+  for (let i = 0; i < 3; i++) {
+    const pure = [0, 0, 0]; pure[i] = 1;
+    assert.ok(Math.abs(exact.predict(pure) - truth(pure)) < 1e-8);
+    assert.ok(Math.abs(exact.coefs[i].beta - truth(pure)) < 1e-8, 'pure coefficient equals pure response');
+  }
+  // Unbiased under noise.
+  const rand = E.rng(606);
+  const norm = () => { const u = Math.max(1e-12, rand()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rand()); };
+  const acc = {}; const REPS = 120;
+  for (let r = 0; r < REPS; r++) {
+    const m = D.analyzeMixture(pts, pts.map(p => truth(p) + norm() * 0.4), names);
+    m.coefs.forEach(c => { acc[c.label] = (acc[c.label] || 0) + c.beta / REPS; });
+  }
+  for (const k of Object.keys(want)) assert.ok(Math.abs(acc[k] - want[k]) < 0.35, k + ' recovered as ' + acc[k].toFixed(4) + ', truth ' + want[k]);
+  // A genuinely additive blend must not be given spurious synergy.
+  const lin = D.analyzeMixture(pts, pts.map(p => 5 * p[0] + 9 * p[1] + 2 * p[2] + norm() * 0.02), names);
+  assert.ok(lin.coefs.filter(c => !c.pure).every(c => c.p > 0.05), 'no cross term should be significant on an additive blend');
+  // Too few blends falls back to the additive model instead of failing.
+  const thin = D.analyzeMixture([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [10, 4, 7], names);
+  assert.strictEqual(thin.quadratic, false);
+  assert.ok(thin.coefs.every((c, i) => Math.abs(c.beta - [10, 4, 7][i]) < 1e-9));
+  // A flat response puts the same value on every component, with no intercept to absorb it.
+  const flat = D.analyzeMixture(pts, pts.map(() => 7), names);
+  assert.ok(flat.coefs.filter(c => c.pure).every(c => Math.abs(c.beta - 7) < 1e-9), 'with no intercept the level lives in the component coefficients');
+});
