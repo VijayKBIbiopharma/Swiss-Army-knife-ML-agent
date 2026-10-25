@@ -13,6 +13,7 @@ const D = require(path.join(ROOT, 'doe.js'));
 const A = require(path.join(ROOT, 'agent.js'));
 const S = require(path.join(ROOT, 'samples.js'));
 const SPC = require(path.join(ROOT, 'spc.js'));
+const VC = require(path.join(ROOT, 'variance.js'));
 
 test('CSV parser handles quotes, BOM, tabs and blank lines', () => {
   const t = E.parseCSV('﻿Name,Note,Value\r\n"Smith, J","said ""hi""",3\n\nLee,,4\n');
@@ -557,6 +558,43 @@ test('audit package: SHA-256, zip and xlsx structure, audit trail content', asyn
   const text = Buffer.from(book).toString('latin1');
   for (const part of ['[Content_Types].xml', 'xl/workbook.xml', 'xl/styles.xml', 'xl/worksheets/sheet' + sh.length + '.xml']) assert.ok(text.includes(part), part);
   assert.ok(text.includes('<sheet name="Audit trail"'));
+
+  /* A variance or Gage R&R run must reach the audit trail and the workbook too, or a study
+     that drove a decision leaves no record in the package that documents the decision. */
+  const vcRows = [];
+  [[1, 2, 3], [4, 5, 6], [7, 8, 9]].forEach((v, i) => v.forEach(x => vcRows.push({ group: 'G' + i, value: x })));
+  const tk = VC.tukey(vcRows, 0.05);
+  const vcCtx = Object.assign({}, ctx, { variance: {
+    kind: 'components', when: '2026-01-02T00:00:00.000Z', columns: { group: 'Resin_Lot', value: 'Yield' },
+    groups: tk.a, N: tk.N, balanced: tk.balanced, n0: tk.n0, between: tk.between, within: tk.within,
+    total: tk.total, sdTotal: tk.sdTotal, icc: tk.icc, negative: tk.negative, p: tk.p,
+    significant: tk.significant, alpha: tk.alpha, qCrit: tk.qCrit, anova: tk.anova,
+    components: tk.components, groupStats: tk.groups, pairs: tk.pairs, differing: tk.pairs.filter(x => x.different).length } });
+  const vcTxt = AU.trailText(AU.trail(rep, vcCtx));
+  for (const want of ['Variance components', 'Resin_Lot', 'Pairwise comparisons', 'Tukey']) assert.ok(vcTxt.includes(want), 'variance trail mentions ' + want);
+  const vcSheet = AU.sheets(rep, vcCtx).find(x => x.name === 'Variance components');
+  assert.ok(vcSheet, 'a variance run must get its own sheet');
+  assert.ok(vcSheet.rows.some(r => r[0] === 'Between-group variance'));
+  assert.ok(vcSheet.rows.some(r => r[0] === 'Pair A'), 'the pairwise comparisons must be in the workbook');
+
+  const grrRows = [];
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) for (let k = 0; k < 2; k++)
+    grrRows.push({ part: 'P' + i, operator: 'O' + j, value: 10 + i + j * 0.1 + k * 0.05 });
+  const gg = VC.gageRR(grrRows, { lsl: 8, usl: 16 });
+  const grrCtx = Object.assign({}, ctx, { variance: {
+    kind: 'grr', when: '2026-01-02T00:00:00.000Z', columns: { part: 'Sample', operator: 'Analyst', value: 'Result' },
+    parts: gg.parts.length, operators: gg.operators.length, reps: gg.reps, N: gg.N, model: gg.model,
+    pInteraction: gg.pInteraction, keepInteraction: gg.keepInteraction, anova: gg.anova, components: gg.components,
+    vRepeat: gg.vRepeat, vReprod: gg.vReprod, vGrr: gg.vGrr, vPart: gg.vPart, vTotal: gg.vTotal,
+    pctStudyGrr: gg.pctStudyGrr, pctTolerance: gg.pctTolerance, tolerance: gg.tolerance,
+    lsl: gg.lsl, usl: gg.usl, ndc: isFinite(gg.ndc) ? gg.ndc : null, verdict: gg.verdict, judgedOn: gg.judgedOn } });
+  const grrTxt = AU.trailText(AU.trail(rep, grrCtx));
+  for (const want of ['Measurement system analysis', 'Gage R&R verdict', 'Analyst']) assert.ok(grrTxt.includes(want), 'Gage R&R trail mentions ' + want);
+  const grrSheet = AU.sheets(rep, grrCtx).find(x => x.name === 'Measurement system');
+  assert.ok(grrSheet, 'a Gage R&R run must get its own sheet');
+  assert.ok(grrSheet.rows.some(r => r[0] === 'Verdict'));
+  // Both workbooks must still build, with the extra sheet in place.
+  for (const c of [vcCtx, grrCtx]) assert.strictEqual(new DataView(AU.xlsx(AU.sheets(rep, c), { title: 'T' }).buffer).getUint32(0, true), 0x04034b50);
 });
 
 const CD = require(path.join(ROOT, 'codon.js'));
@@ -1160,4 +1198,213 @@ test('golden batch: batches of different lengths can be aligned on percent', () 
   assert.strictEqual(byPct.gridHi, 100);
   assert.strictEqual(byPct.summary.find(s => s.name === 'F-do').verdict, 'alarm', 'the fault should still be caught on percent alignment');
   assert.ok(byPct.summary.filter(s => s.isRef && s.verdict === 'alarm').length <= 1, 'percent alignment should not start false-alarming on good batches');
+});
+
+
+/* The studentized range is the riskiest piece of numerical work here: there is no closed
+   form, and a wrong critical value silently turns Tukey into nonsense that still looks like
+   a table. Checked against published tables, plus the one case with an exact analytic
+   answer: with two groups, q = sqrt(2) x t. */
+test('the studentized range matches published tables', () => {
+  assert.ok(Math.abs(VC.qCritical(0.05, 2, 10) - Math.SQRT2 * E.tQuantile(0.025, 10)) < 1e-3, 'two groups must agree with sqrt(2) x t exactly');
+  const table = [[0.05, 2, 10, 3.151], [0.05, 3, 10, 3.88], [0.05, 4, 20, 3.958], [0.01, 3, 10, 5.27],
+    [0.05, 5, 15, 4.367], [0.05, 2, 5, 3.635], [0.05, 10, 30, 4.82], [0.01, 4, 12, 5.50], [0.05, 3, 1e6, 3.314]];
+  for (const [a, k, df, want] of table) {
+    const got = VC.qCritical(a, k, df);
+    assert.ok(Math.abs(got - want) < 0.02, 'q(' + a + ',' + k + ',' + df + ') = ' + got.toFixed(4) + ', table says ' + want);
+  }
+  // Monotone in the directions it must be: more groups needs a wider bar, more data a narrower one.
+  assert.ok(VC.qCritical(0.05, 5, 20) > VC.qCritical(0.05, 3, 20));
+  assert.ok(VC.qCritical(0.05, 3, 60) < VC.qCritical(0.05, 3, 6));
+  assert.ok(VC.qCritical(0.01, 3, 20) > VC.qCritical(0.05, 3, 20));
+});
+
+test('variance components split a hand-computable dataset exactly', () => {
+  // Three groups of three: means 2, 5, 8 with unit within-group variance.
+  const rows = [];
+  [[1, 2, 3], [4, 5, 6], [7, 8, 9]].forEach((v, i) => v.forEach(x => rows.push({ group: 'G' + i, value: x })));
+  const r = VC.oneWay(rows);
+  assert.strictEqual(r.anova[0].ss, 54);
+  assert.strictEqual(r.anova[0].ms, 27);
+  assert.strictEqual(r.anova[1].ms, 1);
+  assert.ok(Math.abs(r.between - 26 / 3) < 1e-12, 'between = (MSB - MSW)/n0 = 26/3');
+  assert.strictEqual(r.within, 1);
+  assert.ok(Math.abs(r.icc - (26 / 3) / (26 / 3 + 1)) < 1e-12);
+  assert.ok(r.balanced && r.n0 === 3);
+  // Tukey's critical value for 3 groups on 6 error df is 4.339 in the published table.
+  const t = VC.tukey(rows, 0.05);
+  assert.ok(Math.abs(t.qCrit - 4.339) < 0.01, t.qCrit);
+  assert.strictEqual(t.pairs.length, 3);
+  assert.ok(t.pairs.every(p => p.different), 'all three groups are 3 apart with unit noise');
+
+  // Unbalanced: n0 = (N - sum(ni^2)/N)/(a-1) = (9 - 29/9)/2.
+  const ub = [];
+  [[1, 2, 3, 4], [6, 8], [10, 12, 14]].forEach((v, i) => v.forEach(x => ub.push({ group: 'U' + i, value: x })));
+  const r2 = VC.oneWay(ub);
+  assert.ok(!r2.balanced);
+  assert.ok(Math.abs(r2.n0 - (9 - 29 / 9) / 2) < 1e-12, r2.n0);
+});
+
+test('variance components are unbiased, and a negative estimate is reported honestly', () => {
+  const rand = E.rng(404);
+  const norm = () => { const u = Math.max(1e-12, rand()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rand()); };
+  // True between-group variance 9, within 1. Averaged over replications the estimator must land on them.
+  let sb = 0, sw = 0; const REPS = 60;
+  for (let rep = 0; rep < REPS; rep++) {
+    const rows = [];
+    for (let g = 0; g < 40; g++) { const a = 3 * norm(); for (let j = 0; j < 8; j++) rows.push({ group: 'L' + g, value: 100 + a + norm() }); }
+    const r = VC.oneWay(rows); sb += r.between; sw += r.within;
+  }
+  assert.ok(Math.abs(sb / REPS - 9) < 0.5, 'between-group variance recovered as ' + (sb / REPS).toFixed(3) + ', truth 9');
+  assert.ok(Math.abs(sw / REPS - 1) < 0.1, 'within-group variance recovered as ' + (sw / REPS).toFixed(3) + ', truth 1');
+
+  // No real group effect at all: the estimate must clamp at zero and say so, not go negative.
+  let sawNegative = false;
+  for (let seed = 1; seed <= 40 && !sawNegative; seed++) {
+    const r2 = E.rng(seed * 13);
+    const n2 = () => { const u = Math.max(1e-12, r2()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r2()); };
+    const flat = [];
+    for (let g = 0; g < 5; g++) for (let j = 0; j < 8; j++) flat.push({ group: 'F' + g, value: n2() });
+    const r = VC.oneWay(flat);
+    assert.ok(r.between >= 0, 'a variance may never be reported negative');
+    if (r.negative) { sawNegative = true; assert.strictEqual(r.between, 0, 'a negative estimate is reported as zero'); }
+  }
+  assert.ok(sawNegative, 'with no group effect, some replicate should produce a negative raw estimate and be clamped');
+});
+
+test('variance components refuse what they cannot split, instead of guessing', () => {
+  assert.throws(() => VC.oneWay([{ group: 'A', value: 1 }]), /at least 2 groups/i);
+  // One value per group: within-group variation is unobservable.
+  assert.throws(() => VC.oneWay([{ group: 'A', value: 1 }, { group: 'B', value: 2 }]), /single value|repeats/i);
+  // Blanks are not zeros. A missing result must drop out, not be fitted as 0.
+  const r = VC.oneWay([{ group: 'A', value: 10 }, { group: 'A', value: '' }, { group: 'A', value: 12 },
+    { group: 'B', value: 20 }, { group: 'B', value: null }, { group: 'B', value: 22 }]);
+  assert.strictEqual(r.N, 4, 'blank and null results must be dropped, not read as zero');
+  assert.ok(r.grand > 15 && r.grand < 17, r.grand);
+});
+
+/* Gage R&R: the sums of squares are checked against a two-factor crossed ANOVA written
+   independently here, and the components against values injected into simulated studies. */
+test('Gage R&R matches an independently computed crossed ANOVA', () => {
+  const rand = E.rng(515);
+  const norm = () => { const u = Math.max(1e-12, rand()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rand()); };
+  const P = 10, O = 3, R = 3;
+  const pa = E.range(P).map(() => 2 * norm()), oa = E.range(O).map(() => 0.5 * norm()), ia = {};
+  for (let i = 0; i < P; i++) for (let j = 0; j < O; j++) ia[i + '|' + j] = 0.3 * norm();
+  const rows = [];
+  for (let i = 0; i < P; i++) for (let j = 0; j < O; j++) for (let k = 0; k < R; k++)
+    rows.push({ part: 'P' + i, operator: 'Op' + j, value: 10 + pa[i] + oa[j] + ia[i + '|' + j] + 0.4 * norm() });
+
+  const mean = v => v.reduce((a, b) => a + b, 0) / v.length;
+  const grand = mean(rows.map(x => x.value));
+  const pm = i => mean(rows.filter(x => x.part === 'P' + i).map(x => x.value));
+  const om = j => mean(rows.filter(x => x.operator === 'Op' + j).map(x => x.value));
+  const cm = (i, j) => mean(rows.filter(x => x.part === 'P' + i && x.operator === 'Op' + j).map(x => x.value));
+  let ssP = 0, ssO = 0, ssI = 0, ssE = 0;
+  for (let i = 0; i < P; i++) ssP += O * R * (pm(i) - grand) ** 2;
+  for (let j = 0; j < O; j++) ssO += P * R * (om(j) - grand) ** 2;
+  for (let i = 0; i < P; i++) for (let j = 0; j < O; j++) {
+    ssI += R * (cm(i, j) - pm(i) - om(j) + grand) ** 2;
+    rows.filter(x => x.part === 'P' + i && x.operator === 'Op' + j).forEach(x => { ssE += (x.value - cm(i, j)) ** 2; });
+  }
+  const g = VC.gageRR(rows, { lsl: 4, usl: 16 });
+  const near = (a, b, what) => assert.ok(Math.abs(a - b) < 1e-8, what + ': ' + a + ' vs ' + b);
+  near(g.anova[0].ss, ssP, 'part sum of squares');
+  near(g.anova[1].ss, ssO, 'operator sum of squares');
+  near(g.anova[2].ss, ssI, 'interaction sum of squares');
+  near(g.anova[3].ss, ssE, 'error sum of squares');
+  assert.deepStrictEqual([g.anova[0].df, g.anova[1].df, g.anova[2].df, g.anova[3].df], [9, 2, 18, 60]);
+  // %GRR against tolerance is 6 sigma over the spec window, by definition.
+  near(g.pctTolerance, 6 * Math.sqrt(g.vGrr) / 12 * 100, 'percent of tolerance');
+  // Distinct categories, as the AIAG formula defines it.
+  assert.strictEqual(g.ndc, Math.floor(1.41 * Math.sqrt(g.vPart) / Math.sqrt(g.vGrr)));
+  // Shares of variance add to one; percentages of spread do not, and must not be made to.
+  const shares = g.components[0].share + g.components[1].share + g.components[3].share;
+  assert.ok(Math.abs(shares - 1) < 1e-9, shares);
+});
+
+test('Gage R&R recovers injected components and pools an unsupported interaction', () => {
+  const rand = E.rng(808);
+  const norm = () => { const u = Math.max(1e-12, rand()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rand()); };
+  const study = (sP, sO, sI, sE) => {
+    const pa = E.range(10).map(() => sP * norm()), oa = E.range(3).map(() => sO * norm()), ia = {};
+    for (let i = 0; i < 10; i++) for (let j = 0; j < 3; j++) ia[i + '|' + j] = sI * norm();
+    const rows = [];
+    for (let i = 0; i < 10; i++) for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++)
+      rows.push({ part: 'P' + i, operator: 'Op' + j, value: 10 + pa[i] + oa[j] + ia[i + '|' + j] + sE * norm() });
+    return rows;
+  };
+  let acc = { vRepeat: 0, vInter: 0, vPart: 0 }; const REPS = 50;
+  for (let i = 0; i < REPS; i++) {
+    const r = VC.gageRR(study(2, 0.5, 0.3, 0.4), {});
+    acc.vRepeat += r.vRepeat; acc.vInter += r.vInter; acc.vPart += r.vPart;
+  }
+  assert.ok(Math.abs(acc.vRepeat / REPS - 0.16) < 0.02, 'repeatability ' + (acc.vRepeat / REPS).toFixed(4) + ', truth 0.16');
+  assert.ok(Math.abs(acc.vInter / REPS - 0.09) < 0.03, 'interaction ' + (acc.vInter / REPS).toFixed(4) + ', truth 0.09');
+  assert.ok(Math.abs(acc.vPart / REPS - 4) < 1, 'part to part ' + (acc.vPart / REPS).toFixed(3) + ', truth 4');
+
+  // No interaction injected: it should be pooled back into error rather than left to eat variation.
+  const none = VC.gageRR(study(2, 0.5, 0, 0.4), {});
+  assert.ok(!none.keepInteraction && none.vInter === 0, 'an unsupported interaction must be pooled: p ' + none.pInteraction);
+  assert.ok(/pooled/.test(none.model));
+  // A strong interaction must be kept, or its variation lands in the wrong place.
+  const strong = VC.gageRR(study(2, 0.5, 1.5, 0.4), {});
+  assert.ok(strong.keepInteraction && strong.vInter > 1, 'a real interaction must be kept: p ' + strong.pInteraction);
+
+  // The verdict must move with the instrument, and the thresholds must be the stated ones.
+  assert.strictEqual(VC.gageRR(study(2, 0.02, 0.01, 0.03), {}).verdict, 'acceptable');
+  assert.strictEqual(VC.gageRR(study(2, 3, 1, 3), {}).verdict, 'not acceptable');
+  /* The same instrument judged against a wide and a narrow specification: the %GRR of
+     tolerance must scale exactly with the window, since nothing about the method changed.
+     This is the trap the lesson is built around, so it is worth pinning down. */
+  const rowsFixed = study(2, 0.3, 0.1, 0.3);
+  const wide = VC.gageRR(rowsFixed, { lsl: 0, usl: 20 }), narrow = VC.gageRR(rowsFixed, { lsl: 5, usl: 15 });
+  assert.ok(Math.abs(narrow.pctTolerance - 2 * wide.pctTolerance) < 1e-8, 'halving the window must double %GRR of tolerance');
+  assert.strictEqual(narrow.vGrr, wide.vGrr, 'the measurement system itself must not depend on the specification');
+});
+
+test('Gage R&R refuses a study it cannot analyse, with a reason a user can act on', () => {
+  const rows = [];
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) for (let k = 0; k < 2; k++)
+    rows.push({ part: 'P' + i, operator: 'O' + j, value: 10 + i + j * 0.1 + k * 0.05 });
+  assert.ok(VC.gageRR(rows, {}).N === 16, 'a complete balanced study must be accepted');
+  // Unbalanced: one cell short.
+  assert.throws(() => VC.gageRR(rows.slice(0, 15), {}), /not balanced/i);
+  // One reading per cell: repeatability is unobservable.
+  assert.throws(() => VC.gageRR(rows.filter((_, i) => i % 2 === 0), {}), /at least twice/i);
+  // One part: nothing real to compare measurement noise against.
+  assert.throws(() => VC.gageRR(rows.filter(r => r.part === 'P0'), {}), /at least 2 parts/i);
+  // Blanks must drop out rather than be fitted as zero, which would invent a huge fake spread.
+  const withBlanks = rows.concat([{ part: 'P0', operator: 'O0', value: '' }, { part: 'P1', operator: 'O1', value: null }]);
+  assert.strictEqual(VC.gageRR(withBlanks, {}).N, 16, 'blank results must be dropped, not read as zero');
+});
+
+test('PLS beats ordinary regression where the columns outnumber the useful information', () => {
+  const rand = E.rng(1234);
+  const norm = () => { const u = Math.max(1e-12, rand()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rand()); };
+  const p = 40;
+  const l1 = E.range(p).map((_, j) => Math.sin(j / p * Math.PI)), l2 = E.range(p).map((_, j) => Math.cos(j / p * Math.PI * 2));
+  const make = n => {
+    const X = [], y = [];
+    for (let i = 0; i < n; i++) {
+      const a = norm() * 2, b = norm();
+      X.push(E.range(p).map((_, j) => a * l1[j] + b * l2[j] + norm() * 0.25));
+      y.push(3 * a - 1.5 * b + norm());
+    }
+    return { X, y };
+  };
+  const tr = make(25), te = make(600);
+  const err = m => { const pr = m.predict(te.X); return Math.sqrt(te.y.reduce((s, v, i) => s + (v - pr[i]) ** 2, 0) / te.y.length); };
+  const ols = err(E.fitRidgeCore(tr.X, tr.y, 1e-9));
+  const pls = err(E.fitPLS(tr.X, tr.y, 3));
+  const yMean = te.y.reduce((a, b) => a + b, 0) / te.y.length;
+  const ySd = Math.sqrt(te.y.reduce((s, v) => s + (v - yMean) ** 2, 0) / te.y.length);
+  assert.ok(pls < ols, 'PLS ' + pls.toFixed(3) + ' should beat OLS ' + ols.toFixed(3) + ' with 40 collinear channels and 25 rows');
+  assert.ok(pls < ySd, 'PLS ' + pls.toFixed(3) + ' must beat guessing the mean ' + ySd.toFixed(3));
+  // The same protein is predicted whichever units the channels arrive in: scaling must not change the fit.
+  const scaled = { X: tr.X.map(r => r.map((v, j) => v * (j % 2 ? 100 : 1))), y: tr.y };
+  const m1 = E.fitPLS(tr.X, tr.y, 3), m2 = E.fitPLS(scaled.X, scaled.y, 3);
+  const pred1 = m1.predict(tr.X)[0];
+  const pred2 = m2.predict(scaled.X)[0];
+  assert.ok(Math.abs(pred1 - pred2) < 1e-6 * Math.max(1, Math.abs(pred1)), 'PLS should be invariant to rescaling the inputs: ' + pred1 + ' vs ' + pred2);
 });

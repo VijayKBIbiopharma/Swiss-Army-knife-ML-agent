@@ -331,6 +331,55 @@
     let b0 = ym; for (let j = 0; j < p; j++) b0 -= xm[j] * w[j];
     return { w, b0, predict: Xn => Xn.map(r => { let s = b0; for (let j = 0; j < p; j++) s += r[j] * w[j]; return s; }) };
   }
+  /* PLS by the NIPALS algorithm. Each component is the direction in the inputs that best
+     lines up with what is left of the result; the data is then deflated and the next one is
+     taken from the remainder. Centred and scaled, so inputs in different units compete
+     fairly. */
+  function fitPLS(X, y, nComp) {
+    const n = X.length, p = X[0] ? X[0].length : 0;
+    if (!p || !n) return { w: [], b0: mean(y), predict: Xn => Xn.map(() => mean(y)) };
+    const xm = range(p).map(j => mean(X.map(r => r[j])));
+    const xs = range(p).map(j => sd(X.map(r => r[j])) || 1);
+    const ym = mean(y);
+    let E = X.map(r => r.map((v, j) => (v - xm[j]) / xs[j]));
+    let f = y.map(v => v - ym);
+    const comps = Math.max(1, Math.min(nComp, p, n - 1));
+    const Ws = [], Ps = [], Qs = [];
+    for (let a = 0; a < comps; a++) {
+      // Weight each input by how strongly what remains of it tracks what remains of y.
+      const w = range(p).map(j => { let s2 = 0; for (let i = 0; i < n; i++) s2 += E[i][j] * f[i]; return s2; });
+      const nw = Math.sqrt(w.reduce((s2, v) => s2 + v * v, 0));
+      if (!(nw > 1e-12)) break;
+      for (let j = 0; j < p; j++) w[j] /= nw;
+      const t = range(n).map(i => { let s2 = 0; for (let j = 0; j < p; j++) s2 += E[i][j] * w[j]; return s2; });
+      const tt = t.reduce((s2, v) => s2 + v * v, 0);
+      if (!(tt > 1e-12)) break;
+      const pl = range(p).map(j => { let s2 = 0; for (let i = 0; i < n; i++) s2 += E[i][j] * t[i]; return s2 / tt; });
+      let q = 0; for (let i = 0; i < n; i++) q += t[i] * f[i]; q /= tt;
+      for (let i = 0; i < n; i++) { for (let j = 0; j < p; j++) E[i][j] -= t[i] * pl[j]; f[i] -= t[i] * q; }
+      Ws.push(w); Ps.push(pl); Qs.push(q);
+    }
+    /* Fold the components back into one coefficient per input, so prediction is a plain dot
+       product and the model can be read like any other regression. */
+    const A = Ws.length;
+    const coef = new Array(p).fill(0);
+    if (A) {
+      // R = W (P'W)^-1, then beta = R q
+      const PW = range(A).map(a => range(A).map(b2 => { let s2 = 0; for (let j = 0; j < p; j++) s2 += Ps[a][j] * Ws[b2][j]; return s2; }));
+      const inv = invert(PW);
+      if (inv) {
+        for (let j = 0; j < p; j++) {
+          let s2 = 0;
+          for (let b2 = 0; b2 < A; b2++) for (let a = 0; a < A; a++) s2 += Ws[b2][j] * inv[b2][a] * Qs[a];
+          coef[j] = s2;
+        }
+      }
+    }
+    const w = range(p).map(j => coef[j] / xs[j]);
+    let b0 = ym; for (let j = 0; j < p; j++) b0 -= xm[j] * w[j];
+    return { w, b0, nComp: A, predict: Xn => Xn.map(r => { let s2 = b0; for (let j = 0; j < p; j++) s2 += r[j] * w[j]; return s2; }) };
+  }
+
   function innerCVChoose(X, y, candidates, fitFn, rand) {
     // Picks a hyper-parameter by 3-fold CV inside the training data.
     const n = X.length;
@@ -503,6 +552,25 @@
         const s = sd(y) || 1;
         const a = innerCVChoose(X, y, [0.001, 0.01, 0.05, 0.1, 0.3].map(v => v * s), (aX, ay, al) => fitLasso(aX, ay, al, 100), ctx.rand);
         return fitLasso(X, y, a, 300);
+      }
+    },
+    {
+      /* Partial least squares. Ordinary regression falls apart when the inputs move together
+         -- and bioprocess inputs always do, because temperature, feed and oxygen are not
+         independent. PLS builds a handful of components that explain the INPUTS and the
+         RESULT at the same time, which is why it is the standard tool in chemometrics and
+         for spectra. The number of components is chosen by cross-validation inside the
+         training data, so it cannot quietly overfit. */
+      id: 'pls', name: 'Partial least squares (PLS)', task: 'regression', complexity: 1.6,
+      plain: 'Finds a few underlying patterns that the inputs share, and uses those to predict instead of the raw inputs. Built for data where everything moves together, which ordinary regression handles badly.',
+      applicable: (n, p) => p >= 2 && n >= 8,
+      fit(X, y, ctx) {
+        const maxC = Math.max(1, Math.min(X[0].length, Math.floor(X.length / 3), 10));
+        const cands = range(maxC).map(i => i + 1);
+        const k = innerCVChoose(X, y, cands, (a, b, c) => fitPLS(a, b, c), ctx.rand);
+        const m = fitPLS(X, y, k);
+        m.components = k;
+        return m;
       }
     },
     {
@@ -1057,7 +1125,7 @@
   root.MLEngine = {
     rng, shuffle, range, mean, sd, variance, quantile, median, pearson, tTestP, tQuantile, ibeta, invert, gram,
     parseCSV, profile, isUsableFeature, toNumber, fitEncoder, fitRidgeCore, fitLasso, buildTree, mlpTrainer,
-    MODELS, makeFolds, crossValidate, fitFull, regressionMetrics, classificationMetrics,
+    MODELS, makeFolds, crossValidate, fitFull, fitPLS, regressionMetrics, classificationMetrics,
     supervisedData, permutationImportance, partialDependence, pickProb, treePredictRow, kmeans, silhouette, pca
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLEngine;

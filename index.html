@@ -37,6 +37,7 @@
         <option value="stability">Linear regression &amp; confidence limits (ICH Q1E)</option>
         <option value="golden">PCA &amp; multivariate SPC (golden batch)</option>
         <option value="equivalence">Equivalence &amp; non-inferiority testing (TOST)</option>
+        <option value="variance">Variance components, ANOVA &amp; Gage R&amp;R</option>
         <option value="sequence">Genetic algorithms &amp; multi-objective optimization</option>
         <option value="privacy">Privacy &amp; data handling</option>
       </select>
@@ -498,6 +499,77 @@
   </section>
   </div>
 
+  <div class="tabpanel" id="tab-variance" role="tabpanel" aria-labelledby="tab-btn-variance" hidden>
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow">Variance components &middot; one-way ANOVA &middot; Gage R&amp;R</p>
+      <h1>Is that spread the process, the supplier, or the assay measuring it?</h1>
+      <p class="lede">A result moves and everyone has a theory. This splits the total spread into named sources and says what share each one owns &mdash; so you know whether to go after the vendor, the method, or nothing at all. The same arithmetic, pointed at your own instrument, tells you whether the assay can even see the differences you are chasing.</p>
+    </div>
+  </section>
+
+  <section class="wrap step" id="variance">
+    <div class="step-head"><h2>The measurements</h2></div>
+    <div class="card">
+      <p class="summary">One row per measurement. Which question you are asking decides the columns: where variation comes from needs a grouping column and a result, while a measurement-system study needs the sample, who or what measured it, and the result. <a class="learn-link" href="learn.html#variance-components" target="_blank" rel="noopener noreferrer">Learn how this works &#8599;</a></p>
+      <div class="controls">
+        <label>What are you asking?
+          <select id="vc-mode">
+            <option value="components" selected>Where is the variation coming from? (variance components)</option>
+            <option value="grr">Can my measurement system see it? (Gage R&amp;R)</option>
+          </select>
+        </label>
+      </div>
+      <p class="tool-desc" id="vc-mode-desc" aria-live="polite"></p>
+      <div class="row-actions" id="vc-examples"></div>
+      <details class="shape" id="vc-shape">
+        <summary>What the data should look like</summary>
+        <div class="shape-body">
+          <div id="vc-shape-body"></div>
+        </div>
+      </details>
+      <label class="full" for="vc-data">Measurements (CSV or tab separated, with a header row)</label>
+      <textarea id="vc-data" rows="6" spellcheck="false" placeholder="Lot,Result&#10;L-2401,96.2&#10;L-2401,96.6&#10;L-2402,94.1"></textarea>
+      <input type="file" id="vc-file" accept=".csv,.tsv,.txt" class="file-input">
+      <p class="hint" id="vc-read" aria-live="polite"></p>
+      <div id="vc-settings" hidden>
+        <div class="controls" id="vc-map-components">
+          <label>Grouping column <select id="vc-group"></select></label>
+          <label>Result column <select id="vc-value"></select></label>
+        </div>
+        <div class="controls" id="vc-map-grr" hidden>
+          <label>Sample or part <select id="vc-part"></select></label>
+          <label>Operator or instrument <select id="vc-operator"></select></label>
+          <label>Result column <select id="vc-grr-value"></select></label>
+        </div>
+        <div class="controls" id="vc-spec" hidden>
+          <label>Lower spec limit (optional) <input id="vc-lsl" type="text" inputmode="decimal" placeholder="e.g. 95"></label>
+          <label>Upper spec limit (optional) <input id="vc-usl" type="text" inputmode="decimal" placeholder="e.g. 105"></label>
+        </div>
+        <p class="hint" id="vc-spec-note" hidden>With both spec limits given, the verdict is judged against the tolerance &mdash; the question a QC lab actually has. Without them it is judged against the spread of the parts in this study, which flatters a study made of very different parts and punishes one made of similar ones.</p>
+        <details class="advanced" id="vc-advanced">
+          <summary>Advanced settings</summary>
+          <div class="controls">
+            <label>Pairwise comparison level
+              <select id="vc-alpha">
+                <option value="0.05" selected>95% confidence (&alpha; 0.05)</option>
+                <option value="0.01">99% confidence (&alpha; 0.01)</option>
+                <option value="0.1">90% confidence (&alpha; 0.10)</option>
+              </select>
+            </label>
+          </div>
+          <p class="hint">Tukey's method holds that confidence across every pair at once. Running separate t-tests on ten pairs gives you roughly a one-in-two chance of a false alarm somewhere, which is how arguments about a blameless lot start.</p>
+        </details>
+        <div class="row-actions">
+          <button class="btn primary" id="vc-run" type="button">Split the variation</button>
+        </div>
+      </div>
+      <p class="error" id="vc-error" role="alert" hidden></p>
+      <div id="vc-out"></div>
+    </div>
+  </section>
+  </div>
+
   <div class="tabpanel" id="tab-sequence" role="tabpanel" aria-labelledby="tab-btn-sequence" hidden>
   <section class="wrap step" id="seq">
     <div class="step-head"><h2>Sequence optimizer</h2></div>
@@ -626,6 +698,8 @@
 <script src="stab.js"></script>
 <script src="golden-ui.js"></script>
 <script src="tost-ui.js"></script>
+<script src="variance.js"></script>
+<script src="variance-ui.js"></script>
 <script src="seq.js"></script>
 </body>
 </html>

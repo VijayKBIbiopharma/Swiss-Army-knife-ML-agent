@@ -6,7 +6,7 @@
   // Which Learn lesson explains each model.
   const MODEL_TOPIC = {
     baseline: 'scores', linear: 'linear', ridge: 'ridge-lasso', lasso: 'ridge-lasso', quadratic: 'quadratic',
-    logistic: 'logistic', naivebayes: 'naive-bayes', knn: 'knn', tree: 'tree', forest: 'forest', boosting: 'boosting', mlp: 'neural-network'
+    pls: 'pls', logistic: 'logistic', naivebayes: 'naive-bayes', knn: 'knn', tree: 'tree', forest: 'forest', boosting: 'boosting', mlp: 'neural-network'
   };
 
   const MODEL_ANALOGY = {
@@ -15,6 +15,7 @@
     ridge: 'A recipe with a seat belt, so it does not over-react to noisy or overlapping ingredients.',
     lasso: 'A recipe that crosses out the ingredients that do not matter: the vital few, not the trivial many.',
     quadratic: 'Baking temperature: too low or too high both ruin the cake. It finds the sweet spot.',
+    pls: 'A hundred witnesses describing the same two events: work out what the events were, then predict from those.',
     logistic: 'A credit-score card that adds up points and turns them into odds.',
     naivebayes: 'A detective matching a suspect to the profile each group usually fits.',
     knn: 'Asking the neighbours: "what happened the last few times conditions looked like this?"',

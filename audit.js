@@ -178,6 +178,16 @@
       const tt = ctx.tost;
       analysis.push(['Method equivalence (TOST)', tt.test + ' vs ' + tt.reference + ': ' + tt.verdict + ', difference ' + r4(tt.diff) + ' with a ' + Math.round(tt.confidence * 100) + '% interval of ' + r4(tt.ciLow) + ' to ' + r4(tt.ciHigh) + ' against a margin of ' + r4(tt.margin)]);
     }
+    if (ctx.variance) {
+      const vv = ctx.variance;
+      if (vv.kind === 'components') {
+        analysis.push(['Variance components', vv.N + ' measurements across ' + vv.groups + ' groups of "' + vv.columns.group + '"; between-group share ' + Math.round(vv.icc * 100) + '%, total std dev ' + r4(vv.sdTotal) + '; ANOVA p ' + r4(vv.p) + (vv.negative ? '; the between-group estimate was negative and is reported as zero' : '')]);
+        analysis.push(['Pairwise comparisons', 'Tukey at alpha ' + vv.alpha + ' (critical q ' + r4(vv.qCrit) + '); ' + vv.differing + ' of ' + vv.pairs.length + ' pairs differ' + (vv.balanced ? '' : '; unbalanced design, effective replication ' + r4(vv.n0))]);
+      } else {
+        analysis.push(['Measurement system analysis', vv.parts + ' samples x ' + vv.operators + ' operators x ' + vv.reps + ' repeats; ' + vv.model + ' (interaction p ' + r4(vv.pInteraction) + ')']);
+        analysis.push(['Gage R&R verdict', vv.verdict + ' at ' + r4(vv.judgedOn === 'tolerance' ? vv.pctTolerance : vv.pctStudyGrr) + '% of ' + vv.judgedOn + (vv.tolerance !== null ? ' (LSL ' + vv.lsl + ', USL ' + vv.usl + ')' : '') + '; ' + (vv.ndc === null ? 'distinct categories not finite' : vv.ndc + ' distinct categories')]);
+      }
+    }
     if (rep.desirability) analysis.push(['Multi-result optimization', rep.desirability.specs.map(sp => sp.name + ' ' + sp.goal + ' [' + sp.low + ', ' + sp.high + ']' + (sp.target !== null ? ' target ' + sp.target : '') + ' weight ' + sp.weight).join('; ')]);
     S.push({ title: 'Analysis settings', rows: analysis });
     S.push({ title: 'Agent log', rows: (rep.log || []).map((l, i) => [String(i + 1), l.text]) });
@@ -273,6 +283,38 @@
         ['p, difference above minus margin', r4(tt.p1)], ['p, difference below plus margin', r4(tt.p2)], ['Overall TOST p', r4(tt.pTost)],
         ['Two-sided p for any difference', r4(tt.pDiff)], ['Verdict', tt.verdict],
         ['Results per method that would settle it', tt.needed === null ? '' : tt.needed]] });
+    }
+    if (ctx.variance) {
+      const vv = ctx.variance;
+      if (vv.kind === 'components') {
+        const rows = [['Item', 'Value'], ['Run at', vv.when], ['Grouping column', vv.columns.group], ['Result column', vv.columns.value],
+          ['Groups', vv.groups], ['Measurements', vv.N], ['Balanced', vv.balanced ? 'yes' : 'no'], ['Effective replication (n0)', r4(vv.n0)],
+          ['Between-group variance', r4(vv.between)], ['Within-group variance', r4(vv.within)],
+          ['Total variance', r4(vv.total)], ['Total std dev', r4(vv.sdTotal)],
+          ['Between-group share', r4(vv.icc)], ['Negative estimate reported as zero', vv.negative ? 'yes' : 'no'],
+          ['ANOVA p', r4(vv.p)], ['Pairwise alpha', vv.alpha], ['Tukey critical q', r4(vv.qCrit)], [],
+          ['Source', 'Sum of squares', 'df', 'Mean square', 'F', 'p']];
+        vv.anova.forEach(a => rows.push([a.source, r4(a.ss), a.df, r4(a.ms), a.f === null ? '' : r4(a.f), a.p === null ? '' : r4(a.p)]));
+        rows.push([], ['Component', 'Variance', 'Std dev', 'Share of variance']);
+        vv.components.forEach(c => rows.push([c.source, r4(c.variance), r4(c.sd), r4(c.share)]));
+        rows.push([], ['Group', 'Measurements', 'Mean', 'Std dev']);
+        vv.groupStats.forEach(g => rows.push([g.name, g.n, r4(g.mean), isFinite(g.sd) ? r4(g.sd) : '']));
+        rows.push([], ['Pair A', 'Pair B', 'Difference', 'Interval lower', 'Interval upper', 'p', 'Different']);
+        vv.pairs.forEach(x => rows.push([x.a, x.b, r4(x.diff), r4(x.lower), r4(x.upper), r4(x.p), x.different ? 'yes' : 'no']));
+        out.push({ name: 'Variance components', rows });
+      } else {
+        const rows = [['Item', 'Value'], ['Run at', vv.when], ['Sample column', vv.columns.part], ['Operator column', vv.columns.operator], ['Result column', vv.columns.value],
+          ['Samples', vv.parts], ['Operators', vv.operators], ['Repeats per cell', vv.reps], ['Measurements', vv.N],
+          ['Model', vv.model], ['Interaction p', r4(vv.pInteraction)],
+          ['Lower spec limit', vv.lsl === null ? '' : vv.lsl], ['Upper spec limit', vv.usl === null ? '' : vv.usl], ['Tolerance', vv.tolerance === null ? '' : r4(vv.tolerance)],
+          ['%GRR of study variation', r4(vv.pctStudyGrr)], ['%GRR of tolerance', vv.pctTolerance === null ? '' : r4(vv.pctTolerance)],
+          ['Distinct categories', vv.ndc === null ? '' : vv.ndc], ['Judged on', vv.judgedOn], ['Verdict', vv.verdict], [],
+          ['Source', 'Sum of squares', 'df', 'Mean square', 'F', 'p']];
+        vv.anova.forEach(a => rows.push([a.source, r4(a.ss), a.df, a.df === 0 ? '' : r4(a.ms), a.f === null ? '' : r4(a.f), a.p === null ? '' : r4(a.p)]));
+        rows.push([], ['Component', 'Variance', 'Std dev', 'Share of variance', '% of total spread']);
+        vv.components.forEach(c => rows.push([c.source, r4(c.variance), r4(c.sd), r4(c.share), r4(c.pctStudy)]));
+        out.push({ name: 'Measurement system', rows });
+      }
     }
     if (ctx.scenarios && ctx.scenarios.rows.length) out.push({ name: 'What-if scenarios', rows: [ctx.scenarios.header].concat(ctx.scenarios.rows) });
     if (ctx.design) out.push({ name: 'DOE run sheet', rows: [['RunOrder', 'StdOrder'].concat(ctx.design.factors.map(f => f.name), [ctx.design.response])].concat(ctx.design.design.runs.map(r => [r.run, r.std].concat(r.actual.map(v => (typeof v === 'number' ? v : isFinite(Number(v)) && v !== '' ? Number(v) : v)), ['']))) });

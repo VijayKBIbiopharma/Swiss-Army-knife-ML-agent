@@ -540,6 +540,17 @@ details.advanced > summary { cursor: pointer; font-size: .88rem; font-weight: 60
 .tost-chart .ci-dot.ok { fill: var(--good); } .tost-chart .ci-dot.bad { fill: var(--bad); } .tost-chart .ci-dot.warn { fill: var(--warn); }
 .strip-chart .mean-mark { stroke-width: 2.5; }
 .strip-chart .mean-mark.c1 { stroke: var(--s1); } .strip-chart .mean-mark.c2 { stroke: var(--s2); }
+.strip-chart .mean-mark.c3 { stroke: var(--s3); } .strip-chart .mean-mark.c4 { stroke: var(--s4); }
+.chart .pt.c1 { fill: var(--s1); } .chart .pt.c2 { fill: var(--s2); }
+.chart .pt.c3 { fill: var(--s3); } .chart .pt.c4 { fill: var(--s4); }
+
+/* Variance components: the total spread cut into named sources, as one bar */
+.share-chart .share { stroke: var(--surface); stroke-width: 1.5; }
+.share-chart .share.c1 { fill: var(--s1); } .share-chart .share.c2 { fill: var(--s2); }
+.share-chart .share.c3 { fill: var(--s3); } .share-chart .share.c4 { fill: var(--s4); }
+.share-chart .on-bar { fill: #fff; }
+.vc-result h4 { margin: 18px 0 6px; }
+#vc-data { width: 100%; }
 #eq-data { width: 100%; }
 .eq-result h4 { margin: 18px 0 6px; }
 .chart .ci-line { stroke-width: 3.5; stroke-linecap: round; }

@@ -104,6 +104,15 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Then open **B-2411**: dissolved oxygen sliding away from day seven, flagged at hour 222, 25 of 60 checkpoints outside.
 - Talking point: *"Thirty sensors is thirty charts nobody reads. This is one line per batch, and when it moves it tells you which sensor and which hour."*
 
+## 4g. Whose fault is the spread? (3 minutes, the one every OpEx manager recognises)
+- Pick **Variance components, ANOVA & Gage R&R**, leave it on **Where is the variation coming from?**, and press **Example: one supplier lot is the problem**.
+- Six resin lots, four assays each. **89% of the variance sits between lots**, and the pairwise table names R-4404 as the outlier with a gap of about 5 points. *"That is a supplier conversation, and now it has evidence behind it."*
+- Now press **Example: the lots are fine, the assay is noisy**. Same shape of data, same kind of scatter on screen &mdash; and the verdict flips to **MEASUREMENT, NOT THE GROUPS**, with essentially 0% between lots and an ANOVA p of 0.72.
+- This is the slide: *"These two pictures look the same to the eye. One is a supplier problem and one is an assay problem, and the only thing that tells them apart is the repeats. We have spent money on the wrong one of these before."*
+- Then switch the question to **Can my measurement system see it?** and press **Example: a method fit for release**. Enter spec limits of **94** and **106** and run: 8.7% of the specification window, about 21 distinct levels, **ACCEPTABLE**.
+- Finish with **Example: one analyst out of step**: 47% of the window, **NOT ACCEPTABLE**, and the output points at reproducibility &mdash; disagreement between analysts &mdash; rather than the instrument. *"That is a training and method-description fix, not a capital request. The split tells you which."*
+- If someone asks what this replaces: this is the part of JMP a QC lab uses most.
+
 ## 5. Finding groups with no target: penguins (1 minute)
 - Drag `penguins.csv`, choose **Nothing: find groups and patterns**, run.
 - Show the groups chart and profiles: one group is entirely Gentoo penguins on Biscoe island. The agent found the species without being told.

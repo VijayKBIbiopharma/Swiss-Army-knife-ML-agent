@@ -53,6 +53,18 @@
         { name: 'Comparability after change', text: 'Pre-change against post-change product, biosimilar against reference, a bridging exercise for a process improvement, lot-to-lot equivalence of clinical supplies.' }
       ]
     },
+    variance: {
+      tech: 'Variance component analysis, one-way ANOVA with Tukey comparisons, and measurement system analysis (Gage R&R)',
+      scope: 'In this tool: repeated measurements labelled by the source you suspect \u2014 lot, analyst, instrument, vessel, shift \u2014 or a crossed study of samples by operators.',
+      groups: [
+        { name: 'Raw materials and suppliers', text: 'Resin, media and buffer lot effects on yield and quality, one supplier against another, incoming lot variability against process variability, the case for tightening or relaxing an incoming specification, a lot disqualified on evidence rather than on suspicion.' },
+        { name: 'Analytical methods', text: 'Assay variation split across analyst, instrument, column and day, method precision quantified before a transfer, replicate strategy chosen from measured noise, system suitability limits set from capability, an apparent out-of-trend result tested against the method that produced it.' },
+        { name: 'Equipment and measurement systems', text: 'Gage R&R on balances, HPLCs, plate readers and probes, repeatability separated from operator-to-operator disagreement, distinct categories checked before a control chart is trusted, qualification repeated after a service or a software change.' },
+        { name: 'Process and equipment trains', text: 'Vessel-to-vessel and skid-to-skid differences, shift and site effects, column and membrane position, nested variation across campaign, batch and sample, the share of spread that is genuinely controllable named before a project is scoped.' },
+        { name: 'Specifications and capability', text: 'Specification limits built from the real components of variation rather than from historical ranges, measurement noise removed before capability is quoted, sample sizes justified from the variance structure, tolerance intervals argued from the right error term.' },
+        { name: 'Why this comes before everything else', note: true, text: 'A capability index, a trend report and a comparability study all take the measurement at face value. If a third of what you observe is the assay, every one of those numbers is partly about the assay, and no amount of further analysis will separate them after the fact. Splitting the variation first is what tells you whether the rest of the work is measuring your process or your instrument.' }
+      ]
+    },
     sequence: {
       tech: 'Genetic algorithms and multi-objective optimization (NSGA-II)',
       scope: 'In this tool: pointed at codon optimization, evolving synonymous codons while the protein stays identical.',
@@ -260,6 +272,16 @@
       mfg: 'A second suite, skid or line shown to match the qualified one before anything is released from it.',
       qc: 'Method bridging after a change, and whether an apparent shift is real or sits inside capability.',
       qa: 'Comparability evidence for change control, with the margin fixed before the data was seen.'
+    },
+    variance: {
+      cld: 'Split clone screening spread into real clone differences and plate or assay noise, so a top performer is not simply a lucky well.',
+      uspd: 'Separate vessel, shift and media-lot effects from process variation, and size the replication a development study actually needs.',
+      dspd: 'Separate resin lot, column position and operator effects from step-yield variation, so a column is retired on evidence rather than on age.',
+      afs: 'The core use: assay precision partitioned across analyst, instrument and day, and Gage R&R run before a method is trusted to release product.',
+      msat: 'Split site, scale and train differences from ordinary batch noise, and show which part of a scale-up gap is real.',
+      mfg: 'Name how much of batch-to-batch spread is the equipment, the shift or the material, before a CAPA is written against the wrong one.',
+      qc: 'Measurement system analysis on each instrument, and incoming lot variation tested against the method that measures it.',
+      qa: 'Variation attributed to a named source in trend reports and investigations, with the measurement system qualified so capability is about product rather than assay.'
     },
     sequence: {
       cld: 'Codon-optimise the construct for the host while removing restriction sites and holding GC inside the synthesis window.',

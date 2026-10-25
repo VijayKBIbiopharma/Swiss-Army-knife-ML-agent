@@ -270,6 +270,65 @@
   });
 
   add({
+    id: 'pls', group: 'Predicting numbers and categories', title: 'Partial least squares: when the columns outnumber the rows',
+    analogy: 'A hundred witnesses all describe the same two events. Asking each one separately and weighting their answers independently is hopeless — they contradict each other on detail. Better to work out what the two events were, then predict from those. PLS builds those few underlying stories, and unlike PCA it builds the ones that actually relate to the thing you are predicting.',
+    intro: 'Ordinary regression needs more rows than columns, and it falls apart long before that if the columns move together. A spectrum has hundreds of wavelengths and twenty batches; a sensor train has forty tags all driven by the same few things. PLS compresses the inputs into a handful of components chosen for their relationship to the answer, then regresses on those. The contrast that matters is against <i>ordinary</i> regression, which simply breaks here. Ridge is a serious rival, and the demo below will often show it winning \u2014 that is not a bug in the lesson, it is the honest answer.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-controls">' + slider('p', 'Input channels', 4, 80, 2, 60) + slider('n', 'Batches measured', 12, 60, 1, 25) + slider('noise', 'Measurement noise', 0.1, 3, 0.1, 1) + '</div><div data-role="bars"></div><p class="demo-read" data-role="read"></p>';
+      const draw = () => {
+        const p = Number(q(el, 'p').value), n = Number(q(el, 'n').value), noise = Number(q(el, 'noise').value);
+        setOut(el, 'p', p); setOut(el, 'n', n); setOut(el, 'noise', noise.toFixed(1));
+        const rand = E.rng(77);
+        /* Two hidden factors drive every channel, which is how spectra and sensor trains
+           really behave: the channels are not independent pieces of information. */
+        const load1 = range(p).map((_, j) => Math.sin(j / p * Math.PI));
+        const load2 = range(p).map((_, j) => Math.cos(j / p * Math.PI * 2));
+        const make = m => {
+          const X = [], y = [];
+          for (let i = 0; i < m; i++) {
+            const a = normal(rand) * 2, b = normal(rand);
+            X.push(range(p).map((_, j) => a * load1[j] + b * load2[j] + normal(rand) * 0.25));
+            y.push(3 * a - 1.5 * b + normal(rand) * noise);
+          }
+          return { X, y };
+        };
+        const tr = make(n), te = make(400);
+        const rmse = m => { const pr = m.predict(te.X); return Math.sqrt(te.y.reduce((s, v, i) => s + (v - pr[i]) ** 2, 0) / te.y.length); };
+        const ySd = Math.sqrt(te.y.reduce((s, v) => s + (v - te.y.reduce((a, c) => a + c, 0) / te.y.length) ** 2, 0) / te.y.length);
+        const lin = (() => { try { return E.fitRidgeCore(tr.X, tr.y, 1e-9); } catch (err) { return null; } })();
+        const rid = E.fitRidgeCore(tr.X, tr.y, 1);
+        const pls = E.fitPLS(tr.X, tr.y, Math.min(3, p, n - 2));
+        const items = [
+          { label: 'Always guess the mean', value: ySd },
+          { label: 'Ordinary regression', value: lin ? rmse(lin) : NaN },
+          { label: 'Ridge', value: rmse(rid) },
+          { label: 'PLS (3 components)', value: rmse(pls) }
+        ];
+        const best = Math.min.apply(null, items.filter(i => isFinite(i.value)).map(i => i.value));
+        const top = Math.max.apply(null, items.filter(i => isFinite(i.value)).map(i => i.value));
+        C.hbar(q(el, 'bars'), items.map(i => ({
+          label: i.label, value: isFinite(i.value) ? i.value : 0,
+          text: isFinite(i.value) ? fmt(i.value) : 'failed',
+          cls: isFinite(i.value) && i.value === best ? 'hi' : ''
+        })), { min: 0, max: top * 1.1 || 1, label: 'Error on 400 batches it never saw (lower is better)' });
+        const winner = items.filter(i => isFinite(i.value)).sort((a, b) => a.value - b.value)[0];
+        q(el, 'read').innerHTML = '<b>' + h(winner.label) + '</b> predicts best here. ' +
+          (p > n ? 'With <b>' + p + ' channels and only ' + n + ' batches</b> ordinary regression has more unknowns than equations: it fits the training data perfectly and predicts nothing. ' : '') +
+          'The ' + p + ' channels carry only <b>two</b> pieces of real information, because two hidden factors drive all of them. PLS finds those two and ignores the rest.' +
+          '<br>Notice how close ridge runs, and how often it wins: on pure prediction the two are rivals, and which one comes out ahead depends on the data rather than on which is more fashionable. What PLS adds is a handful of named components you can plot and interpret, where ridge gives you ' + p + ' shrunken coefficients. That is why both sit on the leaderboard and the agent keeps whichever actually predicts better.' +
+          '<br>Now drag <i>Input channels</i> down to 4. With few, nearly independent inputs the compression buys nothing and plain regression is as good or better — which is why neither of these replaces the simple models.';
+      };
+      ['p', 'n', 'noise'].forEach(k => { q(el, k).oninput = draw; });
+      draw();
+    },
+    steps: ['Find the combination of inputs that correlates most strongly with the answer. That is component one.', 'Strip what that component explains out of both the inputs and the answer, then repeat on what is left.', 'Stop after a few components, chosen by cross-validation rather than by eye.', 'Regress the answer on those few components, and fold the result back into one coefficient per original input so it can still be read.'],
+    when: 'Spectroscopy and process-analytical data, sensor trains where many tags move together, any table with more columns than rows, and multivariate calibration generally.',
+    watch: 'PLS will happily fit noise if given too many components, which is why the count is cross-validated. It is also not a causal statement: a wavelength with a large coefficient may simply travel with the thing that matters. Where the inputs are few and independent it buys nothing over ordinary regression, and even where they are many it does not reliably beat ridge \u2014 reach for it when you want a few interpretable components, not because it is the more advanced-sounding method.',
+    where: 'PLS appears on the leaderboard automatically whenever there are at least two numeric inputs and eight rows, and wins only when it genuinely predicts better.',
+    quiz: { q: 'You have 18 batches and 200 wavelengths. Why can ordinary least squares not be used?', options: ['The wavelengths are measured on the wrong scale', 'There are more unknowns than equations, so it fits the training data exactly and generalizes not at all', 'Least squares only works on categorical inputs'], answer: 1, why: 'With 200 coefficients and 18 observations an exact fit always exists, and infinitely many of them do. The fit says nothing about a nineteenth batch. PLS reduces the 200 channels to a few components first, so there are fewer unknowns than observations \u2014 and so does ridge, by shrinking them instead. Either beats ordinary least squares here.' }
+  });
+
+  add({
     id: 'quadratic', group: 'Predicting numbers and categories', title: 'Quadratic models: finding the sweet spot',
     analogy: 'Baking: too cold and the cake is raw, too hot and it burns. The best result is in the middle.',
     intro: 'Real processes often have an optimum inside the range: temperature, speed, concentration. A quadratic model adds squared terms (curves) and cross terms (interactions). It is the response-surface model used in DOE.',
@@ -1140,6 +1199,97 @@
     watch: 'A wide interval that covers zero is not evidence of sameness. The margin is a business and product decision, not a statistical one, and a pass that uses 95% of the margin will not survive the next drift.',
     where: 'Pick "Method transfer" from the selector at the top of the agent.',
     quiz: { q: 'Two labs are compared. The t-test gives p = 0.42, and the 90% interval for the difference runs from −3.1 to +1.8 against a margin of ±2. What can you conclude?', options: ['The methods are equivalent, since p > 0.05', 'Nothing yet: the interval is wider than the margin', 'The methods differ, since the interval is wide'], answer: 1, why: 'The interval runs past −2, so equivalence is not shown; it still covers zero, so no difference is shown either. That is the inconclusive case, and it usually means too few results.' }
+  });
+
+  add({
+    id: 'variance-components', group: 'Six Sigma and process control', title: 'Variance components: whose fault is the spread?',
+    analogy: 'A classroom sits an exam twice. If every pupil scores about the same both times but pupils differ from each other, the exam is measuring something real. If each pupil swings wildly between the two sittings, the exam is measuring its own mood. Same spread of marks, opposite conclusions — and you cannot tell which from the marks alone, only from the repeats.',
+    intro: 'Six resin lots give six different yields. Is that the supplier, or is it the assay? Both stories produce the same scatter of numbers, so no amount of staring at lot means will separate them. What separates them is repeats: measure the same lot more than once and the within-lot spread tells you what the measurement does by itself. Everything left over belongs to the lots. Drag the two sliders below and watch the same-looking picture change its meaning.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-controls">' + slider('between', 'How much the lots really differ', 0, 3, 0.1, 1.6) + slider('within', 'Measurement scatter', 0.1, 3, 0.1, 0.5) + slider('reps', 'Measurements per lot', 2, 8, 1, 4) + '</div><div data-role="plot"></div><div data-role="bars"></div><p class="demo-read" data-role="read"></p>';
+      const V = window.MLVariance;
+      const draw = () => {
+        const sb = Number(q(el, 'between').value), sw = Number(q(el, 'within').value), reps = Number(q(el, 'reps').value);
+        setOut(el, 'between', sb.toFixed(1)); setOut(el, 'within', sw.toFixed(1)); setOut(el, 'reps', reps);
+        const rand = E.rng(21), lots = ['L-01', 'L-02', 'L-03', 'L-04', 'L-05', 'L-06'], rows = [];
+        lots.forEach(name => {
+          const shift = normal(rand) * sb;
+          for (let k = 0; k < reps; k++) rows.push({ group: name, value: 92 + shift + normal(rand) * sw });
+        });
+        const r = V.oneWay(rows);
+        const vals = rows.map(x => x.value);
+        const lo = Math.min.apply(null, vals) - 0.4, hi = Math.max.apply(null, vals) + 0.4;
+        const f = frame(640, 250, [lo, hi], [-0.6, lots.length - 0.4], { l: 60, yFmt: () => '', xLabel: 'Measured yield (%)' });
+        let b = f.axes;
+        b += '<line class="target-line" x1="' + f.sx(r.grand) + '" x2="' + f.sx(r.grand) + '" y1="' + f.sy(lots.length - 0.4) + '" y2="' + f.sy(-0.6) + '"/>';
+        lots.forEach((name, i) => {
+          const y = f.sy(lots.length - 1 - i);
+          const mine = rows.filter(x => x.group === name);
+          const m = mine.reduce((a, x) => a + x.value, 0) / mine.length;
+          b += '<text class="lbl-strong" x="4" y="' + (y + 4) + '">' + h(name) + '</text>';
+          b += '<line class="gridline" x1="' + f.L + '" x2="' + (f.W - f.R) + '" y1="' + y + '" y2="' + y + '"/>';
+          b += '<line class="mean-mark c1" x1="' + f.sx(m) + '" x2="' + f.sx(m) + '" y1="' + (y - 10) + '" y2="' + (y + 10) + '"/>';
+          mine.forEach(x => { b += dot(f.sx(x.value), y, 'c2', 4, name + ' · ' + fmt(x.value)); });
+        });
+        q(el, 'plot').innerHTML = svg(640, 250, 'Measurements by lot, with lot means', b);
+        const share = Math.round(r.icc * 100);
+        C.hbar(q(el, 'bars'), [
+          { label: 'Between lots', value: share, text: share + '%', cls: share >= 50 ? 'hi' : '' },
+          { label: 'Measurement', value: 100 - share, text: (100 - share) + '%', cls: share < 50 ? 'hi' : '' }
+        ], { min: 0, max: 100, label: 'Share of the total variance' });
+        const verdict = share < 10 ? '<b class="warn">The lots are not the problem.</b> Chasing the low one is chasing noise.'
+          : share >= 70 ? '<b class="ok">The lots really differ.</b> This is worth taking to the supplier.'
+            : '<b>Both matter.</b> A single measurement cannot judge a lot, but the lots are not interchangeable either.';
+        q(el, 'read').innerHTML = verdict + '<br>Total spread <b>' + fmt(r.sdTotal) + '</b>, of which <b>' + share + '%</b> of the variance sits between lots (ANOVA p ' + (r.p < 0.0001 ? '&lt;0.0001' : r.p.toFixed(4)) + ').' +
+          (r.negative ? ' The between-lot estimate came out negative, which cannot be true of a variance — it means the lots differ by less than measurement scatter alone would produce, and it is reported as zero.' : '') +
+          '<br>Now drop <i>Measurements per lot</i> to 2 and watch the estimate lurch about. The split is only as trustworthy as the repeats behind it.';
+      };
+      ['between', 'within', 'reps'].forEach(k => { q(el, k).oninput = draw; });
+      draw();
+    },
+    steps: ['Measure each group more than once. Without repeats there is nothing to compare the between-group spread against, and no split is possible at any sample size.', 'Within-group spread estimates what the measurement does by itself: the same material, measured again.', 'Between-group spread is inflated by that same noise, so the noise is subtracted off before the group effect is quoted.', 'Shares are shares of variance, because variance adds up and standard deviation does not.', 'Then Tukey’s method names which pairs actually differ, holding the confidence across every comparison at once.'],
+    when: 'Before blaming a supplier, an analyst, a vessel or a shift. Also before quoting process capability, since measurement noise inflates the spread that Cpk is calculated from.',
+    watch: 'You can only split variation across sources you recorded. If every lot of resin happened to be run on a different week, "lot" and "week" are the same column and the arithmetic cannot tell them apart — it will hand the whole effect to whichever one you named. Six groups is also thin: the between-group estimate rests on five degrees of freedom and is a rough number however many decimals it is printed to.',
+    where: 'Pick "Variance components, ANOVA & Gage R&R" from the selector at the top of the agent, then "Where is the variation coming from?".',
+    quiz: { q: 'Eight media lots are each assayed four times. The within-lot spread is large and the between-lot share comes out at 6%. What is the right next move?', options: ['Reject the worst lot and tighten the incoming specification', 'Investigate the assay, not the lots', 'Collect more lots to find the bad one'], answer: 1, why: 'Almost all the spread is repeat measurements of the same lot disagreeing with each other. The lots are not distinguishable; the method that measures them is what is moving. More lots would just produce more noise.' }
+  });
+
+  add({
+    id: 'gage-rr', group: 'Six Sigma and process control', title: 'Gage R&R: can the method even see what you are chasing?',
+    analogy: 'Weighing a letter on bathroom scales. The scales are not broken and they are properly calibrated — they simply cannot resolve grams. Every reading you take is mostly the scales, and no amount of averaging the postage over the quarter will fix the decision you make on one letter.',
+    intro: 'Every capability index, trend report and comparability study takes the measurement at face value. If a third of what you observe is the assay, then a third of your Cpk is about the assay, and nothing done afterwards can separate them. Gage R&R splits what you see into the instrument repeating itself, operators disagreeing with each other, and genuine differences between samples. Drag the sliders and watch the verdict turn over.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-controls">' + slider('rep', 'Instrument noise (repeatability)', 0.05, 2, 0.05, 0.2) + slider('op', 'Disagreement between analysts', 0, 2, 0.05, 0.1) + slider('part', 'How different the samples are', 0.2, 6, 0.1, 3) + '</div><div data-role="bars"></div><p class="demo-read" data-role="read"></p>';
+      const V = window.MLVariance;
+      const draw = () => {
+        const sr = Number(q(el, 'rep').value), so = Number(q(el, 'op').value), sp = Number(q(el, 'part').value);
+        setOut(el, 'rep', sr.toFixed(2)); setOut(el, 'op', so.toFixed(2)); setOut(el, 'part', sp.toFixed(1));
+        const rand = E.rng(9), rows = [];
+        const ops = ['Analyst 1', 'Analyst 2', 'Analyst 3'];
+        const bias = ops.map(() => normal(rand) * so);
+        for (let i = 0; i < 10; i++) {
+          const truth = 100 + normal(rand) * sp;
+          ops.forEach((o, j) => { for (let k = 0; k < 3; k++) rows.push({ part: 'S-' + (i + 1), operator: o, value: truth + bias[j] + normal(rand) * sr }); });
+        }
+        // Specification window held fixed, because that is the decision the method has to support.
+        const r = V.gageRR(rows, { lsl: 94, usl: 106 });
+        C.hbar(q(el, 'bars'), r.components.map(c => ({
+          label: c.source.replace(/ \(.*\)/, ''), value: c.pctStudy, text: c.pctStudy.toFixed(1) + '%',
+          cls: /Part to part/.test(c.source) ? 'hi' : ''
+        })), { min: 0, max: 100, label: '% of total spread (standard-deviation scale)' });
+        const cls = r.verdict === 'acceptable' ? 'ok' : r.verdict === 'marginal' ? 'warn' : 'bad';
+        q(el, 'read').innerHTML = '<b class="' + cls + '">' + r.verdict.toUpperCase() + '</b>: the measurement system uses <b>' + r.pctTolerance.toFixed(1) + '%</b> of the 12-unit specification window, and can tell about <b>' + (isFinite(r.ndc) ? r.ndc : 'many') + '</b> distinct levels apart (five is the usual bar).' +
+          '<br>Repeatability is one analyst measuring the same sample twice and getting a different answer — the hardware and the sample preparation. Reproducibility is two analysts disagreeing about the same sample — the method description and the training. They need different fixes, which is the whole reason for splitting them.' +
+          '<br><i>Now the trap:</i> leave the instrument alone and drag <i>How different the samples are</i> down to 0.2. The <b>% of the specification window stays put</b> — the method has not changed — but "part to part" collapses and the study looks like a disaster. A Gage R&R run on ten near-identical samples fails whatever the instrument does. That is why the samples must span the range you really see, and why the verdict here is taken against the specification rather than against the study.';
+      };
+      ['rep', 'op', 'part'].forEach(k => { q(el, k).oninput = draw; });
+      draw();
+    },
+    steps: ['Every operator measures every sample, more than once, in a complete and balanced design. The repeats are what separate the instrument from the people.', 'Repeatability comes from disagreement within a cell: same operator, same sample, two readings.', 'Reproducibility comes from operators sitting high or low against each other, plus any pattern where some operators read some samples differently.', 'Add those two together for total Gage R&R, and compare it against the specification window: under 10% is acceptable, 10 to 30% marginal, above 30% not fit.', 'Distinct categories says how many genuinely different levels the method can resolve. Under five, a control chart on individual results tracks the measurement rather than the process.'],
+    when: 'Before a method is trusted to release product, before capability is quoted, after any change of instrument, column, software or staff, and whenever two analysts argue about a result.',
+    watch: 'Without specification limits the verdict is taken against the spread of the samples in the study, which flatters a study of very different samples and condemns one of similar ones. The usual 10% and 30% thresholds are industry convention, not law: your protocol governs. And a study of ten samples gives a rough part-to-part estimate, so a borderline verdict is genuinely borderline.',
+    where: 'Pick "Variance components, ANOVA & Gage R&R" from the selector at the top of the agent, then "Can my measurement system see it?".',
+    quiz: { q: 'A Gage R&R returns 8% of tolerance but only 3 distinct categories. What does that combination mean?', options: ['The study is contradictory and should be rerun', 'The method is fine against the specification, but the samples chosen were too alike to show it resolving much', 'The method cannot be used'], answer: 1, why: 'The two numbers answer different questions. Against the specification window — the decision that matters — the method only uses 8%. Distinct categories is a ratio against the spread of the samples in this study, so near-identical samples drive it down without saying anything about the instrument.' }
   });
 
   add({
