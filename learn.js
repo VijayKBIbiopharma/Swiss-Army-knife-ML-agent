@@ -1035,6 +1035,64 @@
   });
 
   add({
+    id: 'golden-batch', group: 'Six Sigma and process control', title: 'Golden batch: watching every sensor at once',
+    analogy: 'A doctor does not read your pulse, temperature and blood pressure on three separate days. Each can be normal on its own while the combination says you are ill. A batch is the same: thirty sensors, each inside its own limits, and the batch still going wrong.',
+    intro: 'Below are two sensors from a bioreactor. Drag the fault slider: both readings stay inside their own limits, but their relationship breaks. Watch the single combined number notice what the two separate charts miss.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-controls">' + slider('fault', 'How far the batch drifts', 0, 3, 0.1, 0) + slider('kind', 'Fault type: 0 = both drift together, 1 = they stop agreeing', 0, 1, 1, 1) + '</div><div class="cols2"><div data-role="scatter"></div><div data-role="bars"></div></div><p class="demo-read" data-role="read"></p>';
+      const draw = () => {
+        const fault = Number(q(el, 'fault').value), kind = Number(q(el, 'kind').value);
+        setOut(el, 'fault', fault.toFixed(1)); setOut(el, 'kind', kind);
+        const rand = E.rng(5);
+        // Good batches: temperature and dissolved oxygen move together, as they do in a real vessel.
+        const good = range(60).map(() => { const a = normal(rand); return { x: a + normal(rand) * 0.25, y: a + normal(rand) * 0.25 }; });
+        // Drift along the relationship, or across it.
+        const now = kind === 0 ? { x: fault, y: fault } : { x: fault * 0.75, y: -fault * 0.75 };
+        const lim = 2;   // each sensor's own limit, in standard deviations
+        const f = frame(330, 300, [-3.6, 3.6], [-3.6, 3.6], { xLabel: 'Temperature (sd from normal)', yLabel: 'Dissolved oxygen (sd from normal)' });
+        let b = f.axes;
+        [-lim, lim].forEach(v => {
+          b += '<line class="ref" x1="' + f.sx(v) + '" x2="' + f.sx(v) + '" y1="' + f.sy(-3.6) + '" y2="' + f.sy(3.6) + '"/>';
+          b += '<line class="ref" x1="' + f.sx(-3.6) + '" x2="' + f.sx(3.6) + '" y1="' + f.sy(v) + '" y2="' + f.sy(v) + '"/>';
+        });
+        good.forEach(p => { b += dot(f.sx(p.x), f.sy(p.y), 'pt small', 3); });
+        b += dot(f.sx(now.x), f.sy(now.y), 'query', 7);
+        q(el, 'scatter').innerHTML = svg(330, 300, 'Two sensors against each other', b) +
+          C.legend([{ label: 'good batches', cls: 'pt' }, { label: 'this moment', cls: 'query' }, { label: 'each sensor’s own limit', cls: 'ref', shape: 'square' }]);
+        // T-squared along the relationship, Q across it: the two numbers the tool reports.
+        const along = (now.x + now.y) / 2, across = (now.x - now.y) / 2;
+        const t2 = (along * along) / 1.06 * 2, qv = across * across * 2;
+        const t2lim = 9, qlim = 2.2;
+        const bars = [['Temperature alone', Math.abs(now.x), lim], ['Oxygen alone', Math.abs(now.y), lim], ['T² (both together)', t2, t2lim], ['Q (do they still agree)', qv, qlim]];
+        const W = 330, rowH = 52, H = bars.length * rowH + 16;
+        let bb = '';
+        bars.forEach(([name, val, limit], i) => {
+          const y = 18 + i * rowH, maxv = Math.max(limit * 2, val * 1.1), w = v => Math.max(1, v / maxv * (W - 150));
+          const over = val > limit;
+          bb += '<text x="0" y="' + (y + 4) + '" class="lbl-strong">' + h(name) + '</text>';
+          bb += '<rect x="145" y="' + (y - 8) + '" width="' + w(val) + '" height="16" rx="3" class="' + (over ? 'bar-bad' : 'bar-ok') + '"/>';
+          bb += '<line x1="' + (145 + w(limit)) + '" x2="' + (145 + w(limit)) + '" y1="' + (y - 13) + '" y2="' + (y + 13) + '" class="ref"/>';
+          bb += '<text x="' + (150 + w(Math.max(val, limit))) + '" y="' + (y + 4) + '">' + (over ? 'OVER' : 'ok') + '</text>';
+        });
+        q(el, 'bars').innerHTML = svg(W, H, 'Each sensor alone against the combined numbers', bb);
+        const singlesOk = Math.abs(now.x) <= lim && Math.abs(now.y) <= lim;
+        const combinedOver = t2 > t2lim || qv > qlim;
+        q(el, 'read').innerHTML = fault < 0.2 ? 'A normal moment: everything sits where good batches sat.'
+          : singlesOk && combinedOver
+            ? '<b class="warn">This is the case the tool exists for.</b> Both sensors are inside their own limits, so every single-sensor chart on the plant says fine &mdash; but ' + (kind === 1 ? 'they have stopped agreeing with each other, and <b>Q</b> has caught it. A probe drifting out of step with the vessel looks exactly like this.' : '<b>T²</b> has caught how far the pair has moved together.')
+            : combinedOver ? 'Far enough out that the single-sensor charts catch it too. The combined numbers caught it earlier.'
+              : 'Still inside everything. Drag further.';
+      };
+      q(el, 'fault').oninput = draw; q(el, 'kind').oninput = draw; draw();
+    },
+    steps: ['Line every batch up on how far through it they are, so a planned ramp is not mistaken for a fault.', 'From the batches you were happy with, work out the average path and the spread around it: the golden envelope.', 'Turn every reading into "how many standard deviations from the golden path at this moment", so all sensors are on one scale.', 'T² is how far this moment sits from the middle of normal, counting all sensors together. Q is whether the sensors still relate to each other the way they normally do.', 'Alarm limits come from reference batches held out of the model that scored them, so "99%" means a batch the model had never seen.'],
+    when: 'Any process with several sensors logging through a run: bioreactors, fermenters, chromatography skids, lyophilisers, filling lines.',
+    watch: 'The envelope is only as good as the batches you nominate. Nominate a bad batch as a reference and you teach it that bad is normal. Three batches is the bare minimum, ten is a working model, and more is better. And an alarm is not a root cause: it is a time, a sensor and an invitation to go and look.',
+    where: 'Pick "PCA & multivariate SPC" from the selector at the top of the agent.',
+    quiz: { q: 'Every sensor on a batch stayed inside its own alarm limits, but Q went over. What does that most likely mean?', options: ['A false alarm; the single-sensor charts are the real test', 'The sensors stopped relating to each other the way they normally do', 'The batch ran longer than usual'], answer: 1, why: 'Q measures whether the pattern between sensors still holds. Breaking that pattern while every individual reading stays in range is the classic signature of a drifting probe or a developing fault, and it is invisible on single-sensor charts.' }
+  });
+
+  add({
     id: 'equivalence', group: 'Six Sigma and process control', title: 'Equivalence (TOST): proving sameness, not just failing to find a difference',
     analogy: 'A jury verdict of "not guilty" is not the same as "innocent". An ordinary t-test can only fail to convict. TOST is the test that can actually acquit: it asks whether the difference is small enough to be beside the point.',
     intro: 'Run a t-test on two labs, get p = 0.42, and it is tempting to write "no significant difference, methods equivalent". That does not follow: a small, noisy study fails to find almost anything. TOST flips the question. You declare a margin first, then test both edges of it. Drag the margin and the scatter below and watch the two tests disagree.',

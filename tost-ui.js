@@ -258,7 +258,13 @@
     if (r.refStats.n < 6 || r.testStats.n < 6) notes.push('With ' + Math.min(r.refStats.n, r.testStats.n) + ' results in the smaller method, the interval is wide whatever the truth is. Treat the verdict as provisional.');
     notes.push('The margin is a decision, not a statistic: it has to be set from what matters to the product before the data is seen, not chosen afterwards to get a pass.');
 
+    const plainText = {
+      equivalent: 'The two methods agree closely enough to treat as interchangeable. The difference could be anywhere from ' + f3(r.ciLow) + ' to ' + f3(r.ciHigh) + ', and the whole of that range sits inside the ±' + f3(r.margin) + ' you declared acceptable before looking at the data.',
+      different: 'These methods do not agree. The difference is around ' + f3(r.diff) + ', which is larger than the ±' + f3(r.margin) + ' you were willing to accept. More data will not change that; something real is different and needs investigating.',
+      inconclusive: 'This study cannot answer the question either way. The difference could be as much as ' + f3(Math.max(Math.abs(r.ciLow), Math.abs(r.ciHigh))) + ', which is outside your ±' + f3(r.margin) + ' margin, but it could also be zero. That is a sign of too little data rather than a real problem' + (r.needed ? ', and about ' + r.needed + ' results per method would settle it' : '') + '. Do not record this as "no significant difference, therefore equivalent" — that is the mistake this test exists to prevent.'
+    }[r.verdict];
     $('eq-out').innerHTML = '<div class="card eq-result"><h3>Equivalence result</h3>' +
+      '<div class="plain ' + badge[0] + '"><h4>In plain English</h4><p>' + h(plainText) + '</p></div>' +
       '<p class="sub-head"><span class="verdict ' + badge[0] + '">' + badge[1] + '</span> ' + h(headline) + '</p>' +
       '<div class="tiles">' + tiles + '</div>' +
       '<div id="eq-chart"></div><div id="eq-points"></div>' + stats + tests +

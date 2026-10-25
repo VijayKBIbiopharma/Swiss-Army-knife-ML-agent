@@ -190,7 +190,14 @@
     if (r.limiting.df < 6) notes.push('Only ' + r.limiting.df + ' degrees of freedom for error: the confidence limit is wide and the estimate is soft. More time points would tighten it.');
     if (r.batches.length < 3) notes.push('ICH Q1A/Q1E expects at least three primary batches for a registration shelf life. This study has ' + r.batches.length + '.');
 
+    const plainTone = r.startsOutOfSpec ? 'not' : r.capped ? 'marginal' : 'capable';
+    const plainText = r.startsOutOfSpec
+      ? 'This material is already outside its specification at time zero, so no shelf life can be set from it. Check the specification limits and the units before reading anything else here.'
+      : 'On this data you can support a shelf life of about ' + f2(r.reported) + ' months. That is not where the average batch crosses the limit — it is where you can still be confident it has not, which is what the guideline requires and is always the earlier date. ' +
+        (r.model === 'C' ? 'The batches behaved alike, so they were pooled into one trend.' : 'The batches differed, so they were kept apart and the worst one set the date.') +
+        (r.capped ? ' The statistics alone suggested ' + f2(r.shelfLife) + ' months, but you only have ' + f2(r.maxTime) + ' months of data, so the claim is capped at ' + f2(r.allowed) + '.' : '');
     $('stab-out').innerHTML = '<div class="card stab-result"><h3>Shelf-life estimate</h3>' +
+      '<div class="plain ' + plainTone + '"><h4>In plain English</h4><p>' + h(plainText) + '</p></div>' +
       '<p class="sub-head"><span class="verdict ' + verdictClass + '">' + h(headline) + '</span></p>' +
       '<div class="tiles">' + tiles + '</div>' +
       '<div id="stab-chart"></div>' + tests + perBatch +

@@ -96,6 +96,14 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Finish with **Example: a real bias**: a 3.9-unit shift against a 2-unit margin, **Fail**, with the note that no amount of extra data fixes it.
 - If someone asks *"our two labs send separate spreadsheets"*: switch **How is the data laid out?** to **Two files**, and drop one export into each box. They do not need matching column names or row order &mdash; the tool finds the result column in each, and pairs on the sample identifier across the two files.
 
+## 4f. Catching a batch going wrong (3 minutes, the one process people lean forward for)
+- Pick **PCA & multivariate SPC (golden batch)** and press **Load an example campaign**: 13 batches, 14 days each, five sensors.
+- Untick **B-2411**, **B-2412** and **B-2413** as references &mdash; those are the ones being judged &mdash; and run it.
+- The table triages the campaign: ten reference batches normal, three flagged, each with the hour it went off and the sensor to blame.
+- Open **B-2413**. This is the slide. **T&sup2; never crosses its limit** &mdash; every sensor stayed inside its own range all run. But **Q goes through the roof from hour 131**, and the table underneath says pH owns **80%** of it. The pH probe drifted out of step with the vessel. *"Not one single-sensor chart on the plant would have caught this."*
+- Then open **B-2411**: dissolved oxygen sliding away from day seven, flagged at hour 222, 25 of 60 checkpoints outside.
+- Talking point: *"Thirty sensors is thirty charts nobody reads. This is one line per batch, and when it moves it tells you which sensor and which hour."*
+
 ## 5. Finding groups with no target: penguins (1 minute)
 - Drag `penguins.csv`, choose **Nothing: find groups and patterns**, run.
 - Show the groups chart and profiles: one group is entirely Gentoo penguins on Biscoe island. The agent found the species without being told.

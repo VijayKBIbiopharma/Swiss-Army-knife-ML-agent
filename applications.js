@@ -31,6 +31,18 @@
         { name: 'Filings and claims', text: 'Shelf life with the extrapolation limits the guideline sets, poolability evidence on file, condition-by-condition reporting, expiry maintained as commercial data accrues.' }
       ]
     },
+    golden: {
+      tech: 'Principal component analysis and multivariate statistical process control (Hotelling T², Q residuals)',
+      scope: 'In this tool: time-series readings from several sensors across many batches, aligned on how far through the batch each reading was.',
+      groups: [
+        { name: 'Live batch monitoring', text: 'A running batch compared against the path good ones took, drift caught during the run rather than in the deviation report, the sensor to blame named as it strays, hours of warning instead of hindsight.' },
+        { name: 'Campaign review', text: 'A whole campaign triaged in one table, the unusual batches picked out for review, release supported by how far each batch sat from normal, trends across a campaign rather than one run.' },
+        { name: 'Deviation investigation', text: 'The hour a batch went off, the sensors that moved together, whether that pattern ever appeared in a good run, a starting point instead of the whole batch record.' },
+        { name: 'Scale-up and transfer', text: 'At-scale batches scored against the scale-down envelope, a receiving site compared with the sending site, a new line judged against the qualified one, trajectories compared rather than endpoints.' },
+        { name: 'Probe and equipment health', text: 'A sensor drifting out of step with the rest of the vessel, a seal or valve degrading, calibration slipping between services, all visible before the reading itself leaves its own limits.' },
+        { name: 'Why one number beats thirty charts', note: true, text: 'A batch can sit inside every single sensor limit and still be wrong, because what went wrong was the combination: temperature a little high while dissolved oxygen ran low and feed lagged. Thirty charts cannot show a combination. T² is that combination as one line, and Q catches the case where the sensors stop agreeing with each other at all.' }
+      ]
+    },
     equivalence: {
       tech: 'Equivalence and non-inferiority testing by two one-sided tests (TOST)',
       scope: 'In this tool: results from two methods, labs, instruments or analysts, against a margin you set first.',
@@ -228,6 +240,16 @@
       mfg: 'In-process hold limits and material usable life, set from data and auditable afterwards.',
       qc: 'The stability programme itself: per-condition trend fits, poolability, expiry updated as the study matures.',
       qa: 'Shelf-life claims with the extrapolation limits documented and the poolability evidence on file.'
+    },
+    golden: {
+      cld: 'Screening runs compared against the pattern good clones produced, so an odd one is spotted before it reaches the bioreactor.',
+      uspd: 'The core use: every bioreactor or fermenter run scored against the path good batches took, with the sensor to blame named at the hour it drifts.',
+      dspd: 'Chromatography and filtration profiles compared run to run, so a column or membrane degrading shows up before the pool fails its test.',
+      afs: 'Instrument traces compared against normal, flagging the runs where the detector, column or sample handling behaved unlike any good sequence.',
+      msat: 'At-scale batches scored against the scale-down envelope, and a receiving site against the sending site, on trajectories rather than endpoints.',
+      mfg: 'A running batch watched against the envelope of good ones, with hours of warning instead of a deviation report after the fact.',
+      qc: 'Analytical sequences and system suitability trends watched together, separating a real shift from ordinary instrument scatter.',
+      qa: 'Campaign review with every batch triaged in one table, and an investigation that starts from the hour and the sensor rather than from the whole record.'
     },
     equivalence: {
       cld: 'A new clone or strain shown comparable to the one it replaces, within a margin set in advance.',

@@ -296,6 +296,37 @@
     const el = d.firstElementChild; parent.appendChild(el); return el;
   }
 
+  /* The paragraph somebody reads instead of the charts. Everything below it is the evidence;
+     this is the finding. Written so it survives being pasted into an email on its own. */
+  function plainSummary(rep) {
+    let head = '', text = '';
+    if (rep.task === 'clustering') {
+      const c = rep.clustering;
+      head = c.k + ' natural groups';
+      text = 'Without being told what to look for, the agent found ' + c.k + ' groups in these ' + rep.profile.nRows.toLocaleString() + ' rows' +
+        (c.silhouette >= 0.5 ? ', and they separate cleanly' : ', though they overlap, so treat the split as a hint rather than a fact') + '. ' +
+        (c.outliers.length ? c.outliers.length + ' row' + (c.outliers.length === 1 ? ' sits' : 's sit') + ' far from every group and may be worth checking individually.' : 'No rows sat far outside every group.');
+    } else {
+      const b = rep.best, reg = rep.task === 'regression';
+      const score = reg ? Math.max(0, b.metrics.r2) : b.metrics.accuracy;
+      const strength = score >= 0.8 ? 'strong' : score >= 0.5 ? 'moderate' : 'weak';
+      const top = rep.importance && rep.importance.length ? rep.importance[0] : null;
+      const act = rep.actionPlan && rep.actionPlan.items && rep.actionPlan.items.length ? rep.actionPlan.items[0] : null;
+      head = strength === 'weak' ? 'The data cannot explain this yet' : 'What drives ' + rep.target;
+      text = reg
+        ? 'Using ' + rep.features.length + ' input' + (rep.features.length === 1 ? '' : 's') + ' from ' + (rep.nUsed || rep.profile.nRows).toLocaleString() + ' rows, the agent can account for ' + pct(score) + ' of why ' + rep.target + ' varies, which is a ' + strength + ' result.'
+        : 'Using ' + rep.features.length + ' input' + (rep.features.length === 1 ? '' : 's') + ' from ' + (rep.nUsed || rep.profile.nRows).toLocaleString() + ' rows, the agent predicts ' + rep.target + ' correctly ' + pct(score) + ' of the time on cases it had never seen, which is a ' + strength + ' result.';
+      if (top) text += ' The single biggest influence is ' + top.name + ', accounting for ' + pct(top.share) + ' of what the model relies on.';
+      if (act && strength !== 'weak') {
+        const a = act.text.replace(/\s*\.\s*$/, '');
+        text += ' The first thing to try: ' + a.charAt(0).toLowerCase() + a.slice(1) + '.';
+      }
+      if (strength === 'weak') text += ' That usually means the things that really matter were not measured, rather than that nothing matters. The designed experiment below is the way to find out.';
+    }
+    const tone = rep.task === 'clustering' ? '' : (rep.best && (rep.task === 'regression' ? Math.max(0, rep.best.metrics.r2) : rep.best.metrics.accuracy) >= 0.5 ? ' capable' : ' marginal');
+    return '<div class="plain' + tone + '"><h4>' + h(head) + '</h4><p>' + h(text) + '</p></div>';
+  }
+
   // quiet: re-draw in place (after changing the target class) without scrolling or redoing the DOE.
   function renderResults(rep, quiet) {
     const tiles = [];
@@ -321,7 +352,7 @@
       const a = rep.spc.attribute;
       tiles.push(tile('Sigma level', a.sigmaLevel.toFixed(1) + ' σ', fmt(a.dpmo, 0) + ' defects per million · yield ' + pct(a.yield)));
     }
-    $('tiles').innerHTML = tiles.join('');
+    $('tiles').innerHTML = plainSummary(rep) + tiles.join('');
     renderPlan(rep);
     renderSimulator(rep);
     $('insights').innerHTML = rep.insights.map(i => '<li class="' + i.level + '">' + h(i.text) + '</li>').join('');
@@ -1018,6 +1049,11 @@
       P.h1('ML Agent report');
       P.muted(state.name + ' · ' + rep.profile.nRows.toLocaleString() + ' rows × ' + rep.profile.nCols + ' columns · ' + (rep.target ? 'target: ' + rep.target : 'no target (unsupervised)') + ' · ' + new Date().toLocaleString());
       P.space(4);
+      const plain = document.querySelector('#tiles .plain');
+      if (plain) {
+        P.h2(plain.querySelector('h4').textContent);
+        P.p(plain.querySelector('p').textContent, { gap: 8 });
+      }
       document.querySelectorAll('#tiles .tile').forEach(t => {
         const badge = t.querySelector('.risk-badge');
         P.p(t.querySelector('.lbl').textContent + ': ' + t.querySelector('.val').textContent, { bold: true, size: 10.5, gap: 0 }).muted(t.querySelector('.sub').textContent, { gap: badge ? 1 : 4 });
@@ -1107,7 +1143,7 @@
     const header = ['Scenario'].concat(sim.drivers.map(d => d.name), [rep.task === 'classification' ? 'Chance of ' + A.classLabel(rep) : 'Predicted ' + rep.target], rep.desirability ? ['Overall D'] : []);
     return { header, rows: rows.map(r => [r.name].concat(sim.drivers.map(d => r.values[d.name]), [Number(r.score.toPrecision(6))], rep.desirability ? [Number(r.D.toPrecision(4))] : [])) };
   }
-  const auditContext = () => ({ sources: state.sources, merge: state.merge, options: state.runOptions, when: state.runAt, scenarios: scenarioTable(), design: state.design, table: state.table, stability: window.MLStabilityRun, tost: window.MLTostRun });
+  const auditContext = () => ({ sources: state.sources, merge: state.merge, options: state.runOptions, when: state.runAt, scenarios: scenarioTable(), design: state.design, table: state.table, stability: window.MLStabilityRun, tost: window.MLTostRun, golden: window.MLGoldenRun });
   const workbook = rep => AU.xlsx(AU.sheets(rep, auditContext()), { title: 'ML Agent results: ' + state.name });
   function saveExcel() {
     const rep = state.report; if (!rep) return;
@@ -1189,6 +1225,7 @@
     if (window.MLSeq) window.MLSeq.clear();
     if (window.MLStab) window.MLStab.clear();
     if (window.MLEquiv) window.MLEquiv.clear();
+    if (window.MLGoldenUI) window.MLGoldenUI.clear();
     foldPanels();
     $('sim').innerHTML = ''; $('sim').hidden = true;
     $('paste').value = ''; $('file').value = '';
@@ -1219,6 +1256,7 @@
   const TOOLS = {
     analyze: 'Regression, classification, clustering and neural networks on a table of data, with the drivers named in plain English and the next experiment designed for you.',
     stability: 'Fit a trend against time, test whether batches may be pooled, and take the date off the confidence limit rather than the fitted line.',
+    golden: 'Learn the path your good batches follow, then watch any batch against it: one number for all sensors at once, and the sensor to blame when it drifts.',
     equivalence: 'Two one-sided tests: show that a new lab, instrument or supplier agrees with the old one, within a margin you declare first.',
     sequence: 'A genetic algorithm searching several competing objectives at once, pointed here at codon optimization.',
     privacy: 'How the tool keeps your data on your own device, and how to check that for yourself.'

@@ -1034,16 +1034,21 @@
     const order = range(n).sort((a, b) => vals[b] - vals[a]);
     return { values: order.map(i => vals[i]), vectors: order.map(i => V.map(r => r[i])) };
   }
-  function pca(X) {
+  /* Principal components. k defaults to 2 (the scatter plots); multivariate process control
+     asks for more, and for the eigenvalues, since Hotelling's T-squared divides each score by
+     the variance that component normally has. */
+  function pca(X, k) {
     const n = X.length, p = X[0].length;
     const m = range(p).map(j => mean(X.map(r => r[j])));
     const Xc = X.map(r => r.map((v, j) => v - m[j]));
     const S = gram(Xc).map(r => r.map(v => v / Math.max(1, n - 1)));
     const eig = jacobiEigen(S);
     const total = eig.values.reduce((a, b) => a + Math.max(0, b), 0) || 1;
-    const comps = eig.vectors.slice(0, 2);
+    const comps = eig.vectors.slice(0, Math.max(1, Math.min(k || 2, p)));
     return {
       explained: eig.values.map(v => Math.max(0, v) / total),
+      values: eig.values.map(v => Math.max(0, v)),
+      center: m,
       loadings: comps,
       scores: Xc.map(r => comps.map(c => c.reduce((s, w, j) => s + w * r[j], 0)))
     };

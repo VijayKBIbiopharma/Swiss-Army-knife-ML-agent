@@ -1012,3 +1012,152 @@ test('every tool has an applications write-up, and none of it overclaims', () =>
   // The selector is named by technology, not by one industry's use case.
   for (const bad of ['Chromatography', 'Bioreactor', 'Densitometer']) assert.ok(!new RegExp('<option[^>]*>[^<]*' + bad).test(html), 'selector should not name a specific application: ' + bad);
 });
+
+const GB = require(path.join(ROOT, 'golden.js'));
+/* A fed-batch campaign: temperature ramps down, oxygen falls, feed ramps up — all planned.
+
+   Crucially the batch-to-batch deviations are CORRELATED, through a per-batch "vigour"
+   factor: a batch whose culture grows faster runs slightly warmer, pulls oxygen down and
+   takes more feed. That correlation is the whole reason a multivariate model beats a wall of
+   single-sensor charts, and without it PCA has no structure to find and Q means nothing.
+   Faults are injected at a known hour so detection can be measured rather than admired. */
+function campaign(seed, opt) {
+  opt = opt || {};
+  const r = E.rng(seed);
+  const N = () => { const u = Math.max(1e-12, r()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+  const recs = [], ref = [];
+  const one = (id, fault, hours, fixedVigour) => {
+    /* A faulted batch is given an ordinary vigour on purpose. Left to chance it can draw an
+       extreme one and be abnormal from hour zero for a reason that has nothing to do with the
+       injected fault — true of the process, but it would mean the test was measuring two
+       things at once. */
+    const vigour = fixedVigour === undefined ? N() : fixedVigour;
+    const end = hours || 336;
+    for (let hh = 0; hh <= end; hh += 6) {
+      const f = hh / end;                     // position through the batch, 0 to 1
+      let temp = 37 - 0.8 * f + 0.08 * vigour + N() * 0.04;
+      let dO = 55 - 20 * f - 2.2 * vigour + N() * 0.5;
+      let ph = 7.05 - 0.1 * f - 0.03 * vigour + N() * 0.012;
+      const feed = 2 + 10 * f + 0.45 * vigour + N() * 0.08;
+      const agit = 120 + 30 * f + 1.1 * vigour + N() * 0.6;
+      if (fault === 'do' && hh >= 168) dO -= 0.09 * (hh - 168);
+      if (fault === 'temp' && hh >= 240 && hh <= 270) temp += 1.2;
+      if (fault === 'probe' && hh >= 120) ph += 0.22;
+      recs.push({ batch: id, time: hh, vars: { Temp_C: temp, DO_Pct: dO, pH: ph, Feed: feed, Agit: agit } });
+    }
+  };
+  const nGood = opt.good || 10;
+  for (let i = 1; i <= nGood; i++) {
+    const id = 'B-' + String(i).padStart(2, '0');
+    ref.push(id);
+    // Batches of differing length, when asked for: the case percent alignment exists to handle.
+    one(id, null, opt.varyLength ? 300 + Math.round((i % 5) * 18) : 336);
+  }
+  (opt.faults || ['do', 'temp', 'probe']).forEach(fl => one('F-' + fl, fl, opt.varyLength ? 330 : 336, 0.25));
+  return { recs, ref, variables: ['Temp_C', 'DO_Pct', 'pH', 'Feed', 'Agit'] };
+}
+const ONSET = { 'F-do': 168, 'F-temp': 240, 'F-probe': 120 };
+
+test('golden batch: resampling onto a shared grid never invents data', () => {
+  // Linear between known points, and nothing outside the range the batch actually covers.
+  const out = GB.resample([0, 10, 20], [0, 10, 0], [-5, 0, 5, 10, 15, 20, 25]);
+  assert.deepStrictEqual(out, [null, 0, 5, 10, 5, 0, null]);
+  assert.deepStrictEqual(GB.resample([0], [1], [0, 1]), [null, null], 'one point cannot make a trajectory');
+});
+
+test('golden batch: faults are caught, and good batches are left alone', () => {
+  const { recs, ref, variables } = campaign(9);
+  const r = GB.analyze(recs, { variables, reference: ref });
+  assert.ok(r.components >= 1 && r.components < variables.length, 'Q needs components left over: ' + r.components);
+  assert.ok(r.varianceCovered >= 0.8, 'components should carry most of normal variation');
+  assert.strictEqual(r.calibration, 'held-out reference batches');
+
+  const byName = {};
+  r.summary.forEach(s => { byName[s.name] = s; });
+  for (const f of ['F-do', 'F-temp', 'F-probe']) {
+    assert.strictEqual(byName[f].verdict, 'alarm', f + ' should alarm');
+    assert.ok(byName[f].alarmAt >= ONSET[f] - 6, f + ' alarmed at ' + byName[f].alarmAt + ', before its fault began at ' + ONSET[f]);
+    assert.ok(byName[f].alarmAt <= ONSET[f] + 72, f + ' took until ' + byName[f].alarmAt + ' to notice a fault starting at ' + ONSET[f]);
+  }
+  // Each fault is blamed on the sensor that actually moved.
+  assert.strictEqual(byName['F-do'].alarmBy, 'DO_Pct');
+  assert.strictEqual(byName['F-probe'].alarmBy, 'pH');
+  // And the good batches are, overwhelmingly, left alone.
+  const good = r.summary.filter(s => s.isRef);
+  assert.strictEqual(good.length, 10);
+  assert.ok(good.filter(s => s.verdict === 'alarm').length <= 1, good.filter(s => s.verdict === 'alarm').length + ' of 10 good batches false-alarmed');
+});
+
+test('golden batch: limits are calibrated out of sample, not on the batches that built them', () => {
+  /* The bug this guards: scoring a batch against an envelope it helped draw makes it look
+     unnaturally good, so a limit taken from those same scores is far too tight and every
+     batch the model has not seen trips it. Across several campaigns the false-alarm rate on
+     known-good batches has to stay near the limit's promise, not at 100%. */
+  let falseAlarms = 0, goodBatches = 0, caught = 0, faults = 0;
+  for (const seed of [9, 17, 23, 41, 55]) {
+    const { recs, ref, variables } = campaign(seed);
+    const r = GB.analyze(recs, { variables, reference: ref });
+    r.summary.forEach(s => {
+      if (s.isRef) { goodBatches++; if (s.verdict === 'alarm') falseAlarms++; }
+      else { faults++; if (s.verdict === 'alarm') caught++; }
+    });
+  }
+  assert.strictEqual(goodBatches, 50);
+  assert.strictEqual(faults, 15);
+  assert.strictEqual(caught, 15, 'every injected fault must be caught');
+  assert.ok(falseAlarms <= 3, falseAlarms + ' of 50 known-good batches false-alarmed');
+});
+
+test('golden batch: a reference batch is scored by a model built without it', () => {
+  const { recs, ref, variables } = campaign(9);
+  const r = GB.analyze(recs, { variables, reference: ref });
+  const held = r.scoreBatch(ref[0]);
+  assert.ok(held.isRef);
+  // Its envelope must come from the other nine, so the mean at a point differs from the
+  // all-ten envelope the non-reference batches are scored against.
+  const all = r.scoreBatch('F-do');
+  const diff = Math.abs(held.env[0][30].mean - all.env[0][30].mean);
+  assert.ok(diff > 0, 'a held-out batch should not be scored against an envelope it helped draw');
+  // Everyone shares the same limits, so the numbers on screen compare.
+  assert.ok(Math.abs(held.t2Limit - all.t2Limit) < 1e-9 && Math.abs(held.qLimit - all.qLimit) < 1e-9);
+});
+
+test('golden batch: T-squared and Q measure different things', () => {
+  const { recs, ref, variables } = campaign(9);
+  const r = GB.analyze(recs, { variables, reference: ref });
+  // The drifting pH probe breaks the relationship between sensors, which is Q's job.
+  const probe = r.scoreBatch('F-probe');
+  const late = probe.points.filter(p => p && p.t >= 160);
+  assert.ok(late.some(p => p.overQ), 'a probe drifting out of step should raise Q');
+  const worstQ = late.reduce((a, p) => (p.q > a.q ? p : a), late[0]);
+  const share = worstQ.residuals.map((v, j) => ({ name: variables[j], s: v * v / worstQ.q })).sort((a, b) => b.s - a.s)[0];
+  assert.strictEqual(share.name, 'pH', 'pH should own most of the residual, not ' + share.name);
+  // Both numbers are non-negative by construction.
+  r.summary.forEach(s => { assert.ok(s.maxT2 >= 0 && s.maxQ >= 0); });
+});
+
+test('golden batch: input problems are explained, not crashed on', () => {
+  const { recs, ref, variables } = campaign(9);
+  assert.throws(() => GB.analyze(recs, { variables: ['Temp_C'], reference: ref }), /at least 2 process variables/);
+  assert.throws(() => GB.analyze(recs.filter(r => r.batch === 'B-01'), { variables, reference: ['B-01'] }), /At least 3/);
+  assert.throws(() => GB.analyze(recs, { variables, reference: ref.slice(0, 2) }), /at least 3 reference batches/i);
+  assert.throws(() => GB.analyze([], { variables, reference: ref }), /numeric time/);
+  // Blank and non-numeric readings are dropped rather than read as zero.
+  const dirty = recs.concat([{ batch: 'B-01', time: 999, vars: { Temp_C: null, DO_Pct: '', pH: 'n/a', Feed: 1, Agit: 1 } }]);
+  const r = GB.analyze(dirty, { variables, reference: ref });
+  assert.ok(r.summary.every(s => s.maxT2 < 1e6), 'a blank reading must not become a zero and blow up the model');
+});
+
+test('golden batch: batches of different lengths can be aligned on percent', () => {
+  /* When batches genuinely run to different lengths, hour 200 of a 300-hour batch and hour
+     200 of a 370-hour batch are different points in the process. Percent alignment compares
+     like with like; absolute time can only reach as far as the shortest reference batch. */
+  const { recs, ref, variables } = campaign(9, { varyLength: true });
+  const byTime = GB.analyze(recs, { variables, reference: ref });
+  const byPct = GB.analyze(recs, { variables, reference: ref, align: 'percent' });
+  assert.ok(byTime.gridHi <= 300, 'absolute alignment stops at the shortest reference batch: ' + byTime.gridHi);
+  assert.strictEqual(byPct.gridLo, 0);
+  assert.strictEqual(byPct.gridHi, 100);
+  assert.strictEqual(byPct.summary.find(s => s.name === 'F-do').verdict, 'alarm', 'the fault should still be caught on percent alignment');
+  assert.ok(byPct.summary.filter(s => s.isRef && s.verdict === 'alarm').length <= 1, 'percent alignment should not start false-alarming on good batches');
+});

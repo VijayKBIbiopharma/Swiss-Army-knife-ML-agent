@@ -35,6 +35,7 @@
       <select id="tool">
         <option value="analyze">Machine learning &amp; design of experiments</option>
         <option value="stability">Linear regression &amp; confidence limits (ICH Q1E)</option>
+        <option value="golden">PCA &amp; multivariate SPC (golden batch)</option>
         <option value="equivalence">Equivalence &amp; non-inferiority testing (TOST)</option>
         <option value="sequence">Genetic algorithms &amp; multi-objective optimization</option>
         <option value="privacy">Privacy &amp; data handling</option>
@@ -291,6 +292,90 @@
   </section>
   </div>
 
+  <div class="tabpanel" id="tab-golden" role="tabpanel" aria-labelledby="tab-btn-golden" hidden>
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow">PCA &middot; Hotelling's T&sup2; &middot; Q residuals</p>
+      <h1>Is this batch following the path the good ones took?</h1>
+      <p class="lede">Thirty sensors means thirty charts, and a batch can sit inside every one of them and still be going wrong. This learns the path your good batches follow, watches a new one against it, and names the sensor to blame &mdash; in hours, rather than in the deviation report.</p>
+    </div>
+  </section>
+
+  <section class="wrap step" id="golden">
+    <div class="step-head"><h2>Batch time-series data</h2></div>
+    <div class="card">
+      <p class="summary">One row per reading: which batch, how far into the batch it was, and the sensor values at that moment. <a class="learn-link" href="learn.html#golden-batch" target="_blank" rel="noopener noreferrer">Learn how this works &#8599;</a></p>
+      <div class="row-actions">
+        <button class="btn ghost small" id="gb-sample" type="button">Load an example campaign</button>
+        <button class="btn ghost small" id="gb-clear" type="button">Clear</button>
+      </div>
+      <details class="shape" id="gb-shape">
+        <summary>What the data should look like</summary>
+        <div class="shape-body">
+          <p class="hint">A long table, not a wide one: each row is one timestamp from one batch. Most historians export this shape directly.</p>
+          <div class="table-scroll"><table class="shape-table"><thead><tr><th>BatchID</th><th>Hours</th><th>Temp_C</th><th>DO_Pct</th><th>pH</th><th>Feed_mL_h</th></tr></thead>
+            <tbody>
+              <tr><td>B-2401</td><td>0</td><td>37.0</td><td>55.2</td><td>7.05</td><td>2.0</td></tr>
+              <tr><td>B-2401</td><td>6</td><td>37.0</td><td>54.1</td><td>7.04</td><td>2.2</td></tr>
+              <tr><td>B-2401</td><td>12</td><td>36.9</td><td>53.4</td><td>7.04</td><td>2.4</td></tr>
+              <tr class="dim"><td colspan="6">&hellip; to the end of that batch, then the next BatchID</td></tr>
+            </tbody></table></div>
+          <p class="hint">Readings need not line up between batches: different intervals and different batch lengths are handled. Three batches is the bare minimum; ten or more makes the envelope mean something.</p>
+        </div>
+      </details>
+      <label class="full" for="gb-data">Readings (CSV or tab separated, with a header row)</label>
+      <textarea id="gb-data" rows="6" spellcheck="false" placeholder="BatchID,Hours,Temp_C,DO_Pct,pH&#10;B-2401,0,37.0,55.2,7.05&#10;B-2401,6,37.0,54.1,7.04"></textarea>
+      <input type="file" id="gb-file" accept=".csv,.tsv,.txt" class="file-input">
+      <p class="hint" id="gb-read" aria-live="polite"></p>
+      <div id="gb-settings" hidden>
+        <div class="controls">
+          <label>Batch column <select id="gb-batch"></select></label>
+          <label>Time column <select id="gb-time"></select></label>
+          <label>Align batches on
+            <select id="gb-align">
+              <option value="time" selected>Actual elapsed time</option>
+              <option value="percent">Percent of batch length</option>
+            </select>
+          </label>
+        </div>
+        <fieldset class="avoid">
+          <legend>Sensors to watch together</legend>
+          <div id="gb-vars" class="chips"></div>
+        </fieldset>
+        <fieldset class="avoid">
+          <legend>Reference batches &mdash; the runs you were happy with</legend>
+          <div id="gb-refs" class="chips"></div>
+          <p class="hint" id="gb-ref-note"></p>
+        </fieldset>
+        <details class="advanced">
+          <summary>Advanced settings</summary>
+          <div class="controls">
+            <label>Alarm limit
+              <select id="gb-limit">
+                <option value="0.99" selected>99% of good readings inside</option>
+                <option value="0.95">95% of good readings inside</option>
+                <option value="0.999">99.9% of good readings inside</option>
+              </select>
+            </label>
+            <label>Points in a row before alarming
+              <input id="gb-minrun" type="number" min="1" max="10" value="3">
+            </label>
+            <label>Points on the time grid
+              <input id="gb-grid" type="number" min="10" max="400" step="10" value="60">
+            </label>
+          </div>
+          <p class="hint">Limits are calibrated on reference batches held out of the model that scored them, so "99%" means a batch the model had never seen before. Requiring three points in a row stops one twitchy reading raising an alarm.</p>
+        </details>
+        <div class="row-actions">
+          <button class="btn primary" id="gb-run" type="button">Check the batches</button>
+        </div>
+      </div>
+      <p class="error" id="gb-error" role="alert" hidden></p>
+      <div id="gb-out"></div>
+    </div>
+  </section>
+  </div>
+
   <div class="tabpanel" id="tab-equivalence" role="tabpanel" aria-labelledby="tab-btn-equivalence" hidden>
   <section class="hero">
     <div class="wrap">
@@ -536,8 +621,10 @@
 <script src="explain.js"></script>
 <script src="pdf.js"></script>
 <script src="app.js"></script>
+<script src="golden.js"></script>
 <script src="tost.js"></script>
 <script src="stab.js"></script>
+<script src="golden-ui.js"></script>
 <script src="tost-ui.js"></script>
 <script src="seq.js"></script>
 </body>

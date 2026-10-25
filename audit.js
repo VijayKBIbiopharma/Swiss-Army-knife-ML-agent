@@ -169,6 +169,11 @@
       analysis.push(['Shelf life (ICH Q1E)', 'Reported ' + st.reported.toFixed(2) + ' months (statistical ' + st.shelfLife.toFixed(2) + (st.capped ? ', capped by the extrapolation rule' : '') + ')']);
       analysis.push(['Shelf-life basis', st.modelLabel + '; ' + Math.round(st.confidence * 100) + '% one-sided limit against ' + (st.lsl !== null ? 'LSL ' + st.lsl : '') + (st.lsl !== null && st.usl !== null ? ' and ' : '') + (st.usl !== null ? 'USL ' + st.usl : '') + '; pooling tested at ' + st.poolAlpha + '; limiting batch ' + st.limiting]);
     }
+    if (ctx.golden) {
+      const g = ctx.golden;
+      const bad = g.batches.filter(b => b.verdict === 'alarm');
+      analysis.push(['Multivariate batch monitoring', g.batches.length + ' batches against ' + g.reference.length + ' reference batches on ' + g.variables.length + ' sensors; ' + g.components + ' components covering ' + Math.round(g.varianceCovered * 100) + '% of normal variation; ' + bad.length + ' flagged' + (bad.length ? ' (' + bad.map(b => b.name).join(', ') + ')' : '')]);
+    }
     if (ctx.tost) {
       const tt = ctx.tost;
       analysis.push(['Method equivalence (TOST)', tt.test + ' vs ' + tt.reference + ': ' + tt.verdict + ', difference ' + r4(tt.diff) + ' with a ' + Math.round(tt.confidence * 100) + '% interval of ' + r4(tt.ciLow) + ' to ' + r4(tt.ciHigh) + ' against a margin of ' + r4(tt.margin)]);
@@ -242,6 +247,18 @@
       rows.push([], ['Batch', 'Points', 'First month', 'Last month', 'Slope per month', 'Value at t=0', 'R2', 'Shelf life alone']);
       st.batches.forEach(b => rows.push([b.name, b.n, r4(b.first), r4(b.last), r4(b.slope), r4(b.intercept), r4(b.r2), r4(b.alone)]));
       out.push({ name: 'Shelf life', rows });
+    }
+    if (ctx.golden) {
+      const g = ctx.golden;
+      const rows = [['Item', 'Value'], ['Run at', g.when], ['Batch column', g.columns.batch], ['Time column', g.columns.time],
+        ['Sensors', g.variables.join('; ')], ['Reference batches', g.reference.join('; ')],
+        ['Aligned on', g.align === 'percent' ? 'percent of batch length' : 'elapsed time'],
+        ['Principal components', g.components], ['Normal variation covered', r4(g.varianceCovered)],
+        ['Alarm limit', g.limit], ['Limits calibrated on', g.calibration],
+        ['T2 limit', r4(g.t2Limit)], ['Q limit', r4(g.qLimit)], [],
+        ['Batch', 'Reference', 'Verdict', 'Points out', 'Points scored', 'Alarm at', 'Driven by', 'Worst T2', 'Worst Q']];
+      g.batches.forEach(b => rows.push([b.name, b.isRef ? 'yes' : 'no', b.verdict, b.flagged, b.scored, b.alarmAt === null ? '' : r4(b.alarmAt), b.alarmBy || '', r4(b.maxT2), r4(b.maxQ)]));
+      out.push({ name: 'Batch monitoring', rows });
     }
     if (ctx.tost) {
       const tt = ctx.tost;
