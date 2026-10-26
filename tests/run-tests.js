@@ -2003,3 +2003,74 @@ test('several models are reported, not just the winner, and agreement is measure
     assert.ok(noise.best.metrics.r2 < 0.3, 'a confident consensus on noise would be a bug: r2 ' + noise.best.metrics.r2);
   }
 });
+
+const FOLD = require(path.join(ROOT, 'fold.js'));
+
+test('folding produces a valid, nested secondary structure', () => {
+  const valid = db => {
+    const st = [];
+    for (const c of db) { if (c === '(') st.push(1); else if (c === ')') { if (!st.length) return false; st.pop(); } }
+    return st.length === 0;
+  };
+  const cases = ['AAAGGGGCCCCTTTTGGGGCCCCAAA', 'CCCCAGCGGCTGGCTTATATCGGCACGACCCGGGCCAGCCGCTGGGGTAA',
+    'AAAAAGCGCGCTTTTGCGCGCAAAAAAAAAAGGCCGGTTTTCCGGCCAAAAA', 'ATGGCCGAGGTGCAGCTGGTGGAGTCTGGGGGAGGCTTGGTACAGCCTGGG'];
+  for (const seq of cases) {
+    const f = FOLD.foldStructure(seq);
+    assert.strictEqual(f.dotBracket.length, f.seq.length);
+    assert.ok(valid(f.dotBracket), 'brackets must balance: ' + f.dotBracket);
+    for (let i = 0; i < f.pairs.length; i++) {
+      const j = f.pairs[i];
+      if (j < 0) continue;
+      assert.strictEqual(f.pairs[j], i, 'pairing must be symmetric at ' + i);
+      // A hairpin cannot close on fewer than three unpaired bases, and nothing may cross.
+      if (j > i) assert.ok(j - i - 1 >= FOLD.MIN_LOOP, 'loop too short at ' + i + '-' + j);
+      if (j > i) assert.ok(FOLD.PAIR[f.seq[i] + f.seq[j]] !== undefined, 'invented a pair ' + f.seq[i] + f.seq[j]);
+    }
+  }
+  // Nothing to fold must fold into nothing, rather than into something invented.
+  assert.strictEqual(FOLD.foldStructure('AAAAAAAAAAAAAAAAAAAAAAAA').pairs.filter(p => p >= 0).length, 0);
+  assert.strictEqual(FOLD.foldStructure('').dotBracket, '');
+  assert.strictEqual(FOLD.foldStructure('AT').dotBracket, '..');
+  // Same sequence, same structure: a drawing has to be reproducible.
+  const a = FOLD.foldStructure(cases[1]), b = FOLD.foldStructure(cases[1]);
+  assert.strictEqual(a.dotBracket, b.dotBracket);
+
+  /* Charging for loops is what stops base-pair maximization merging two tidy hairpins into
+     one long bulgy helix, so the designed case has to come back as two separate stems. */
+  const two = FOLD.foldStructure('AAAAAGCGCGCTTTTGCGCGCAAAAAAAAAAGGCCGGTTTTCCGGCCAAAAA');
+  let depth = 0, exterior = 0;
+  for (const c of two.dotBracket) { if (c === '(') { if (!depth) exterior++; depth++; } else if (c === ')') depth--; }
+  assert.strictEqual(exterior, 2, 'two designed hairpins must stay two: ' + two.dotBracket);
+});
+
+test('the structure drawing does not cross itself', () => {
+  /* A secondary structure diagram that crosses its own backbone is unreadable and, worse,
+     looks like a pseudoknot. The layout is nested, so for ordinary folds this must be zero. */
+  const cross = (p, q, c, d) => {
+    const o = (a, b, e) => Math.sign((b.x - a.x) * (e.y - a.y) - (b.y - a.y) * (e.x - a.x));
+    const pts = [p, q, c, d];
+    for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) if (Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) < 1e-6) return false;
+    return o(p, q, c) !== o(p, q, d) && o(c, d, p) !== o(c, d, q);
+  };
+  for (const seq of ['AAAGGGGCCCCTTTTGGGGCCCCAAA', 'AAAAAGCGCGCTTTTGCGCGCAAAAAAAAAAGGCCGGTTTTCCGGCCAAAAA',
+    'CCCCAGCGGCTGGCTTATATCGGCACGACCCGGGCCAGCCGCTGGGGTAA', 'ATGGCGCGCTTTGCGCGCAAAGATCTGAAAGGCGATCTGAAAGGCGATCTGAAAGGCGATCTGAAATAA']) {
+    const f = FOLD.foldStructure(seq), pos = FOLD.layout(f.seq, f.pairs);
+    assert.strictEqual(pos.length, f.seq.length);
+    assert.ok(pos.every(p => isFinite(p.x) && isFinite(p.y)), 'every base must be placed');
+    const segs = [];
+    for (let i = 1; i < pos.length; i++) segs.push([pos[i - 1], pos[i]]);
+    for (let i = 0; i < f.pairs.length; i++) if (f.pairs[i] > i) segs.push([pos[i], pos[f.pairs[i]]]);
+    let n = 0;
+    for (let i = 0; i < segs.length; i++) for (let j = i + 1; j < segs.length; j++) if (cross(segs[i][0], segs[i][1], segs[j][0], segs[j][1])) n++;
+    assert.strictEqual(n, 0, n + ' crossings in ' + f.dotBracket);
+    // Paired bases sit one step apart, which is what makes a helix look like a helix.
+    for (let i = 0; i < f.pairs.length; i++) {
+      const j = f.pairs[i];
+      if (j > i) assert.ok(Math.abs(Math.hypot(pos[i].x - pos[j].x, pos[i].y - pos[j].y) - 24) < 0.5, 'pair ' + i + '-' + j + ' is not one step apart');
+    }
+    // And no two bases land on top of each other.
+    for (let i = 0; i < pos.length; i++) for (let j = i + 1; j < pos.length; j++) {
+      assert.ok(Math.hypot(pos[i].x - pos[j].x, pos[i].y - pos[j].y) > 8, 'bases ' + i + ' and ' + j + ' overlap');
+    }
+  }
+});

@@ -3,7 +3,7 @@
    optimized sequence as a file you save yourself. Nothing is uploaded or stored. */
 (function () {
   'use strict';
-  const C = window.MLCodon, G = window.MLGa, CH = window.Charts;
+  const C = window.MLCodon, G = window.MLGa, CH = window.Charts, FOLD = window.MLFold;
   const $ = id => document.getElementById(id);
   const h = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const pct1 = v => (v * 100).toFixed(1) + '%';
@@ -161,7 +161,7 @@
       '<p class="hint">Each point is a sequence that cannot be improved on one goal without losing on another. Click one to load it instead of the default pick.</p>' +
       '<div id="seq-pareto"></div>' +
       (job.noHairpin ? '<h4>The start of the message</h4>' +
-        '<p class="hint">The hairpin that was asked about, drawn as it was found: each circle is a base, each rung a pair, heavier where three hydrogen bonds hold it. There is deliberately no free energy here &mdash; see the note underneath.</p>' +
+        '<p class="hint">The start of the sequence folded, before and after: every base a circle, the backbone joining them in order, a rung between each pair &mdash; heavier where three hydrogen bonds hold it. Where a hairpin was flagged, its stem is ringed.</p>' +
         '<div class="hairpin-pair"><div id="seq-hp-before"></div><div id="seq-hp-after"></div></div>' +
         '<p class="hint">This is the stem-loop that was detected, drawn to scale, and nothing more. It is not a thermodynamic fold: a figure quoting kcal/mol needs a nearest-neighbour parameter set and a partition function, which would mean shipping a model and the machinery to run it. Printing a plausible-looking energy from anything less, beside a diagram that looks like the real thing, would be worse than printing none. For a committed design, check the final sequence in a folding tool that does carry those parameters.</p>' : '') +
       '<h4>The protein, and the codons underneath it</h4>' +
@@ -179,8 +179,9 @@
     drawProtein($('seq-protein'), res, job);
     if (job.noHairpin) {
       const strongest = list => (list && list.length ? list.slice().sort((x, y) => y.strength - x.strength)[0] : null);
-      drawHairpin($('seq-hp-before'), res.original, strongest(res.before.hairpins), 'Before');
-      drawHairpin($('seq-hp-after'), shown || res.dna, strongest(res.after.hairpins), 'After');
+      const win = Math.max(60, Math.min(120, job.noHairpin.within + 50));
+      drawStructure($('seq-hp-before'), res.original, 'Before', { window: win, highlight: strongest(res.before.hairpins) });
+      drawStructure($('seq-hp-after'), shown || res.dna, 'After', { window: win, highlight: strongest(res.after.hairpins) });
     }
     drawPareto(res.front, job);
     $('seq-pareto').addEventListener('click', e => {
@@ -216,93 +217,67 @@
      anything less, next to a diagram that looks like the real thing, would be worse than
      printing none. This shows exactly what was detected and nothing more. */
   const BOND = { GC: 3, CG: 3, AT: 2, TA: 2, GT: 1, TG: 1 };
-  function drawHairpin(el, dna, hp, label, window) {
-    // Nothing to fold: draw the start as the open strand it now is, so the contrast is
-    // something you can see rather than a sentence saying it happened.
-    if (!hp) {
-      const n = Math.min(dna.length, window || 20), r0 = 11, sx0 = 29;
-      let f = '<text class="lbl-strong" x="4" y="22">' + h(label) + '</text>';
-      f += '<text class="hp-end" x="4" y="62" text-anchor="start">5&#8242;</text>';
-      for (let i = 0; i < n; i++) {
-        const x = 34 + i * sx0;
-        if (i) f += '<line class="hp-backbone" x1="' + (x - sx0 + r0) + '" y1="58" x2="' + (x - r0) + '" y2="58"/>';
-        f += '<g data-tip="' + h('base ' + (i + 1) + ': ' + dna[i]) + '"><circle class="hp-base hp-open" cx="' + x + '" cy="58" r="' + r0 + '"/>' +
-          '<text class="hp-letter" x="' + x + '" y="62" text-anchor="middle">' + h(dna[i]) + '</text></g>';
-      }
-      f += '<text x="4" y="104">No hairpin in the first ' + n + ' bases: the start is open for the ribosome.</text>';
-      el.innerHTML = '<svg class="chart hairpin-chart" viewBox="0 0 ' + (34 + n * sx0 + 20) + ' 120" role="img" aria-label="' + h(label + ': an open, unpaired start') + '">' + f + '</svg>';
-      return;
-    }
-    const r = 11, sx = 29, tailMax = 6;
-    const pairs = [];
-    for (let k = 0; k < hp.stem; k++) pairs.push([hp.start + k, hp.end - k]);
-    const loopIdx = [];
-    for (let i = hp.start + hp.stem; i <= hp.end - hp.stem; i++) loopIdx.push(i);
-    const tail5 = [];
-    for (let i = Math.max(0, hp.start - tailMax); i < hp.start; i++) tail5.push(i);
-    const tail3 = [];
-    for (let i = hp.end + 1; i <= Math.min(dna.length - 1, hp.end + tailMax); i++) tail3.push(i);
 
-    const yTop = 58, yBot = 122, mid = (yTop + yBot) / 2;
-    // Both tails hang to the left, so the margin has to clear the longer of the two or the
-    // 3' label lands outside the drawing.
-    const X0 = 40 + Math.max(tail5.length, tail3.length) * sx;
-    const xAt = k => X0 + k * sx;
-    const lastX = xAt(hp.stem - 1);
-    // The loop is an arc turning from the top strand round to the bottom one.
-    const loopR = Math.max(26, (loopIdx.length * 15) / Math.PI);
-    const cx = lastX + loopR * 0.75, cy = mid;
-    const W = Math.max(cx + loopR + 40, lastX + 120), H = 196;
+  /* The folded start of the message, drawn the way a sequence viewer draws it: every base a
+     circle, the backbone joining them in order, a rung between each pair, loops opening out
+     into circles. The hairpin the requirement is about is ringed inside it.
 
+     The structure comes from MLFold, which prefers long stems of strong pairs and charges
+     for loops. It is NOT a free-energy minimization, so there is no kcal/mol here and no
+     per-pair confidence: both of those need a measured parameter set and a partition
+     function. This is a plausible folding, drawn honestly, and the caption says so. */
+  function drawStructure(el, dna, label, opt) {
+    opt = opt || {};
+    const take = Math.min(dna.length, opt.window || 90);
+    const seq = dna.slice(0, take);
+    const f = FOLD.foldStructure(seq);
+    const pos = FOLD.layout(f.seq, f.pairs);
+    const n = f.seq.length;
+    if (!n) { el.innerHTML = ''; return; }
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p2 of pos) { minX = Math.min(minX, p2.x); maxX = Math.max(maxX, p2.x); minY = Math.min(minY, p2.y); maxY = Math.max(maxY, p2.y); }
+    const pad = 34, r = 9.5;
+    const W = (maxX - minX) + pad * 2, H = (maxY - minY) + pad * 2 + 26;
+    const X = i => pos[i].x - minX + pad, Y = i => pos[i].y - minY + pad + 20;
+    // Which way is "outwards" at a base, for putting a number where it will not collide.
+    const cxAll = pos.reduce((s2, p2) => s2 + p2.x, 0) / n, cyAll = pos.reduce((s2, p2) => s2 + p2.y, 0) / n;
+
+    const hi = opt.highlight;
+    const inHairpin = i => hi && i >= hi.start && i <= hi.end;
     let b = '';
-    const base = (i, x, y, cls) => {
-      const ch = dna[i] || '?';
-      return '<g data-tip="' + h('base ' + (i + 1) + ': ' + ch) + '">' +
-        '<circle class="hp-base ' + (cls || '') + '" cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + r + '"/>' +
-        '<text class="hp-letter" x="' + x.toFixed(1) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="middle">' + h(ch) + '</text></g>';
-    };
-    const link = (x1, y1, x2, y2) => '<line class="hp-backbone" x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '"/>';
-
-    // Backbone and rungs for the stem.
-    for (let k = 0; k < hp.stem; k++) {
-      const x = xAt(k);
-      if (k) { b += link(xAt(k - 1) + r, yTop, x - r, yTop); b += link(xAt(k - 1) + r, yBot, x - r, yBot); }
-      const bond = BOND[dna[pairs[k][0]] + dna[pairs[k][1]]] || 0;
-      b += '<line class="hp-rung bonds-' + bond + '" x1="' + x + '" y1="' + (yTop + r) + '" x2="' + x + '" y2="' + (yBot - r) + '"/>';
+    // Backbone first, then rungs, then the bases on top of both.
+    for (let i = 1; i < n; i++) b += '<line class="st-backbone" x1="' + X(i - 1).toFixed(1) + '" y1="' + Y(i - 1).toFixed(1) + '" x2="' + X(i).toFixed(1) + '" y2="' + Y(i).toFixed(1) + '"/>';
+    for (let i = 0; i < n; i++) {
+      const j = f.pairs[i];
+      if (j <= i) continue;
+      const bond = BOND[f.seq[i] + f.seq[j]] || 0;
+      b += '<line class="st-rung bonds-' + bond + (inHairpin(i) && inHairpin(j) ? ' st-flag' : '') + '" x1="' + X(i).toFixed(1) + '" y1="' + Y(i).toFixed(1) + '" x2="' + X(j).toFixed(1) + '" y2="' + Y(j).toFixed(1) + '"/>';
     }
-    // The loop, swept from the top strand to the bottom.
-    const n = loopIdx.length;
-    loopIdx.forEach((gi, j) => {
-      const t = (j + 1) / (n + 1);
-      const ang = -Math.PI / 2 + t * Math.PI;
-      const x = cx + loopR * Math.cos(ang), y = cy + loopR * Math.sin(ang);
-      b += base(gi, x, y, 'hp-loop');
-    });
-    if (n) {
-      const first = -Math.PI / 2 + (1 / (n + 1)) * Math.PI, last = -Math.PI / 2 + (n / (n + 1)) * Math.PI;
-      b += link(lastX + r, yTop, cx + loopR * Math.cos(first) - r * 0.6, cy + loopR * Math.sin(first));
-      b += link(cx + loopR * Math.cos(last) - r * 0.6, cy + loopR * Math.sin(last), lastX + r, yBot);
+    for (let i = 0; i < n; i++) {
+      const ch = f.seq[i], paired = f.pairs[i] >= 0;
+      const tip = 'base ' + (i + 1) + ': ' + ch + (paired ? ' paired with ' + (f.pairs[i] + 1) : ' unpaired');
+      b += '<g data-tip="' + h(tip) + '">' +
+        '<circle class="st-base b-' + ch + (inHairpin(i) ? ' st-flagged' : '') + (paired ? '' : ' st-free') + '" cx="' + X(i).toFixed(1) + '" cy="' + Y(i).toFixed(1) + '" r="' + r + '"/>' +
+        '<text class="st-letter" x="' + X(i).toFixed(1) + '" y="' + (Y(i) + 3.6).toFixed(1) + '" text-anchor="middle">' + ch + '</text></g>';
     }
-    // Stem bases on top of the rungs, then the single-stranded tails.
-    for (let k = 0; k < hp.stem; k++) { b += base(pairs[k][0], xAt(k), yTop, 'hp-stem'); b += base(pairs[k][1], xAt(k), yBot, 'hp-stem'); }
-    tail5.forEach((gi, j) => {
-      const x = X0 - (tail5.length - j) * sx;
-      b += link(x + r, yTop, x + sx - r, yTop);
-      b += base(gi, x, yTop, 'hp-tail');
-    });
-    tail3.forEach((gi, j) => {
-      const x = X0 - (j + 1) * sx;
-      b += link(x + r, yBot, x + sx - r, yBot);
-      b += base(gi, x, yBot, 'hp-tail');
-    });
-    const x5 = tail5.length ? X0 - tail5.length * sx : X0;
-    b += '<text class="hp-end" x="' + (x5 - r - 6) + '" y="' + (yTop + 4) + '" text-anchor="end">5&#8242;</text>';
-    b += '<text class="hp-end" x="' + ((tail3.length ? X0 - tail3.length * sx : X0) - r - 6) + '" y="' + (yBot + 4) + '" text-anchor="end">3&#8242;</text>';
-    b += '<text class="lbl-strong" x="' + (x5 - r - 6) + '" y="22" text-anchor="start">' + h(label) + '</text>';
-    b += '<text x="' + (x5 - r - 6) + '" y="' + (H - 8) + '" text-anchor="start">' +
-      hp.stem + ' base pairs from base ' + (hp.start + 1) + ', loop of ' + hp.loop + '</text>';
+    // Position markers every ten bases, pushed outwards so they clear the chain.
+    for (let i = 9; i < n; i += 10) {
+      let dx = pos[i].x - cxAll, dy = pos[i].y - cyAll;
+      const m = Math.hypot(dx, dy) || 1; dx /= m; dy /= m;
+      b += '<line class="st-tick" x1="' + (X(i) + dx * r).toFixed(1) + '" y1="' + (Y(i) + dy * r).toFixed(1) +
+        '" x2="' + (X(i) + dx * (r + 7)).toFixed(1) + '" y2="' + (Y(i) + dy * (r + 7)).toFixed(1) + '"/>' +
+        '<text class="st-num" x="' + (X(i) + dx * (r + 17)).toFixed(1) + '" y="' + (Y(i) + dy * (r + 17) + 3.5).toFixed(1) + '" text-anchor="middle">' + (i + 1) + '</text>';
+    }
+    b += '<text class="st-end" x="' + (X(0) - 16).toFixed(1) + '" y="' + (Y(0) + 4).toFixed(1) + '" text-anchor="end">5&#8242;</text>';
+    b += '<text class="st-end" x="' + (X(n - 1) + 16).toFixed(1) + '" y="' + (Y(n - 1) + 4).toFixed(1) + '" text-anchor="start">3&#8242;</text>';
+    b += '<text class="lbl-strong" x="4" y="14">' + h(label) + '</text>';
 
-    el.innerHTML = '<svg class="chart hairpin-chart" viewBox="0 0 ' + Math.round(W) + ' ' + H + '" role="img" aria-label="' + h(label + ': a stem of ' + hp.stem + ' base pairs closing over a loop of ' + hp.loop) + '">' + b + '</svg>';
+    const stems = (f.dotBracket.match(/\(+/g) || []).length;
+    const paired = f.pairs.filter(x => x >= 0).length / 2;
+    el.innerHTML = '<svg class="chart structure-chart" viewBox="0 0 ' + Math.round(W) + ' ' + Math.round(H) + '" role="img" aria-label="' + h(label + ': the first ' + n + ' bases folded, ' + paired + ' base pairs') + '">' + b + '</svg>' +
+      '<p class="hint">First <b>' + n + '</b> bases &middot; ' + paired + ' pairs in ' + stems + ' stem' + (stems === 1 ? '' : 's') +
+      (hi ? ' &middot; <b class="flagged-note">the ringed stem is the one the requirement is about</b>' : ' &middot; no hairpin flagged in the window') + '</p>';
   }
 
   /* ---------- The protein, with the codons underneath ----------

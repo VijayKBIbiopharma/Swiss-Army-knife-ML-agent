@@ -564,6 +564,24 @@ details.advanced > summary { cursor: pointer; font-size: .88rem; font-weight: 60
 .compare-table tbody tr.agreed td:first-child { font-weight: 600; }
 .hairpin-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
 @media (max-width: 760px) { .hairpin-pair { grid-template-columns: 1fr; } }
+/* The folded start, drawn as a sequence viewer draws it */
+.structure-chart .st-backbone { stroke: var(--ink); stroke-width: 2; stroke-opacity: .55; }
+.structure-chart .st-rung { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 2 2; }
+.structure-chart .st-rung.bonds-3 { stroke: var(--s1); stroke-width: 2.4; stroke-dasharray: none; }
+.structure-chart .st-rung.bonds-2 { stroke: var(--s3); stroke-width: 2; stroke-dasharray: none; }
+.structure-chart .st-rung.st-flag { stroke: var(--s4); stroke-width: 3; }
+.structure-chart .st-base { fill: var(--surface); stroke: var(--line); stroke-width: 1.6; }
+.structure-chart .st-base.b-G { fill: #e8effa; stroke: #3a6ea8; }
+.structure-chart .st-base.b-C { fill: #e7f5f2; stroke: #2a9d8f; }
+.structure-chart .st-base.b-A { fill: #fdeeea; stroke: #c9452f; }
+.structure-chart .st-base.b-T, .structure-chart .st-base.b-U { fill: #fcf3e0; stroke: #c98500; }
+.structure-chart .st-base.st-free { stroke-dasharray: 2 2; }
+.structure-chart .st-base.st-flagged { stroke: var(--s4); stroke-width: 2.8; stroke-dasharray: none; }
+.structure-chart .st-letter { font-weight: 700; font-size: 10.5px; fill: var(--ink); }
+.structure-chart .st-tick { stroke: var(--muted); stroke-width: 1.2; }
+.structure-chart .st-num { font-size: 10px; fill: var(--muted); }
+.structure-chart .st-end { font-weight: 700; fill: var(--muted); font-size: 12px; }
+.flagged-note { color: var(--s4); }
 .hairpin-chart .hp-base { fill: var(--surface); stroke: var(--s1); stroke-width: 2; }
 .hairpin-chart .hp-base.hp-loop { stroke: var(--s4); }
 .hairpin-chart .hp-base.hp-tail { stroke: var(--line); }
