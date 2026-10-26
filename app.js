@@ -1354,6 +1354,7 @@
     if (window.MLGoldenUI) window.MLGoldenUI.clear();
     if (window.MLVarUI) window.MLVarUI.clear();
     if (window.MLLimits) window.MLLimits.clear();
+    if (window.MLAsk) window.MLAsk.clear();
     foldPanels();
     $('sim').innerHTML = ''; $('sim').hidden = true;
     $('paste').value = ''; $('file').value = '';

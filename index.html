@@ -29,9 +29,27 @@
 </header>
 
 <main id="main">
+  <section class="wrap ask" id="ask">
+    <div class="card ask-card">
+      <label class="ask-label" for="ask-text">Describe what you are trying to find out, in your own words</label>
+      <div class="ask-row">
+        <input type="text" id="ask-text" autocomplete="off" spellcheck="false"
+          placeholder="e.g. my purity results jump around between lots and I cant tell if its the assay">
+        <button class="btn primary" id="ask-go" type="button">Point me at the right tool</button>
+      </div>
+      <p class="hint ask-note">What you type stays on this page: it is matched against a word list in the source, never sent anywhere, and never stored. Clearing your data clears it too. <a class="learn-link" href="#ask-how" id="ask-how-link">How this works, and what it cannot do &#8595;</a></p>
+      <div class="ask-examples" id="ask-examples"></div>
+      <div id="ask-out" aria-live="polite"></div>
+      <details class="advanced" id="ask-how">
+        <summary>How this works, and what it cannot do</summary>
+        <div id="ask-how-body"></div>
+      </details>
+    </div>
+  </section>
+
   <div class="toolbar">
     <div class="wrap toolbar-row">
-      <label for="tool">What do you want to do?</label>
+      <label for="tool">Or choose the technique yourself</label>
       <select id="tool">
         <option value="analyze">Machine learning &amp; design of experiments</option>
         <option value="stability">Linear regression &amp; confidence limits (ICH Q1E)</option>
@@ -858,6 +876,9 @@
 <script src="variance-ui.js"></script>
 <script src="tolerance.js"></script>
 <script src="tolerance-ui.js"></script>
+<script src="advisor.js"></script>
+<script src="advisor-eval.js"></script>
+<script src="advisor-ui.js"></script>
 <script src="seq.js"></script>
 </body>
 </html>

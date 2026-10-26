@@ -554,6 +554,29 @@ details.advanced > summary { cursor: pointer; font-size: .88rem; font-weight: 60
 .share-note { display: block; font-size: 11px; color: var(--muted); }
 .mix-result { margin-top: 14px; }
 .chart .simplex { fill: none; stroke: var(--line); stroke-width: 1.5; }
+
+/* The front door: describe the problem, get pointed at a tool */
+.ask { margin-top: 18px; }
+.ask-card { padding: 18px 20px 16px; }
+.ask-label { display: block; font-weight: 600; margin-bottom: 8px; }
+.ask-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.ask-row input { flex: 1 1 340px; font-size: 16px; padding: 11px 13px; }
+.ask-note { margin: 10px 0 0; }
+.ask-examples { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.ask-unsure { margin: 14px 0 10px; padding: 11px 13px; border-left: 3px solid var(--warn); background: var(--surface-2); border-radius: 0 8px 8px 0; }
+.recs { display: grid; gap: 12px; margin-top: 14px; }
+.rec { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; background: var(--surface-2); }
+.rec-top { border-color: var(--good); }
+.rec-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rec-head h4 { margin: 0; }
+.rec-what { margin: 4px 0 10px; color: var(--muted); font-size: 14px; }
+.rec-steps { display: grid; grid-template-columns: 86px 1fr; gap: 4px 12px; margin: 0 0 10px; }
+.rec-steps dt { font-weight: 600; color: var(--muted); font-size: 13px; }
+.rec-steps dd { margin: 0; }
+.rec-why { font-size: 13px; color: var(--muted); margin: 0 0 10px; }
+.rec-why code { background: var(--surface); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.rec-none { margin-top: 14px; }
+@media (max-width: 620px) { .rec-steps { grid-template-columns: 1fr; } .rec-steps dt { margin-top: 6px; } }
 #mix-data, #mix-analyse textarea { width: 100%; }
 #mix-analyse { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
 #tl-data { width: 100%; }

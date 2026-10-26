@@ -1773,3 +1773,110 @@ test('the Scheffe blending model recovers a known formulation', () => {
   const flat = D.analyzeMixture(pts, pts.map(() => 7), names);
   assert.ok(flat.coefs.filter(c => c.pure).every(c => Math.abs(c.beta - 7) < 1e-9), 'with no intercept the level lives in the component coefficients');
 });
+
+const ADV = require(path.join(ROOT, 'advisor.js'));
+const ADVEV = require(path.join(ROOT, 'advisor-eval.js'));
+
+test('the advisor routes plain English to the right tool, and its accuracy is measured', () => {
+  const sets = { tuned: { n: 0, t1: 0, t2: 0, nm: 0 }, heldout: { n: 0, t1: 0, t2: 0, nm: 0 } };
+  const misses = [];
+  for (const c of ADVEV.CASES) {
+    const s = sets[c.set];
+    assert.ok(s, 'unknown eval set ' + c.set);
+    s.n++;
+    const r = ADV.advise(c.text);
+    if (r.status === 'nomatch') { s.nm++; misses.push(c.set + ' ' + c.want + ' :: ' + c.text); continue; }
+    const ids = r.recommendations.map(x => x.id);
+    if (ids[0] === c.want) s.t1++; else misses.push(c.set + ' want ' + c.want + ' got ' + ids[0] + ' :: ' + c.text);
+    if (ids.slice(0, 2).includes(c.want)) s.t2++;
+  }
+  const pct = s => 100 * s.t1 / s.n;
+  // Printed so the number is visible on every run rather than buried in an assertion.
+  console.log('    advisor: tuned ' + pct(sets.tuned).toFixed(1) + '% top-1 (' + sets.tuned.n + ' cases), ' +
+    'held-out ' + pct(sets.heldout).toFixed(1) + '% top-1 / ' + (100 * sets.heldout.t2 / sets.heldout.n).toFixed(1) + '% top-2 (' +
+    sets.heldout.n + ' cases, ' + sets.heldout.nm + ' no-match)');
+  assert.ok(sets.tuned.n >= 60 && sets.heldout.n >= 50, 'the eval set must stay substantial');
+  /* The bar for phrasings built from the lexicon's own vocabulary is high, because failing
+     there means the matching is broken rather than merely limited. */
+  assert.ok(pct(sets.tuned) >= 95, 'tuned accuracy fell to ' + pct(sets.tuned).toFixed(1) + '%');
+  /* The held-out bar is deliberately modest. This is a word matcher, not a language model,
+     and the honest expectation is that unfamiliar phrasing sometimes misses. The number is
+     here to stop it regressing silently, not to flatter it. */
+  assert.ok(pct(sets.heldout) >= 70, 'held-out accuracy fell to ' + pct(sets.heldout).toFixed(1) + '%:\n' + misses.join('\n'));
+});
+
+test('the advisor says nothing rather than guessing, and asks when two tools are close', () => {
+  for (const nonsense of ['what colour is the sky', 'hello', 'asdf qwerty', 'book me a flight to Boston', '12345']) {
+    assert.strictEqual(ADV.advise(nonsense).status, 'nomatch', 'should not route: ' + nonsense);
+  }
+  assert.strictEqual(ADV.advise('').status, 'empty');
+  assert.strictEqual(ADV.advise('   ').status, 'empty');
+  // A clear request must be confident, carry its evidence, and name a real next step.
+  const r = ADV.advise('my titer varies between resin lots and I want to know which lot is to blame');
+  assert.strictEqual(r.status, 'ok');
+  assert.strictEqual(r.recommendations[0].id, 'variance-components');
+  assert.ok(r.recommendations[0].hits.length, 'a recommendation must show why it was made');
+  for (const k of ['bring', 'first', 'then', 'title', 'what']) assert.ok(r.recommendations[0][k], 'missing ' + k);
+  /* Genuinely torn input must produce the distinguishing question rather than a confident
+     wrong answer. "The same or just noisy" is exactly the sentence where routing straight to
+     one tool would send someone down the wrong path. */
+  const amb = ADV.advise('are these two lots the same or just noisy');
+  assert.strictEqual(amb.status, 'unsure');
+  assert.ok(/\?$/.test(amb.question), 'the question must be a question: ' + amb.question);
+  assert.ok(amb.recommendations.length >= 2, 'an unsure answer must offer both options');
+  assert.ok(amb.question.includes(amb.recommendations[0].distinguish) && amb.question.includes(amb.recommendations[1].distinguish),
+    'the question must contrast the two tools it is torn between');
+  assert.ok(ADV.advise('set a release specification').recommendations.length <= 3, 'at most three options');
+});
+
+test('the advisor normalises the ways people actually write', () => {
+  // A word and its tenses must reach the same stem, or the lexicon matches one and misses the other.
+  for (const [a, b] of [['measure', 'measured'], ['store', 'stored'], ['agree', 'agreed'], ['change', 'changed'],
+    ['transfer', 'transferring'], ['run', 'running'], ['vary', 'varies'], ['batch', 'batches']]) {
+    assert.strictEqual(ADV.tokenize(a)[0], ADV.tokenize(b)[0], a + ' and ' + b + ' must stem alike');
+  }
+  // British and American spelling, and the acronyms a site actually types.
+  assert.deepStrictEqual(ADV.tokenize('optimise'), ADV.tokenize('optimize'));
+  assert.deepStrictEqual(ADV.tokenize('analyse'), ADV.tokenize('analyze'));
+  assert.ok(ADV.advise('MSA on the balance').recommendations[0].id === 'gage-rr', 'MSA should expand');
+  assert.ok(ADV.advise('how many lots for PPQ').recommendations[0].id === 'study-size', 'PPQ should expand');
+  assert.ok(ADV.advise('is my Cpk acceptable').recommendations[0].id === 'capability', 'Cpk should expand');
+  /* Negation modifies a clause, not the subject. "Without changing the protein" is still
+     about proteins, and suppressing topic words near a negation threw away more right
+     answers than it saved. */
+  for (const t of ['rewrite the gene for the host without changing the protein',
+    'I cannot raise one ingredient without lowering the others']) {
+    assert.notStrictEqual(ADV.advise(t).status, 'nomatch', 'negation must not erase the topic: ' + t);
+  }
+  assert.strictEqual(ADV.advise('rewrite the gene for the host without changing the protein').recommendations[0].id, 'codon');
+});
+
+test('every advisor recommendation points somewhere that exists', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const selector = (html.match(/<select id="tool">([\s\S]*?)<\/select>/) || [])[1] || '';
+  const tools = new Set([...selector.matchAll(/<option value="([a-z]+)"/g)].map(m => m[1]));
+  const ids = new Set();
+  for (const p of ADV.PLAYBOOKS) {
+    assert.ok(tools.has(p.tool), p.id + ' points at a tool that is not in the selector: ' + p.tool);
+    assert.ok(!ids.has(p.id), 'duplicate playbook id ' + p.id);
+    ids.add(p.id);
+    // The mode it preselects, and any panel it opens, have to be real elements.
+    if (p.mode) {
+      assert.ok(new RegExp('id="' + p.mode.sel + '"').test(html), p.id + ' sets a control that does not exist: ' + p.mode.sel);
+      /* The value has to be a real option. Most selects are written into the page, but the
+         design chooser is filled at runtime from the design registry, so both are allowed
+         sources and neither lets a typo through. */
+      const inHtml = new RegExp('value="' + p.mode.value + '"').test(html);
+      const inDesigns = Object.prototype.hasOwnProperty.call(D.DESIGNS, p.mode.value);
+      assert.ok(inHtml || inDesigns, p.id + ' selects a value that is neither in the page nor a known design: ' + p.mode.value);
+    }
+    if (p.open) assert.ok(new RegExp('id="' + p.open + '"').test(html), p.id + ' opens a panel that does not exist: ' + p.open);
+    for (const k of ['title', 'what', 'bring', 'first', 'then', 'distinguish']) assert.ok(p[k] && p[k].length > 10, p.id + ' needs a ' + k);
+    assert.ok(p.phrases.length >= 10, p.id + ' has only ' + p.phrases.length + ' phrases');
+  }
+  // Every playbook must be reachable by something, or it is dead weight.
+  const reached = new Set(ADVEV.CASES.map(c => c.want));
+  for (const p of ADV.PLAYBOOKS) assert.ok(reached.has(p.id), p.id + ' has no eval case');
+  // And the front door must promise what the rest of the page promises.
+  assert.ok(/never sent anywhere, and never stored/.test(html), 'the ask box must state what happens to what is typed');
+});

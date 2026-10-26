@@ -129,6 +129,13 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Every run sums to exactly 100, and each cell shows both the amount and the share. *"A formulation has no dials. You cannot add buffer without everything else becoming a smaller share, which is why a factorial design cannot be used here at all."*
 - Press **Load a worked example** underneath and fit the blending model: it finds **Buffer &times; Sugar synergy** and **Buffer &times; Surfactant antagonism**, and flags that the pure-component coefficients are extrapolations because those blends were never formulable. *"It tells us what it does not know. That is the part I trust."*
 
+## 4j. The front door (2 minutes &mdash; open with this)
+- Before touching the tool selector, type into the box at the top: **"purity jumps around between resin lots and I cant tell if its the assay"**.
+- It names the tool, the mode, what to bring, what it will tell you, and what to do next &mdash; and shows the words it matched on. Click **Take me there**: the right tool opens with the right mode already chosen.
+- Now type something it cannot handle: **"what colour is the sky"**. It says nothing matched. *"It does not bluff. That is deliberate &mdash; a tool that confidently sends you to the wrong analysis is worse than one that admits it does not know."*
+- Then type **"are these two lots the same or just noisy"**. It comes back unsure and asks the one question that separates the two tools. *"That is the sentence where routing confidently would send you down the wrong path."*
+- Open **How this works, and what it cannot do**. It shows the measured accuracy, computed live from the examples shipped in the file: high on phrasings it was built around, lower on phrasings written to avoid its vocabulary. *"It tells you how often it is right, including the number that is not flattering. And there is no AI in it &mdash; it is a word list you can read, which is why it works with the WiFi off."*
+
 ## 5. Finding groups with no target: penguins (1 minute)
 - Drag `penguins.csv`, choose **Nothing: find groups and patterns**, run.
 - Show the groups chart and profiles: one group is entirely Gentoo penguins on Biscoe island. The agent found the species without being told.
