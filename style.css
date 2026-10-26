@@ -555,6 +555,40 @@ details.advanced > summary { cursor: pointer; font-size: .88rem; font-weight: 60
 .mix-result { margin-top: 14px; }
 .chart .simplex { fill: none; stroke: var(--line); stroke-width: 1.5; }
 
+/* The protein drawn as a chain of residues, with the codons underneath */
+.compare-table th .chip { margin-left: 6px; }
+.compare-table .share-cell { position: relative; white-space: nowrap; }
+.share-bar { display: block; width: 100%; height: 5px; margin-top: 3px; }
+.share-bar rect { fill: var(--s1); }
+.compare-table tbody tr.agreed .share-bar rect { fill: var(--s4); }
+.compare-table tbody tr.agreed td:first-child { font-weight: 600; }
+.hairpin-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+@media (max-width: 760px) { .hairpin-pair { grid-template-columns: 1fr; } }
+.hairpin-chart .hp-base { fill: var(--surface); stroke: var(--s1); stroke-width: 2; }
+.hairpin-chart .hp-base.hp-loop { stroke: var(--s4); }
+.hairpin-chart .hp-base.hp-tail { stroke: var(--line); }
+.hairpin-chart .hp-base.hp-open { stroke: var(--good); }
+.hairpin-chart .hp-letter { font-weight: 700; font-size: 12px; fill: var(--ink); }
+.hairpin-chart .hp-backbone { stroke: var(--muted); stroke-width: 2; }
+.hairpin-chart .hp-rung { stroke: var(--muted); stroke-dasharray: 3 3; }
+.hairpin-chart .hp-rung.bonds-3 { stroke: var(--s1); stroke-width: 3; stroke-dasharray: none; }
+.hairpin-chart .hp-rung.bonds-2 { stroke: var(--s3); stroke-width: 2; stroke-dasharray: none; }
+.hairpin-chart .hp-end { font-weight: 700; fill: var(--muted); font-size: 12px; }
+.protein-chart .aa { stroke: var(--surface); stroke-width: 1; }
+.protein-chart .aa-letter { font-weight: 700; font-size: 12px; fill: #fff; }
+.protein-chart .codon { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; fill: var(--muted); }
+.protein-chart .codon-changed { fill: var(--ink); font-weight: 600; }
+.protein-chart .codon-mark { fill: var(--s4); }
+.aa-nonpolar { fill: #6b7a8f; } .aa-polar { fill: #2a9d8f; }
+.aa-acidic { fill: #c9452f; } .aa-basic { fill: #3a6ea8; } .aa-stop { fill: #444; }
+.aa-changedkey { background: var(--s4); }
+.aa-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 8px 0 4px; font-size: 13px; color: var(--muted); }
+.aa-key { display: inline-flex; align-items: center; gap: 6px; }
+.aa-swatch { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.aa-swatch.aa-nonpolar { background: #6b7a8f; } .aa-swatch.aa-polar { background: #2a9d8f; }
+.aa-swatch.aa-acidic { background: #c9452f; } .aa-swatch.aa-basic { background: #3a6ea8; }
+.aa-swatch.aa-stop { background: #444; }
+
 /* The front door: describe the problem, get pointed at a tool */
 .ask { margin-top: 18px; }
 .ask-card { padding: 18px 20px 16px; }

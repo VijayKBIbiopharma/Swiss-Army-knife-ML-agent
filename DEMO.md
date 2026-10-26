@@ -136,6 +136,18 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Then type **"are these two lots the same or just noisy"**. It comes back unsure and asks the one question that separates the two tools. *"That is the sentence where routing confidently would send you down the wrong path."*
 - Open **How this works, and what it cannot do**. It shows the measured accuracy, computed live from the examples shipped in the file: high on phrasings it was built around, lower on phrasings written to avoid its vocabulary. *"It tells you how often it is right, including the number that is not flattering. And there is no AI in it &mdash; it is a word list you can read, which is why it works with the WiFi off."*
 
+## 4k. The protein, and the hairpin (3 minutes &mdash; the one biologists lean in for)
+- In the sequence optimizer, load the example, tick **No hairpins near the start**, and run.
+- Scroll to **The start of the message**. Two diagrams side by side: **before**, a stem-loop with the base pairs drawn as rungs; **after**, an open strand. *"That structure sits where the ribosome has to load. We did not trade it off against codon usage &mdash; we made it a requirement, and the search had to satisfy it."*
+- Then **The protein, and the codons underneath it**: every residue coloured by chemical character, the codon beneath each one, underlined where it changed. *"176 of 238 codons changed. Not one amino acid changed. You are looking at the proof, not taking my word for it."*
+- Hover a residue: it names the amino acid, the codon before and after, and how strongly this host favours that codon.
+- If somebody asks about free energy: *"There is none here on purpose. A kcal/mol figure needs a thermodynamic parameter set we do not ship. We would rather show you exactly what we detected than put a convincing number next to it. Before you commit a design, run the final sequence through a folding tool that does carry those parameters."*
+
+## 4l. Don't trust one model (1 minute)
+- After any run, scroll to **Do the models agree on what matters?**
+- Three different model families &mdash; a curve fit, a boosted ensemble, a neural network &mdash; each refit and asked separately which inputs they lean on. *"They all put MeltTemp first. That is three unrelated methods reaching the same answer, which is worth much more than one model's chart."*
+- The honest counter-case: *"If they had disagreed, it would say so. A driver only one model likes is a lead to check, not a finding to act on."*
+
 ## 5. Finding groups with no target: penguins (1 minute)
 - Drag `penguins.csv`, choose **Nothing: find groups and patterns**, run.
 - Show the groups chart and profiles: one group is entirely Gentoo penguins on Biscoe island. The agent found the species without being told.

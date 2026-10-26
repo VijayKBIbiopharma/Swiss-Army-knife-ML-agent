@@ -472,6 +472,43 @@
     }
   }
 
+  /* What the runners-up say. One model's ranking is one model's opinion; several model
+     families that work in completely different ways, landing on the same drivers, is a much
+     stronger statement - and a disagreement is worth seeing before anyone acts on a chart. */
+  function compareCard(rep, reg) {
+    const cmp = (rep.compare || []).filter(c => c.importance && c.importance.length);
+    if (cmp.length < 2) return '';
+    const ag = rep.agreement || {};
+    const names = ag.union && ag.union.length ? ag.union
+      : Array.from(new Set(cmp.flatMap(c => c.importance.slice(0, 4).map(v => v.name))));
+    const shareOf = (c, n) => { const v = c.importance.find(x => x.name === n); return v ? v.share : 0; };
+    const verdict = ag.topDriver
+      ? '<span class="verdict capable">they agree</span> All ' + cmp.length + ' put <b>' + h(ag.topDriver) + '</b> first. Different model families reaching the same answer is far better evidence than any one of them alone.'
+      : (ag.shared && ag.shared.length)
+        ? '<span class="verdict marginal">partly</span> They order them differently, but all ' + cmp.length + ' rate <b>' + ag.shared.map(h).join('</b> and <b>') + '</b> among the top drivers. Treat those as the solid ones and the rest as unsettled.'
+        : '<span class="verdict not">they disagree</span> The leading models do not pick out the same inputs. That usually means the signal is weak, the inputs overlap heavily, or there is not enough data to separate them &mdash; so no single ranking here should be acted on yet.';
+
+    const head = '<tr><th>Driver</th>' + cmp.map(c => '<th class="num-cell">' + h(c.name.replace(/\s*\(.*\)$/, '')) +
+      (c.chosen ? '<span class="chip">chosen</span>' : '') + '</th>').join('') + '</tr>' +
+      '<tr class="dim"><td>Score on unseen rows</td>' + cmp.map(c => '<td class="num-cell">' +
+        (reg ? c.metrics.r2.toFixed(3) : pct(c.metrics.balancedAccuracy)) + '</td>').join('') + '</tr>';
+    // Highlight the driver they actually agree on, not whichever happens to be listed first.
+    const body = names.map(n => '<tr' + (ag.topDriver === n ? ' class="agreed"' : '') + '><td>' + h(n) + '</td>' + cmp.map(c => {
+      const sh = shareOf(c, n);
+      /* The bar is an SVG rect rather than a styled div: the page forbids inline styles, so
+         a width has to arrive as an attribute. */
+      const bar = '<svg class="share-bar" viewBox="0 0 100 5" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="0" height="5" width="' + Math.max(0, Math.min(100, sh * 100)).toFixed(1) + '"/></svg>';
+      return '<td class="num-cell share-cell">' + (sh >= 0.005 ? pct(sh) : '–') + bar + '</td>';
+    }).join('') + '</tr>').join('');
+
+    return card('Do the models agree on what matters?',
+      'Each model was refit on all the rows and asked independently which inputs it leans on. Agreement is the point: a driver that only one model likes is a lead, not a finding.',
+      '<p class="sub-head">' + verdict + '</p>' +
+      '<div class="table-scroll"><table class="compare-table"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>' +
+      '<p class="hint">Percentages are each model\'s own importance split, so they are comparable down a column, not across one. A model with a lower score still gets a say here: the question is what it leans on, not whether it won.</p>',
+      'leaderboard');
+  }
+
   function renderSupervised(rep, blocks) {
     const reg = rep.task === 'regression', key = rep.metricKey;
     const lb = rep.leaderboard.filter(m => m.metrics);
@@ -484,6 +521,7 @@
             : '<td class="num-cell">' + pct(m.metrics.accuracy) + '</td><td class="num-cell">' + pct(m.metrics.balancedAccuracy) + '</td><td class="num-cell">' + m.metrics.macroF1.toFixed(2) + '</td>') + '</tr>').join('') +
         '</tbody></table></div></details><details><summary>What each model does, in plain words</summary><dl>' +
         lb.map(m => '<dt>' + h(m.name) + '</dt><dd>' + h(m.plain) + ' <i>' + h(X.MODEL_ANALOGY[m.id] || '') + '</i> ' + learnLink(X.MODEL_TOPIC[m.id], 'Visual lesson') + '</dd>').join('') + '</dl></details></div>', 'leaderboard') +
+      compareCard(rep, reg) +
       card(reg ? 'Predicted vs actual' : 'Confusion matrix', reg ? 'Each dot is a row, predicted while hidden from the model. Dots on the dashed line are perfect.' : 'Rows on the diagonal were classified correctly. Hover a cell for details.', '<div id="fit-chart"></div>', reg ? 'fitScatter' : 'confusion'),
       'block-grid');
     C.hbar($('lb-chart'), lb.map(m => ({

@@ -137,6 +137,122 @@
     return dp[n - 1] / n;
   }
 
+  /* ---------- The protein itself ----------
+
+     A codon optimizer changes the gene and leaves the protein alone, which is easy to assert
+     and hard to believe. These let the page draw the protein so the claim can be seen: the
+     same residues throughout, with the codons swapped underneath them.
+
+     Grouping by chemical character is conventional rather than exact - several residues could
+     sit in more than one group - but it is what makes a sequence readable at a glance. */
+  const AA_NAMES = {
+    A: 'Alanine', R: 'Arginine', N: 'Asparagine', D: 'Aspartate', C: 'Cysteine', Q: 'Glutamine',
+    E: 'Glutamate', G: 'Glycine', H: 'Histidine', I: 'Isoleucine', L: 'Leucine', K: 'Lysine',
+    M: 'Methionine', F: 'Phenylalanine', P: 'Proline', S: 'Serine', T: 'Threonine',
+    W: 'Tryptophan', Y: 'Tyrosine', V: 'Valine', '*': 'Stop'
+  };
+  const AA_GROUP = {};
+  'AVLIMFWPG'.split('').forEach(a => { AA_GROUP[a] = 'nonpolar'; });
+  'STNQYC'.split('').forEach(a => { AA_GROUP[a] = 'polar'; });
+  'DE'.split('').forEach(a => { AA_GROUP[a] = 'acidic'; });
+  'KRH'.split('').forEach(a => { AA_GROUP[a] = 'basic'; });
+  AA_GROUP['*'] = 'stop';
+  const GROUP_LABEL = { nonpolar: 'Non-polar', polar: 'Polar', acidic: 'Acidic (−)', basic: 'Basic (+)', stop: 'Stop' };
+
+  // Kyte and Doolittle (1982) hydropathy values: the standard scale, used as published.
+  const KD = {
+    A: 1.8, R: -4.5, N: -3.5, D: -3.5, C: 2.5, Q: -3.5, E: -3.5, G: -0.4, H: -3.2, I: 4.5,
+    L: 3.8, K: -3.9, M: 1.9, F: 2.8, P: -1.6, S: -0.8, T: -0.7, W: -0.9, Y: -1.3, V: 4.2, '*': 0
+  };
+  /* A sliding mean of those values. Stretches that stay well above zero are the ones that sit
+     buried or in a membrane. This is a property of the sequence, not a structure prediction:
+     nothing here folds a protein, and nothing here can. */
+  function hydropathy(protein, window) {
+    const w = Math.max(1, Math.min(protein.length, window || 9));
+    const half = Math.floor(w / 2), out = [];
+    for (let i = 0; i < protein.length; i++) {
+      let sum = 0, n = 0;
+      for (let j = Math.max(0, i - half); j <= Math.min(protein.length - 1, i + half); j++) {
+        sum += KD[protein[j]] === undefined ? 0 : KD[protein[j]]; n++;
+      }
+      out.push(n ? sum / n : 0);
+    }
+    return out;
+  }
+  /* The protein lined up against the codons that encode it, before and after, so a change can
+     be pointed at. Returns one entry per codon. */
+  function residues(originalDna, optimizedDna, w) {
+    const n = Math.floor(Math.min(originalDna.length, optimizedDna.length) / 3);
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const was = originalDna.substr(i * 3, 3), now = optimizedDna.substr(i * 3, 3);
+      const aa = CODE[now] || '?';
+      out.push({
+        i: i + 1, aa, name: AA_NAMES[aa] || aa, group: AA_GROUP[aa] || 'polar',
+        was, now, changed: was !== now,
+        synonyms: (SYN[aa] || []).length,
+        wasFit: w && w[was] !== undefined ? w[was] : null,
+        nowFit: w && w[now] !== undefined ? w[now] : null,
+        kd: KD[aa] === undefined ? 0 : KD[aa]
+      });
+    }
+    return out;
+  }
+
+  /* ---------- Hairpins at the 5' end ----------
+
+     A hairpin is a stem-loop: a run of bases that pairs with a run just downstream of it,
+     with a few unpaired bases turning the corner. Anywhere in the message they are ordinary
+     and mostly harmless, but across the first few codons they matter out of proportion to
+     their size, because that is where the ribosome has to load. A structured start can cost
+     far more expression than a poor codon choice further in.
+
+     The stem is counted in Watson-Crick pairs only. G-U wobble does form in mRNA and is
+     included in the strength figure, but it is not allowed to create a stem on its own: this
+     drives a hard constraint, and failing a sequence over a weak wobble pairing would reject
+     good designs for little reason. */
+  const STRONG = { GC: true, CG: true, AT: true, TA: true };
+  function hairpins(seq, opt) {
+    opt = opt || {};
+    const within = opt.within === undefined ? 20 : Math.max(1, opt.within);
+    const minStem = opt.minStem === undefined ? 4 : Math.max(2, opt.minStem);
+    const minLoop = opt.minLoop === undefined ? 3 : Math.max(1, opt.minLoop);
+    /* The loop has to be capped or this stops being a hairpin detector. A four-base stem
+       closing across a thirty-base loop is not a stem-loop, it is two distant complementary
+       patches, and with no cap a T-rich stretch and an A-rich stretch anywhere within reach
+       of each other would be reported. Real structures that hold up ribosome loading close
+       over a few bases. */
+    const maxLoop = opt.maxLoop === undefined ? 8 : Math.max(minLoop, opt.maxLoop);
+    // Look a little past the window: a stem starting at base 18 can close well beyond it.
+    // A stem starting inside the window can only close a bounded distance away.
+    const reach = opt.reach === undefined ? 2 * Math.max(minStem, 6) + maxLoop + 2 : opt.reach;
+    const s = seq.slice(0, Math.min(seq.length, within + reach));
+    const n = s.length, found = [];
+    for (let i = 0; i < Math.min(within, n); i++) {
+      for (let j = n - 1; j > i + minLoop + 1; j--) {
+        let L = 0, bp = 0;
+        while (i + L < j - L - minLoop + 1 && STRONG[s[i + L] + s[j - L]]) {
+          bp += PAIR[s[i + L] + s[j - L]] || 0;
+          L++;
+        }
+        if (L < minStem) continue;
+        const loop = (j - L) - (i + L) + 1;
+        if (loop < minLoop || loop > maxLoop) continue;
+        found.push({ start: i, end: j, stem: L, loop, strength: bp });
+      }
+    }
+    /* One structure shows up as many overlapping candidates, so only the strongest of each
+       overlapping cluster is kept. Otherwise the count would say more about the search than
+       about the sequence. */
+    found.sort((a, b) => b.strength - a.strength || b.stem - a.stem || a.start - b.start);
+    const kept = [];
+    for (const f of found) {
+      if (kept.some(k => f.start <= k.end && k.start <= f.end)) continue;
+      kept.push(f);
+    }
+    return kept.sort((a, b) => a.start - b.start);
+  }
+
   // ---------- Forbidden motifs ----------
   const ENZYMES = {
     EcoRI: 'GAATTC', BamHI: 'GGATCC', HindIII: 'AAGCTT', XhoI: 'CTCGAG', NotI: 'GCGGCCGC',
@@ -182,9 +298,12 @@
     const gc = gcProfile(dna, ctx);
     const five = foldScore(dna.slice(0, ctx.foldWindow || 45));
     const hits = findMotifs(dna, ctx.motifs, ctx.maxRun);
-    return { cai: cai(dna, ctx.w), gc, fold: five, motifs: hits, violations: hits.length };
+    // Hairpins only count against a sequence when the option is on, so an unasked-for
+    // constraint can never quietly fail somebody's design.
+    const hp = ctx.noHairpin ? hairpins(dna, ctx.noHairpin) : [];
+    return { cai: cai(dna, ctx.w), gc, fold: five, motifs: hits, hairpins: hp, violations: hits.length + hp.length };
   }
 
-  root.MLCodon = { CODE, SYN, TABLES, ENZYMES, translate, revComp, clean, relativeAdaptiveness, cai, gcOf, gcProfile, foldScore, motifList, findMotifs, score };
+  root.MLCodon = { CODE, SYN, TABLES, ENZYMES, translate, revComp, clean, relativeAdaptiveness, cai, gcOf, gcProfile, foldScore, hairpins, motifList, AA_NAMES, AA_GROUP, GROUP_LABEL, KD, hydropathy, residues, findMotifs, score };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLCodon;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

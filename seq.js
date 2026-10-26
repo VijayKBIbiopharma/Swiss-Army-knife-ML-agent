@@ -39,6 +39,9 @@
     return {
       dna, host: $('seq-host').value, gcLow: lo, gcHigh: hi, maxRun: Number($('seq-maxrun').value) || 0,
       avoid: avoidList(), popSize: Number($('seq-pop').value) || 80, generations: Number($('seq-gens').value) || 300,
+      noHairpin: $('seq-nohairpin').checked
+        ? { within: Number($('seq-hp-within').value) || 20, minStem: Number($('seq-hp-stem').value) || 4, minLoop: 3 }
+        : null,
       weights: { cai: Number($('seq-w-cai').value), gc: Number($('seq-w-gc').value), fold: Number($('seq-w-fold').value) }, seed: 42
     };
   }
@@ -53,10 +56,11 @@
     try {
       const job = readJob(), p = G.plan(job);
       const w = C.relativeAdaptiveness(job.host);
-      const m = C.score(p.dna, { w, motifs: C.motifList(job.avoid), maxRun: job.maxRun, gcLow: job.gcLow, gcHigh: job.gcHigh });
+      const m = C.score(p.dna, { w, motifs: C.motifList(job.avoid), maxRun: job.maxRun, gcLow: job.gcLow, gcHigh: job.gcHigh, noHairpin: job.noHairpin });
       const choices = p.positions.filter(x => !x.fixed).length;
       el.textContent = p.positions.length + ' codons, ' + (p.protein.replace(/\*$/, '').length) + ' amino acids, ' + choices + ' of them with a synonym to choose from. ' +
-        'Right now: CAI ' + f3(m.cai) + ', GC ' + pct1(m.gc.overall) + ', 5′ folding ' + f3(m.fold) + ', ' + m.violations + ' site' + (m.violations === 1 ? '' : 's') + ' to remove.';
+        'Right now: CAI ' + f3(m.cai) + ', GC ' + pct1(m.gc.overall) + ', 5′ folding ' + f3(m.fold) + ', ' + m.motifs.length + ' site' + (m.motifs.length === 1 ? '' : 's') + ' to remove' +
+        (job.noHairpin ? ', ' + m.hairpins.length + ' hairpin' + (m.hairpins.length === 1 ? '' : 's') + ' in the first ' + job.noHairpin.within + ' bases' : '') + '.';
     } catch (e) { el.textContent = e.message; }
   }
 
@@ -133,12 +137,15 @@
       : m.worstWindow <= 0.02 && m.gc >= job.gcLow && m.gc <= job.gcHigh ? '<span class="verdict marginal">overall inside ' + band + ', one window ' + pct1(m.worstWindow) + ' over</span>'
         : verdict(false, m.gc < job.gcLow || m.gc > job.gcHigh ? 'overall outside ' + band : 'a window misses ' + band + ' by ' + pct1(m.worstWindow)));
     const motifNames = m => (m.motifs.length ? Array.from(new Set(m.motifs.map(x => x.label))).join(', ') : 'none');
+    const hpTxt = m => { const hp = m.hairpins || []; return hp.length ? hp.length + ' (strongest: ' + hp.slice().sort((x, y) => y.strength - x.strength)[0].stem + ' bp stem at base ' + (hp[0].start + 1) + ')' : '0'; };
 
     const table = '<div class="table-scroll"><table><thead><tr><th>Measure</th><th class="num-cell">Before</th><th class="num-cell">After</th><th>Verdict</th></tr></thead><tbody>' +
       row('Codon Adaptation Index', f3(b.cai), f3(a.cai), verdict(a.cai >= b.cai, a.cai >= b.cai ? '+' + f3(a.cai - b.cai) : 'no gain')) +
       row('GC content', gcTxt(b), gcTxt(a), gcVerdict(a)) +
       row('5′ folding (first 45 bases)', f3(b.fold), f3(a.fold), verdict(a.fold <= b.fold, a.fold <= b.fold ? 'looser start' : 'tighter start')) +
-      row('Sites to remove', b.violations + (b.violations ? ' (' + h(motifNames(b)) + ')' : ''), a.violations + (a.violations ? ' (' + h(motifNames(a)) + ')' : ''), verdict(a.violations === 0, a.violations === 0 ? 'all removed' : 'still present')) +
+      row('Sites to remove', (b.motifs || []).length + (b.motifs && b.motifs.length ? ' (' + h(motifNames(b)) + ')' : ''), (a.motifs || []).length + (a.motifs && a.motifs.length ? ' (' + h(motifNames(a)) + ')' : ''), verdict((a.motifs || []).length === 0, (a.motifs || []).length === 0 ? 'all removed' : 'still present')) +
+      (job.noHairpin ? row('Hairpins in the first ' + job.noHairpin.within + ' bases', hpTxt(b), hpTxt(a),
+        verdict((a.hairpins || []).length === 0, (a.hairpins || []).length === 0 ? 'start is clear' : 'could not be cleared')) : '') +
       row('Overall score', f3(b.d), f3(a.d), verdict(a.d >= b.d, a.d >= b.d ? 'better balance' : 'no gain')) +
       '</tbody></table></div>';
 
@@ -153,6 +160,12 @@
       '<h4>Trade-offs found (Pareto front)</h4>' +
       '<p class="hint">Each point is a sequence that cannot be improved on one goal without losing on another. Click one to load it instead of the default pick.</p>' +
       '<div id="seq-pareto"></div>' +
+      (job.noHairpin ? '<h4>The start of the message</h4>' +
+        '<p class="hint">The hairpin that was asked about, drawn as it was found: each circle is a base, each rung a pair, heavier where three hydrogen bonds hold it. There is deliberately no free energy here &mdash; see the note underneath.</p>' +
+        '<div class="hairpin-pair"><div id="seq-hp-before"></div><div id="seq-hp-after"></div></div>' +
+        '<p class="hint">This is the stem-loop that was detected, drawn to scale, and nothing more. It is not a thermodynamic fold: a figure quoting kcal/mol needs a nearest-neighbour parameter set and a partition function, which would mean shipping a model and the machinery to run it. Printing a plausible-looking energy from anything less, beside a diagram that looks like the real thing, would be worse than printing none. For a committed design, check the final sequence in a folding tool that does carry those parameters.</p>' : '') +
+      '<h4>The protein, and the codons underneath it</h4>' +
+      '<div id="seq-protein"></div>' +
       '<h4>Sequence</h4><div class="row-actions">' +
       '<button class="btn primary" type="button" id="seq-fasta">Download FASTA (.fa)</button>' +
       '<button class="btn" type="button" id="seq-csv">Download report (.csv)</button>' +
@@ -163,6 +176,12 @@
 
     selected = null;
     showSequence(res.dna, job);
+    drawProtein($('seq-protein'), res, job);
+    if (job.noHairpin) {
+      const strongest = list => (list && list.length ? list.slice().sort((x, y) => y.strength - x.strength)[0] : null);
+      drawHairpin($('seq-hp-before'), res.original, strongest(res.before.hairpins), 'Before');
+      drawHairpin($('seq-hp-after'), shown || res.dna, strongest(res.after.hairpins), 'After');
+    }
     drawPareto(res.front, job);
     $('seq-pareto').addEventListener('click', e => {
       const g = e.target.closest('[data-pareto]'); if (!g) return;
@@ -171,6 +190,8 @@
       const outside = p.gc < job.gcLow || p.gc > job.gcHigh;
       showSequence(p.dna, job, 'Chosen from the trade-off plot: CAI ' + f3(p.cai) + ', GC ' + pct1(p.gc) + ', folding ' + f3(p.fold) + '.' +
         (outside ? '\n! This one buys CAI by leaving your ' + Math.round(job.gcLow * 100) + '-' + Math.round(job.gcHigh * 100) + '% GC window.' : ''));
+      // The drawing follows the sequence actually on screen, not the default pick.
+      drawProtein($('seq-protein'), res, job);
       drawPareto(res.front, job);
     });
     $('seq-fasta').addEventListener('click', () => download('optimized-sequence.fa', fasta(), 'text/plain'));
@@ -181,6 +202,174 @@
       const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
       try { document.execCommand('copy'); e.target.textContent = 'Copied'; setTimeout(() => { e.target.textContent = 'Copy to clipboard'; }, 1500); } catch (err) { /* selection is left for a manual copy */ }
     });
+  }
+
+  /* ---------- Drawing a hairpin ----------
+
+     The stem-loop as a base-pair diagram: two antiparallel strands with a rung between each
+     pair, the loop turning the corner, and the 5' end marked. Rungs are drawn by how many
+     hydrogen bonds hold the pair, so a G-C stem reads as heavier than an A-T one.
+
+     What this is NOT: a thermodynamic fold. There is no free energy here, in kcal/mol or
+     anything else, and that omission is deliberate. A real figure needs a nearest-neighbour
+     parameter set and a partition function; printing a plausible-looking number from
+     anything less, next to a diagram that looks like the real thing, would be worse than
+     printing none. This shows exactly what was detected and nothing more. */
+  const BOND = { GC: 3, CG: 3, AT: 2, TA: 2, GT: 1, TG: 1 };
+  function drawHairpin(el, dna, hp, label, window) {
+    // Nothing to fold: draw the start as the open strand it now is, so the contrast is
+    // something you can see rather than a sentence saying it happened.
+    if (!hp) {
+      const n = Math.min(dna.length, window || 20), r0 = 11, sx0 = 29;
+      let f = '<text class="lbl-strong" x="4" y="22">' + h(label) + '</text>';
+      f += '<text class="hp-end" x="4" y="62" text-anchor="start">5&#8242;</text>';
+      for (let i = 0; i < n; i++) {
+        const x = 34 + i * sx0;
+        if (i) f += '<line class="hp-backbone" x1="' + (x - sx0 + r0) + '" y1="58" x2="' + (x - r0) + '" y2="58"/>';
+        f += '<g data-tip="' + h('base ' + (i + 1) + ': ' + dna[i]) + '"><circle class="hp-base hp-open" cx="' + x + '" cy="58" r="' + r0 + '"/>' +
+          '<text class="hp-letter" x="' + x + '" y="62" text-anchor="middle">' + h(dna[i]) + '</text></g>';
+      }
+      f += '<text x="4" y="104">No hairpin in the first ' + n + ' bases: the start is open for the ribosome.</text>';
+      el.innerHTML = '<svg class="chart hairpin-chart" viewBox="0 0 ' + (34 + n * sx0 + 20) + ' 120" role="img" aria-label="' + h(label + ': an open, unpaired start') + '">' + f + '</svg>';
+      return;
+    }
+    const r = 11, sx = 29, tailMax = 6;
+    const pairs = [];
+    for (let k = 0; k < hp.stem; k++) pairs.push([hp.start + k, hp.end - k]);
+    const loopIdx = [];
+    for (let i = hp.start + hp.stem; i <= hp.end - hp.stem; i++) loopIdx.push(i);
+    const tail5 = [];
+    for (let i = Math.max(0, hp.start - tailMax); i < hp.start; i++) tail5.push(i);
+    const tail3 = [];
+    for (let i = hp.end + 1; i <= Math.min(dna.length - 1, hp.end + tailMax); i++) tail3.push(i);
+
+    const yTop = 58, yBot = 122, mid = (yTop + yBot) / 2;
+    // Both tails hang to the left, so the margin has to clear the longer of the two or the
+    // 3' label lands outside the drawing.
+    const X0 = 40 + Math.max(tail5.length, tail3.length) * sx;
+    const xAt = k => X0 + k * sx;
+    const lastX = xAt(hp.stem - 1);
+    // The loop is an arc turning from the top strand round to the bottom one.
+    const loopR = Math.max(26, (loopIdx.length * 15) / Math.PI);
+    const cx = lastX + loopR * 0.75, cy = mid;
+    const W = Math.max(cx + loopR + 40, lastX + 120), H = 196;
+
+    let b = '';
+    const base = (i, x, y, cls) => {
+      const ch = dna[i] || '?';
+      return '<g data-tip="' + h('base ' + (i + 1) + ': ' + ch) + '">' +
+        '<circle class="hp-base ' + (cls || '') + '" cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + r + '"/>' +
+        '<text class="hp-letter" x="' + x.toFixed(1) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="middle">' + h(ch) + '</text></g>';
+    };
+    const link = (x1, y1, x2, y2) => '<line class="hp-backbone" x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '"/>';
+
+    // Backbone and rungs for the stem.
+    for (let k = 0; k < hp.stem; k++) {
+      const x = xAt(k);
+      if (k) { b += link(xAt(k - 1) + r, yTop, x - r, yTop); b += link(xAt(k - 1) + r, yBot, x - r, yBot); }
+      const bond = BOND[dna[pairs[k][0]] + dna[pairs[k][1]]] || 0;
+      b += '<line class="hp-rung bonds-' + bond + '" x1="' + x + '" y1="' + (yTop + r) + '" x2="' + x + '" y2="' + (yBot - r) + '"/>';
+    }
+    // The loop, swept from the top strand to the bottom.
+    const n = loopIdx.length;
+    loopIdx.forEach((gi, j) => {
+      const t = (j + 1) / (n + 1);
+      const ang = -Math.PI / 2 + t * Math.PI;
+      const x = cx + loopR * Math.cos(ang), y = cy + loopR * Math.sin(ang);
+      b += base(gi, x, y, 'hp-loop');
+    });
+    if (n) {
+      const first = -Math.PI / 2 + (1 / (n + 1)) * Math.PI, last = -Math.PI / 2 + (n / (n + 1)) * Math.PI;
+      b += link(lastX + r, yTop, cx + loopR * Math.cos(first) - r * 0.6, cy + loopR * Math.sin(first));
+      b += link(cx + loopR * Math.cos(last) - r * 0.6, cy + loopR * Math.sin(last), lastX + r, yBot);
+    }
+    // Stem bases on top of the rungs, then the single-stranded tails.
+    for (let k = 0; k < hp.stem; k++) { b += base(pairs[k][0], xAt(k), yTop, 'hp-stem'); b += base(pairs[k][1], xAt(k), yBot, 'hp-stem'); }
+    tail5.forEach((gi, j) => {
+      const x = X0 - (tail5.length - j) * sx;
+      b += link(x + r, yTop, x + sx - r, yTop);
+      b += base(gi, x, yTop, 'hp-tail');
+    });
+    tail3.forEach((gi, j) => {
+      const x = X0 - (j + 1) * sx;
+      b += link(x + r, yBot, x + sx - r, yBot);
+      b += base(gi, x, yBot, 'hp-tail');
+    });
+    const x5 = tail5.length ? X0 - tail5.length * sx : X0;
+    b += '<text class="hp-end" x="' + (x5 - r - 6) + '" y="' + (yTop + 4) + '" text-anchor="end">5&#8242;</text>';
+    b += '<text class="hp-end" x="' + ((tail3.length ? X0 - tail3.length * sx : X0) - r - 6) + '" y="' + (yBot + 4) + '" text-anchor="end">3&#8242;</text>';
+    b += '<text class="lbl-strong" x="' + (x5 - r - 6) + '" y="22" text-anchor="start">' + h(label) + '</text>';
+    b += '<text x="' + (x5 - r - 6) + '" y="' + (H - 8) + '" text-anchor="start">' +
+      hp.stem + ' base pairs from base ' + (hp.start + 1) + ', loop of ' + hp.loop + '</text>';
+
+    el.innerHTML = '<svg class="chart hairpin-chart" viewBox="0 0 ' + Math.round(W) + ' ' + H + '" role="img" aria-label="' + h(label + ': a stem of ' + hp.stem + ' base pairs closing over a loop of ' + hp.loop) + '">' + b + '</svg>';
+  }
+
+  /* ---------- The protein, with the codons underneath ----------
+
+     The whole promise of codon optimization is that the gene changes and the protein does
+     not. That is one line of text to assert and hard to take on trust, so it is drawn: the
+     same residues throughout, coloured by chemical character, with the codon that encodes
+     each one before and after. Changed codons are marked, so "47 of 212 codons changed, no
+     amino acid changed" becomes something you can look at and check.
+
+     This is a sequence diagram, not a structure. Nothing here folds the protein. */
+  const PER_ROW = 30, CELL = 23;
+  function drawProtein(el, res, job) {
+    const w = C.relativeAdaptiveness(res.host);
+    const all = C.residues(res.original, shown || res.dna, w);
+    const cap = 600;
+    const list = all.slice(0, cap);
+    const protein = all.map(r => r.aa).join('').replace(/\*$/, '');
+    const rows = Math.ceil(list.length / PER_ROW);
+    const L = 46, R = 14, W = L + PER_ROW * CELL + R;
+    const rowH = 54, top = 92;
+    const H = top + rows * rowH + 16;
+
+    // Kyte and Doolittle across the whole chain: a property of the sequence, drawn to scale.
+    const kd = C.hydropathy(protein, 9);
+    let b = '';
+    const kdH = 52, kdTop = 20;
+    const lo = -4.5, hi = 4.5;
+    const kx = i => L + (kd.length < 2 ? 0 : i / (kd.length - 1)) * (W - L - R);
+    const ky = v => kdTop + (hi - v) / (hi - lo) * kdH;
+    b += '<line class="gridline" x1="' + L + '" x2="' + (W - R) + '" y1="' + ky(0) + '" y2="' + ky(0) + '"/>';
+    b += '<text class="lbl-strong" x="0" y="' + (kdTop + 4) + '">+4.5</text>';
+    b += '<text x="0" y="' + (ky(0) + 4) + '">0</text>';
+    b += '<text x="0" y="' + (kdTop + kdH + 4) + '">&#8722;4.5</text>';
+    if (kd.length > 1) b += '<path class="line" d="' + kd.map((v, i) => (i ? 'L' : 'M') + kx(i).toFixed(1) + ' ' + ky(v).toFixed(1)).join('') + '"/>';
+    b += '<text class="lbl-strong" x="' + ((L + W - R) / 2) + '" y="' + (kdTop + kdH + 20) + '" text-anchor="middle">Hydropathy (Kyte&#8211;Doolittle, 9-residue window) &#183; above the line is water-avoiding</text>';
+
+    list.forEach((r, idx) => {
+      const row = Math.floor(idx / PER_ROW), col = idx % PER_ROW;
+      const x = L + col * CELL, y = top + row * rowH;
+      if (col === 0) b += '<text class="lbl-strong" x="0" y="' + (y + 15) + '">' + r.i + '</text>';
+      const tip = r.i + ' ' + r.name + ' (' + r.aa + ')\n' + C.GROUP_LABEL[r.group] +
+        '\ncodon ' + r.was + (r.changed ? ' → ' + r.now + ' (changed)' : ' (unchanged)') +
+        (r.nowFit !== null ? '\nhow favoured in this host: ' + (r.wasFit || 0).toFixed(2) + ' → ' + (r.nowFit || 0).toFixed(2) : '') +
+        '\n' + r.synonyms + ' codon' + (r.synonyms === 1 ? '' : 's') + ' encode this residue';
+      b += '<g data-tip="' + h(tip) + '">';
+      b += '<rect class="aa aa-' + r.group + '" x="' + x + '" y="' + y + '" width="' + (CELL - 3) + '" height="20" rx="3"/>';
+      b += '<text class="aa-letter" x="' + (x + (CELL - 3) / 2) + '" y="' + (y + 15) + '" text-anchor="middle">' + h(r.aa) + '</text>';
+      b += '<text class="codon' + (r.changed ? ' codon-changed' : '') + '" x="' + (x + (CELL - 3) / 2) + '" y="' + (y + 34) + '" text-anchor="middle">' + h(r.now) + '</text>';
+      if (r.changed) b += '<rect class="codon-mark" x="' + x + '" y="' + (y + 38) + '" width="' + (CELL - 3) + '" height="3" rx="1.5"/>';
+      b += '</g>';
+    });
+
+    const changed = all.filter(r => r.changed).length;
+    const counts = {};
+    all.forEach(r => { counts[r.group] = (counts[r.group] || 0) + 1; });
+    const legend = Object.keys(C.GROUP_LABEL).filter(g => counts[g])
+      .map(g => '<span class="aa-key"><i class="aa-swatch aa-' + g + '"></i>' + h(C.GROUP_LABEL[g]) + ' (' + counts[g] + ')</span>').join('');
+
+    el.innerHTML = '<svg class="chart protein-chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The protein as a chain of residues, with the codon encoding each one">' + b + '</svg>' +
+      '<div class="aa-legend">' + legend + '<span class="aa-key"><i class="aa-swatch aa-changedkey"></i>codon changed (' + changed + ')</span></div>' +
+      '<p class="hint">Every letter is one amino acid, coloured by chemical character; the three letters underneath are the codon now encoding it, underlined where the codon changed. ' +
+      'The protein reads identically before and after &mdash; <b>' + changed + ' of ' + all.length + ' codons changed, ' + (res.proteinUnchanged ? 'no amino acid changed' : 'BUT THE PROTEIN CHANGED — do not use this sequence') + '</b>. ' +
+      'Hover any residue for its codon, and for how strongly this host favours that codon.' +
+      (all.length > cap ? ' Showing the first ' + cap + ' of ' + all.length + ' codons; the full sequence is in the FASTA and CSV downloads.' : '') + '</p>' +
+      '<p class="hint">This is the sequence, not the structure. Nothing here predicts how the protein folds, and nothing offline could: a structure prediction needs a large trained model and a server to run it on, which is exactly what this tool is built to do without. Hydropathy is an exact property of the sequence &mdash; sustained stretches above the line tend to sit buried or in a membrane &mdash; but it is a hint about the chain, not a fold.</p>';
+    CH.bindTips(document.getElementById('tip'));
   }
 
   let shown = '';
@@ -209,10 +398,14 @@
       ['Worst window outside the GC band', r.before.worstWindow, r.after.worstWindow],
       ['GC window', Math.round(j.gcLow * 100) + '-' + Math.round(j.gcHigh * 100) + '%', Math.round(j.gcLow * 100) + '-' + Math.round(j.gcHigh * 100) + '%'],
       ['5-prime folding score', r.before.fold, r.after.fold],
-      ['Forbidden sites', r.before.violations, r.after.violations],
+      ['Forbidden sites', (r.before.motifs || []).length, (r.after.motifs || []).length],
+      ['Total constraint violations', r.before.violations, r.after.violations],
       ['Overall score', r.before.d, r.after.d],
       ['Protein unchanged', '', r.proteinUnchanged ? 'yes' : 'NO'],
       ['Generations', '', r.generations],
+      ['No-hairpin requirement', j.noHairpin ? 'stem of ' + j.noHairpin.minStem + '+ bp within the first ' + j.noHairpin.within + ' bases' : 'not requested',
+        j.noHairpin ? 'stem of ' + j.noHairpin.minStem + '+ bp within the first ' + j.noHairpin.within + ' bases' : 'not requested'],
+      ['Hairpins near the start', (r.before.hairpins || []).length, (r.after.hairpins || []).length],
       ['Sites screened', esc(j.avoid.join('; ')), esc(j.avoid.join('; '))],
       [], ['Original sequence', esc(r.original)], ['Optimized sequence', esc(shown)]
     ];
@@ -334,7 +527,7 @@
       if ($('seq-dna').value.trim()) $('delete-top').hidden = false;
       describe();
     });
-    ['seq-host', 'seq-gc-low', 'seq-gc-high', 'seq-maxrun', 'seq-extra'].forEach(id => $(id).addEventListener('change', describe));
+    ['seq-host', 'seq-gc-low', 'seq-gc-high', 'seq-maxrun', 'seq-extra', 'seq-nohairpin', 'seq-hp-within', 'seq-hp-stem'].forEach(id => $(id).addEventListener('change', describe));
     $('seq-enzymes').addEventListener('change', describe);
     $('seq-sample').addEventListener('click', () => { $('seq-dna').value = exampleGene(); $('delete-top').hidden = false; describe(); });
     $('seq-clear').addEventListener('click', clear);

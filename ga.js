@@ -66,7 +66,7 @@
     const motifs = C.motifList(job.avoid || []);
     const ctx = {
       w, motifs, gcLow: job.gcLow, gcHigh: job.gcHigh, gcWindow: job.gcWindow || 50, gcStep: job.gcStep || 10,
-      foldWindow: job.foldWindow || 45, maxRun: job.maxRun || 0,
+      foldWindow: job.foldWindow || 45, maxRun: job.maxRun || 0, noHairpin: job.noHairpin || null,
       weights: Object.assign({ cai: 3, gc: 2, fold: 1 }, job.weights), caiFloor: 0.3, foldWorst: 1.6
     };
     const n = p.positions.length;
@@ -83,7 +83,11 @@
       if (fold === undefined) { fold = C.foldScore(head); if (foldCache.size < 20000) foldCache.set(head, fold); }
       const gc = C.gcProfile(dna, ctx);
       const hits = C.findMotifs(dna, ctx.motifs, ctx.maxRun);
-      const m = { cai: C.cai(dna, ctx.w), gc, fold, violations: hits.length, motifs: hits };
+      /* A hairpin across the start counts as a violation, not as an objective, so the search
+         treats it the way it treats a restriction site: a sequence that still has one never
+         beats a sequence that does not, whatever its CAI. */
+      const hp = ctx.noHairpin ? C.hairpins(dna, ctx.noHairpin) : [];
+      const m = { cai: C.cai(dna, ctx.w), gc, fold, violations: hits.length + hp.length, motifs: hits, hairpins: hp };
       const des = desirability(m, ctx);
       // All three objectives are minimized, which is what the sorting below assumes.
       return Object.assign(m, { f: [1 - m.cai, gc.penalty, fold], d: des.d, parts: des.parts, dna });
@@ -251,7 +255,8 @@
       }
     };
   }
-  const summary = m => ({ cai: m.cai, gc: m.gc.overall, gcOk: m.gc.ok, worstWindow: m.gc.worstWindow, fold: m.fold, violations: m.violations, motifs: m.motifs.slice(0, 40), d: m.d });
+  const summary = m => ({ cai: m.cai, gc: m.gc.overall, gcOk: m.gc.ok, worstWindow: m.gc.worstWindow, fold: m.fold,
+    violations: m.violations, motifs: m.motifs.slice(0, 40), hairpins: (m.hairpins || []).slice(0, 20), d: m.d });
 
   root.MLGa = { create, plan, desirability, rng };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLGa;

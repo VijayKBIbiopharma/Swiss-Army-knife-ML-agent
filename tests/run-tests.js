@@ -1880,3 +1880,126 @@ test('every advisor recommendation points somewhere that exists', () => {
   // And the front door must promise what the rest of the page promises.
   assert.ok(/never sent anywhere, and never stored/.test(html), 'the ask box must state what happens to what is typed');
 });
+
+test('hairpins near the start are found, and only real ones', () => {
+  const hp = (seq, opt) => CD.hairpins(seq, Object.assign({ within: 20 }, opt || {}));
+  // A tight stem-loop: six Watson-Crick pairs closing over a short loop.
+  const tight = hp('ATG' + 'GCGCGC' + 'TTTT' + 'GCGCGC' + 'AAAGATCTGAAAGGCTAA');
+  assert.strictEqual(tight.length, 1);
+  assert.strictEqual(tight[0].stem, 6);
+  assert.ok(tight[0].loop >= 3 && tight[0].loop <= 8, 'loop ' + tight[0].loop);
+  assert.ok(tight[0].strength >= 12, 'a GC stem should score as strong: ' + tight[0].strength);
+
+  /* A short run pairing across a long gap is not a hairpin, and without a cap on the loop
+     any T-rich and A-rich patch within reach of each other would be reported. */
+  assert.strictEqual(hp('ATGAAAGATCTGAAATTTGAAAAAGATCTGAAAGGC').length, 0);
+  assert.strictEqual(hp('ATGAAAGAAGATAAAGAAGATAAAGAAGATAAAGGC').length, 0);
+  // Below the minimum stem length, nothing is reported.
+  assert.strictEqual(hp('ATG' + 'GC' + 'TTT' + 'GC' + 'AAAAAAAAAAAAAAA', { minStem: 4 }).length, 0);
+  // A realistic antibody-style start must come back clean, or the option is unusable.
+  assert.strictEqual(hp('ATGGCCGAGGTGCAGCTGGTGGAGTCTGGGGGAGGCTTGGTACAGCCTGGG').length, 0);
+  // One structure must be reported once, not as every overlapping candidate.
+  assert.strictEqual(hp('ATG' + 'GGCGCC' + 'TTT' + 'GGCGCC' + 'AAAAAAAAAAAA').length, 1);
+  // Only stems that start inside the window count.
+  const late = 'ATG' + 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' + 'GCGCGC' + 'TTT' + 'GCGCGC';
+  assert.strictEqual(hp(late, { within: 20 }).length, 0, 'a stem beyond the window must not count');
+  assert.ok(hp(late, { within: 60 }).length >= 1, 'but it must be found when the window covers it');
+  // A tighter stem requirement can only ever find fewer.
+  assert.ok(hp('ATG' + 'GCGCGC' + 'TTTT' + 'GCGCGC' + 'AAAGATCTGAAAGGCTAA', { minStem: 7 }).length <= 1);
+});
+
+test('the no-hairpin option is a hard constraint, and is off unless asked for', () => {
+  const w = CD.relativeAdaptiveness('CHO');
+  const base = { w, motifs: [], maxRun: 6 };
+  const seq = CD.clean('ATG' + 'GCGCGC' + 'TTTGCGCGC' + 'AAAGATCTGAAAGGCGATCTGAAAGGCGATCTGAAATAA');
+  // Off by default: an unasked-for constraint must never fail somebody's design.
+  assert.strictEqual(CD.score(seq, base).violations, 0);
+  assert.deepStrictEqual(CD.score(seq, base).hairpins, []);
+  const on = CD.score(seq, Object.assign({}, base, { noHairpin: { within: 20, minStem: 4 } }));
+  assert.strictEqual(on.hairpins.length, 1);
+  assert.strictEqual(on.violations, 1, 'a hairpin must count as a violation, not an objective');
+
+  /* Run the optimizer with the requirement on. It has very little room - the start codon is
+     fixed and only a few codons follow - so the test is that the requirement is either met
+     or reported, never silently dropped. */
+  const job = {
+    dna: seq, host: 'CHO', gcLow: 0.4, gcHigh: 0.6, maxRun: 6, avoid: [],
+    popSize: 60, generations: 150, seed: 11, noHairpin: { within: 20, minStem: 4, minLoop: 3 }
+  };
+  const run = GA.create(job);
+  assert.ok(run.state.baseline.hairpins.length > 0, 'the starting sequence carries the hairpin');
+  run.step(150);
+  const res = run.result();
+  assert.ok(res.proteinUnchanged, 'the protein must never change');
+  assert.ok(Array.isArray(res.after.hairpins), 'hairpins must be reported in the result');
+  if (res.after.violations === 0) {
+    assert.strictEqual(res.after.hairpins.length, 0, 'zero violations must mean zero hairpins');
+    // And it must not have paid for that by wrecking the codon usage.
+    assert.ok(res.after.cai >= res.before.cai, 'CAI ' + res.before.cai + ' -> ' + res.after.cai);
+  } else {
+    assert.ok(res.after.hairpins.length > 0, 'a violation must be an actual reported hairpin');
+  }
+  // Every sequence offered on the front must satisfy the requirement, not just the pick.
+  for (const f of res.front) assert.strictEqual(CD.hairpins(f.dna, { within: 20, minStem: 4 }).length, 0,
+    'a sequence offered as a trade-off must still meet a hard requirement');
+  // With the requirement off, the same search is free to leave the start structured.
+  const offJob = Object.assign({}, job, { noHairpin: null });
+  const offRun = GA.create(offJob); offRun.step(150);
+  const off = offRun.result();
+  assert.ok(off.proteinUnchanged);
+  assert.deepStrictEqual(off.after.hairpins, [], 'with the option off, no hairpins are reported at all');
+});
+
+test('several models are reported, not just the winner, and agreement is measured', async () => {
+  /* A single model's ranking is a single model's opinion. The point of refitting the
+     runners-up is that agreement between unrelated model families is much better evidence,
+     and disagreement is worth seeing before anyone acts on a driver chart. */
+  const rand = E.rng(7);
+  const cols = ['Temp', 'pH', 'Feed', 'DO', 'Agit', 'Shift', 'Yield'], rows = [];
+  for (let i = 0; i < 200; i++) {
+    const t = 35 + rand() * 4, ph = 6.8 + rand() * 0.6, f = 1 + rand() * 9, d = 30 + rand() * 40, ag = 100 + rand() * 60;
+    // Temperature dominates through a strong curve; pH and feed matter less; DO and agitation barely.
+    const y = 50 - 4.5 * (t - 37) * (t - 37) + 18 * (ph - 7) + 1.2 * f + 0.02 * d + 0.005 * ag + (rand() - 0.5) * 3;
+    rows.push([t.toFixed(2), ph.toFixed(2), f.toFixed(2), d.toFixed(1), ag.toFixed(0), i % 3 ? 'A' : 'B', y.toFixed(2)]);
+  }
+  const rep = await A.run({ columns: cols, rows }, { target: 'Yield' });
+
+  assert.ok(rep.compare && rep.compare.length >= 2, 'at least two models must be reported');
+  assert.ok(rep.compare.length <= 3, 'but not so many that the table stops being readable');
+  assert.ok(rep.compare.some(c => c.chosen), 'the chosen model must be among those shown');
+  assert.strictEqual(rep.compare.filter(c => c.chosen).length, 1, 'exactly one is the chosen model');
+  assert.ok(!rep.compare.some(c => c.id === 'baseline'), 'guessing the average is not a contender');
+  const ids = rep.compare.map(c => c.id);
+  assert.strictEqual(new Set(ids).size, ids.length, 'no model should appear twice');
+
+  for (const c of rep.compare) {
+    assert.ok(c.metrics && isFinite(c.metrics.r2), c.name + ' needs its score');
+    assert.ok(c.importance.length, c.name + ' needs its own drivers');
+    const total = c.importance.reduce((s, v) => s + v.share, 0);
+    assert.ok(Math.abs(total - 1) < 1e-9, c.name + ' shares must add to one, got ' + total);
+    assert.ok(c.importance.every(v => v.share >= 0), 'no negative importance');
+    // Each model is asked independently, so these are genuinely its own numbers.
+    assert.ok(c.importance.some(v => v.name === 'Temp'), c.name + ' should see the dominant driver');
+  }
+  // The chosen model's entry must match the headline importance, not be recomputed differently.
+  const chosen = rep.compare.find(c => c.chosen);
+  assert.strictEqual(chosen.importance[0].name, rep.importance[0].name);
+
+  // Agreement is measured rather than asserted, and on this data it should be unanimous.
+  assert.ok(rep.agreement, 'agreement must be reported');
+  assert.strictEqual(rep.agreement.topDriver, 'Temp', 'tops were ' + JSON.stringify(rep.agreement.tops));
+  assert.ok(rep.agreement.shared.includes('Temp'));
+  assert.ok(rep.agreement.union.length >= rep.agreement.shared.length, 'the union cannot be smaller than the shared set');
+  assert.ok(rep.log.some(l => /put Temp first/.test(l.text)), 'the agreement should be said out loud');
+
+  /* With pure noise there is nothing to agree about, and the tool must not manufacture a
+     consensus out of three models all ranking noise. */
+  const noiseRows = [];
+  const r2 = E.rng(3);
+  for (let i = 0; i < 120; i++) noiseRows.push([r2().toFixed(3), r2().toFixed(3), r2().toFixed(3), (r2() * 10).toFixed(3)]);
+  const noise = await A.run({ columns: ['A', 'B', 'C', 'Out'], rows: noiseRows }, { target: 'Out' });
+  if (noise.agreement && noise.agreement.topDriver) {
+    // If they do all agree on noise, it must at least be a weak, honestly-scored model.
+    assert.ok(noise.best.metrics.r2 < 0.3, 'a confident consensus on noise would be a bug: r2 ' + noise.best.metrics.r2);
+  }
+});

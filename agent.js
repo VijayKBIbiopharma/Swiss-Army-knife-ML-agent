@@ -278,6 +278,54 @@
     report.importance = best.id === 'baseline' ? [] : E.permutationImportance(full, data, task, seed);
     const totalImp = report.importance.reduce((s, v) => s + v.importance, 0) || 1;
     report.importance.forEach(v => { v.share = v.importance / totalImp; });
+    /* ---------- What the runners-up say ----------
+       One model's ranking of the drivers is one model's opinion. Three model families that
+       work in completely different ways, agreeing on what matters, is a far stronger
+       statement - and where they disagree, that is worth knowing before anyone acts on a
+       chart. So the top few are refit and asked the same question independently. */
+    report.compare = [];
+    const ranked = ok.filter(b => b.id !== 'baseline');
+    const picks = [best].concat(ranked.filter(b => b !== best)).slice(0, 3);
+    for (const c of picks) {
+      progress({ log: report.log.slice(), model: 'Comparing: ' + c.name, done: models.length, total: models.length });
+      await tick();
+      try {
+        const f = c === best ? full : E.fitFull(E.MODELS.find(m => m.id === c.id), data, task, seed);
+        const imp = c === best ? report.importance : E.permutationImportance(f, data, task, seed);
+        const tot = imp.reduce((sx, v) => sx + v.importance, 0) || 1;
+        const shares = imp.map(v => ({ name: v.name, importance: v.importance, share: v.importance / tot }));
+        report.compare.push({ id: c.id, name: c.name, plain: c.plain, metrics: c.metrics, oof: c.oof, importance: shares, chosen: c === best });
+      } catch (err) {
+        report.compare.push({ id: c.id, name: c.name, plain: c.plain, metrics: c.metrics, oof: c.oof, importance: [], chosen: c === best, error: String(err && err.message || err) });
+      }
+    }
+    /* Do they agree? Measured on the top driver and on the overlap of each model's leading
+       few, rather than asserted. */
+    if (report.compare.length > 1) {
+      const withImp = report.compare.filter(c => c.importance.length);
+      const tops = withImp.map(c => c.importance[0] && c.importance[0].name).filter(Boolean);
+      const leading = withImp.map(c => new Set(c.importance.filter(v => v.share >= 0.1).slice(0, 4).map(v => v.name)));
+      let shared = null;
+      if (leading.length) {
+        shared = [...leading[0]].filter(n => leading.every(set => set.has(n)));
+      }
+      report.agreement = {
+        models: withImp.length,
+        topDriver: tops.length && tops.every(t => t === tops[0]) ? tops[0] : null,
+        tops, shared: shared || [],
+        // The union is what at least one model thought mattered: the gap between it and the
+        // shared set is the honest measure of how much they disagree.
+        union: [...new Set(withImp.flatMap(c => c.importance.filter(v => v.share >= 0.1).slice(0, 4).map(v => v.name)))]
+      };
+      if (report.agreement.topDriver) {
+        say('All ' + withImp.length + ' leading models put ' + report.agreement.topDriver + ' first.', 'result');
+      } else if (report.agreement.shared.length) {
+        say('The leading models disagree on the order, but all of them rate ' + report.agreement.shared.join(' and ') + ' among the top drivers.', 'result');
+      } else if (withImp.length > 1) {
+        say('The leading models do not agree on which inputs matter. Treat any single ranking with caution.', 'warn');
+      }
+    }
+
     if (task === 'classification') {
       const g = String(report.goal || '');
       let fav = g.indexOf('class:') === 0 ? data.classes.indexOf(g.slice(6)) : -1;

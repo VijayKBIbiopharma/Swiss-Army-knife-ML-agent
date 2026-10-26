@@ -772,6 +772,19 @@
         </label>
       </div>
       <fieldset class="avoid">
+        <legend>Keep the start unstructured</legend>
+        <label class="check"><input id="seq-nohairpin" type="checkbox"> No hairpins near the start</label>
+        <div class="controls">
+          <label>Within the first
+            <input id="seq-hp-within" type="number" min="6" max="90" step="1" value="20"><span class="unit">bases</span>
+          </label>
+          <label>Stem of at least
+            <input id="seq-hp-stem" type="number" min="3" max="8" step="1" value="4"><span class="unit">bp</span>
+          </label>
+        </div>
+        <p class="hint">A hairpin is a short run of bases pairing with a run just downstream, closing over a loop. Across the first few codons these hold up ribosome loading, so one there can cost more expression than a poor codon choice further in. Ticking this makes it a <b>hard requirement</b> rather than something traded off: a sequence that still has one never wins, whatever its CAI. Stems are counted in Watson&ndash;Crick pairs over a loop of 3 to 8 bases &mdash; a short run pairing across a 30-base gap is not a hairpin. There is little room to work with here (the start codon is fixed and only a few codons follow), so if it cannot be cleared the report says so rather than quietly dropping the requirement.</p>
+      </fieldset>
+      <fieldset class="avoid">
         <legend>Remove these sites (both strands)</legend>
         <div id="seq-enzymes" class="chips"></div>
         <label class="full" for="seq-extra">Other sequences to avoid (comma separated, for example GGTCTC, AAGCTT)</label>
