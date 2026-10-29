@@ -774,6 +774,15 @@
         </div>
       </details>
       <input type="file" id="pg-hist-file" accept=".csv,.tsv,.txt,.xlsx" class="file-input">
+      <details class="shape">
+        <summary>&hellip;or paste the runs in</summary>
+        <div class="shape-body">
+          <label class="full" for="pg-hist-paste">Historical runs (CSV or tab separated, with a header row)</label>
+          <textarea id="pg-hist-paste" rows="6" spellcheck="false" placeholder="Construct_ID,Protein_Class,Protein_kDa,Promoter_Type,Selection_Marker,Plasmid_Size_kb,Titer_gL"></textarea>
+          <div class="row-actions"><button class="btn" id="pg-hist-use" type="button">Use these runs</button></div>
+          <p class="hint">Copy straight out of a spreadsheet and it pastes as tab separated, which is read as readily as commas. There is no hand-entry form for this step &mdash; nobody types two hundred runs, and pretending otherwise would just be a form nobody uses.</p>
+        </div>
+      </details>
       <p class="hint" id="pg-hist-read" aria-live="polite"></p>
       <div id="pg-hist-sheet"></div>
       <div id="pg-hist-map" hidden>
@@ -804,6 +813,21 @@
         </div>
       </details>
       <input type="file" id="pg-fac-file" accept=".csv,.tsv,.txt,.xlsx" class="file-input">
+      <details class="shape" id="pg-fac-entry">
+        <summary>&hellip;or type the catalogue in</summary>
+        <div class="shape-body">
+          <label class="full" for="pg-fac-paste">Factors and levels (CSV or tab separated, with a header row)</label>
+          <textarea id="pg-fac-paste" rows="4" spellcheck="false" placeholder="Factor,Levels,Min,Max,Step"></textarea>
+          <div class="row-actions"><button class="btn" id="pg-fac-use" type="button">Use this catalogue</button></div>
+          <h4>Or build it a factor at a time</h4>
+          <p class="hint">A catalogue is usually three or four lines, which is faster to type than to find in a file. Give levels for something you choose between, or a range for something continuous.</p>
+          <div id="pg-fac-build"></div>
+          <div class="row-actions">
+            <button class="btn ghost small" id="pg-fac-add" type="button">Add a factor</button>
+            <button class="btn ghost small" id="pg-fac-fromhist" type="button">Suggest from the history</button>
+          </div>
+        </div>
+      </details>
       <p class="hint" id="pg-fac-read" aria-live="polite"></p>
       <div id="pg-fac-sheet"></div>
       <div id="pg-fac-out"></div>
@@ -826,6 +850,18 @@
         </div>
       </details>
       <input type="file" id="pg-prog-file" accept=".csv,.tsv,.txt,.xlsx" class="file-input">
+      <details class="shape" id="pg-prog-entry">
+        <summary>&hellip;or type the programmes in</summary>
+        <div class="shape-body">
+          <label class="full" for="pg-prog-paste">Future programmes (CSV or tab separated, with a header row)</label>
+          <textarea id="pg-prog-paste" rows="4" spellcheck="false" placeholder="Program_ID,Protein_Class,Protein_kDa"></textarea>
+          <div class="row-actions"><button class="btn" id="pg-prog-use" type="button">Use these programmes</button></div>
+          <h4>Or add one programme at a time</h4>
+          <p class="hint" id="pg-prog-build-note">Load the historical runs in step 1 first &mdash; the form then asks for exactly the protein attributes your history records, with the values it has actually seen.</p>
+          <div id="pg-prog-build"></div>
+          <div id="pg-prog-list"></div>
+        </div>
+      </details>
       <p class="hint" id="pg-prog-read" aria-live="polite"></p>
       <div id="pg-prog-sheet"></div>
       <div id="pg-prog-out"></div>

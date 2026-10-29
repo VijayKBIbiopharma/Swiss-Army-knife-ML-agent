@@ -3183,3 +3183,76 @@ test('the plan refuses a protein it cannot place, and offers a floor as well as 
   assert.deepStrictEqual(extra.missing, ['Terminator'],
     'a catalogue factor absent from the history must be named, not silently picked');
 });
+
+test('typed-in, pasted and uploaded data take the same path to the same answer', () => {
+  /* Three ways into each step, one parse path. If a pasted block and a typed-in form went
+     through different code, they would drift, and the symptom would be a catalogue that
+     behaves differently depending on how it arrived - which is close to impossible to
+     diagnose from the outside. So both are turned into the table a file produces and handed
+     to the same function, and that equivalence is asserted here rather than assumed. */
+  const text = 'Factor,Levels,Min,Max,Step\nPromoter_Type,CMV; EF1a; CAG,,,\nPlasmid_Size_kb,,6,11,2.5\n';
+  const fromPaste = PG.parseCatalogue(E.parseCSV(text));
+  // What the hand-entry form builds: the same columns, values as typed.
+  const fromForm = PG.parseCatalogue({
+    columns: ['Factor', 'Levels', 'Min', 'Max', 'Step'],
+    rows: [['Promoter_Type', 'CMV; EF1a; CAG', '', '', ''], ['Plasmid_Size_kb', '', '6', '11', '2.5']]
+  });
+  assert.deepStrictEqual(fromForm.factors, fromPaste.factors,
+    'a typed catalogue and a pasted one must parse identically');
+
+  // Tab separated, which is what a spreadsheet copy actually puts on the clipboard.
+  const tabbed = 'Factor\tLevels\tMin\tMax\tStep\nPromoter_Type\tCMV; EF1a; CAG\t\t\t\nPlasmid_Size_kb\t\t6\t11\t2.5\n';
+  assert.deepStrictEqual(PG.parseCatalogue(E.parseCSV(tabbed)).factors, fromPaste.factors,
+    'pasting out of a spreadsheet must work as well as pasting a CSV');
+
+  // Same for the programme sheet.
+  const pText = 'Program_ID,Protein_Class,Protein_kDa\nPRG-1,bispecific,101\nPRG-2,enzyme,63\n';
+  const pPaste = PG.parseProgram(E.parseCSV(pText), ['Promoter_Type']);
+  const pForm = PG.parseProgram({
+    columns: ['Program_ID', 'Protein_Class', 'Protein_kDa'],
+    rows: [['PRG-1', 'bispecific', '101'], ['PRG-2', 'enzyme', '63']]
+  }, ['Promoter_Type']);
+  assert.deepStrictEqual(pForm.programs, pPaste.programs);
+});
+
+test('the hand-entry form is offered the attributes and levels the history really has', () => {
+  const table = {
+    columns: ['Construct_ID', 'Protein_Class', 'Protein_kDa', 'Promoter_Type', 'Owner', 'Titer_gL'],
+    rows: [['C1', 'mAb', '148', 'CMV', 'VK', '5.1'], ['C2', 'enzyme', '62', 'EF1a', 'PS', '3.2'],
+      ['C3', 'mAb', '148', 'CAG', 'VK', '4.4'], ['C4', 'mAb', '148', 'CMV', 'VK', '5.0']]
+  };
+  const prof = E.profile(table);
+
+  /* The form must ask for exactly the protein attributes, which means the chosen factors,
+     the outcome and the record-keeping columns all have to be out. One implementation of
+     this, shared with the planner: two would drift, and the symptom would be a form
+     offering a field the planner ignores, or omitting one it needs. */
+  assert.deepStrictEqual(PG.proteinColumns(prof, ['Promoter_Type'], ['Titer_gL']),
+    ['Protein_Class', 'Protein_kDa'], 'Owner is record-keeping and Titer_gL is the outcome');
+  // With no catalogue yet, the candidate factors are still offered - that is step 2's job.
+  assert.ok(PG.proteinColumns(prof, [], ['Titer_gL']).indexOf('Promoter_Type') >= 0);
+
+  /* Offering the real levels is what stops a typo presenting as a scientific limitation: a
+     mistyped class reads downstream as "a value the historical runs do not contain" and
+     correctly marks the programme untested, which is a maddening way to discover a spelling
+     mistake. Commonest first, so the usual answer is the default. */
+  const cls = PG.attributeChoices(prof, 'Protein_Class');
+  assert.strictEqual(cls.kind, 'categorical');
+  assert.deepStrictEqual(cls.levels, ['mAb', 'enzyme'], 'commonest level first');
+
+  const kda = PG.attributeChoices(prof, 'Protein_kDa');
+  assert.strictEqual(kda.kind, 'numeric');
+  assert.strictEqual(kda.min, 62);
+  assert.strictEqual(kda.max, 148);
+  assert.ok(kda.median >= 62 && kda.median <= 148);
+
+  assert.strictEqual(PG.attributeChoices(prof, 'NoSuchColumn'), null);
+
+  /* And the escape hatch has to keep working: a value deliberately outside the offered
+     levels must still reach the planner and be reported as unseen, not silently coerced to
+     the nearest option, which would be the whole failure this tool exists to avoid. */
+  const t = PG.transferability(prof, ['Protein_Class', 'Protein_kDa'],
+    [{ id: 'typed', attributes: { Protein_Class: 'nanobody', Protein_kDa: '14' } }]);
+  assert.strictEqual(t.perProgram[0].standing, 'untested');
+  assert.deepStrictEqual(t.perProgram[0].unseen.map(u => u.field).sort(), ['Protein_Class', 'Protein_kDa']);
+});

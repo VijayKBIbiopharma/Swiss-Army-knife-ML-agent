@@ -68,6 +68,7 @@
     opt('pg-target', numeric.find(c => TITER.test(c)) || numeric[numeric.length - 1], false);
     opt('pg-target2', numeric.find(c => QP.test(c)) || '', true);
     $('pg-hist-map').hidden = false;
+    renderProgBuild();
     $('pg-hist-read').textContent = sheet.rows.length + ' runs, ' + sheet.columns.length + ' columns read from "' + sheet.name + '". Nothing was uploaded.';
     refreshFactors();
     ready();
@@ -80,6 +81,7 @@
     clearErr('pg-fac-error');
     catalogue = res;
     $('pg-fac-read').textContent = res.factors.length + ' factors read from "' + sheet.name + '".';
+    renderProgBuild();
     refreshFactors();
     ready();
   }
@@ -137,6 +139,154 @@
     const ok = !!(prof && catalogue && catalogue.factors.length && programs && programs.programs.length);
     $('pg-run').disabled = !ok;
   };
+
+  /* ---------- adding the data by hand ----------
+
+     Three ways in per step, and all of them land in the same place. A pasted block and a
+     typed-in form are both turned into the same {columns, rows} table that a file produces
+     and handed to the same take* function, so there is one parse path and one set of rules
+     about what counts as a factor or an attribute. Two paths would drift, and the symptom
+     would be a catalogue that behaves differently depending on how it got here. */
+
+  const asTable = (columns, rows) => ({ name: 'typed in', columns, rows });
+
+  function usePaste(textId, take, errId) {
+    const t = $(textId).value.trim();
+    if (!t) return fail(errId, 'Paste something first.');
+    let parsed;
+    try { parsed = E.parseCSV(t); } catch (err) { return fail(errId, 'Could not read that: ' + err.message); }
+    if (!parsed.rows.length) return fail(errId, 'That looks like a header row with nothing under it.');
+    $('delete-top').hidden = false;
+    take(Object.assign({ name: 'pasted in' }, parsed));
+  }
+
+  // ---------- step 2: a factor at a time ----------
+  let facRows = [];
+  function renderFacBuild() {
+    const host = $('pg-fac-build');
+    if (!facRows.length) { host.innerHTML = ''; return; }
+    host.innerHTML = '<div class="table-scroll"><table><thead><tr><th>Factor</th><th>Levels (separated by ; )</th>' +
+      '<th class="num-cell">Min</th><th class="num-cell">Max</th><th class="num-cell">Step</th><th></th></tr></thead><tbody>' +
+      facRows.map((r, i) =>
+        '<tr><td><input type="text" data-fac="name" data-i="' + i + '" value="' + h(r.name) + '" placeholder="Promoter_Type"></td>' +
+        '<td><input type="text" data-fac="levels" data-i="' + i + '" value="' + h(r.levels) + '" placeholder="CMV; EF1a; CAG"></td>' +
+        '<td class="num-cell"><input type="number" step="any" data-fac="min" data-i="' + i + '" value="' + h(r.min) + '"></td>' +
+        '<td class="num-cell"><input type="number" step="any" data-fac="max" data-i="' + i + '" value="' + h(r.max) + '"></td>' +
+        '<td class="num-cell"><input type="number" step="any" data-fac="step" data-i="' + i + '" value="' + h(r.step) + '"></td>' +
+        '<td><button class="btn ghost small" type="button" data-fac-del="' + i + '">Remove</button></td></tr>').join('') +
+      '</tbody></table></div>';
+    host.querySelectorAll('[data-fac]').forEach(inp => inp.addEventListener('input', () => {
+      facRows[Number(inp.getAttribute('data-i'))][inp.getAttribute('data-fac')] = inp.value;
+      commitFacBuild();
+    }));
+    host.querySelectorAll('[data-fac-del]').forEach(b => b.addEventListener('click', () => {
+      facRows.splice(Number(b.getAttribute('data-fac-del')), 1);
+      renderFacBuild(); commitFacBuild();
+    }));
+  }
+  function commitFacBuild() {
+    const rows = facRows.filter(r => String(r.name).trim())
+      .map(r => [r.name, r.levels, r.min, r.max, r.step]);
+    if (!rows.length) { catalogue = null; $('pg-fac-out').innerHTML = ''; $('pg-fac-read').textContent = ''; ready(); return; }
+    takeFactors(asTable(['Factor', 'Levels', 'Min', 'Max', 'Step'], rows));
+  }
+  /* The history already knows which columns are candidate factors and what levels they
+     took, so offering to fill the catalogue from it saves retyping and - more usefully -
+     cannot produce a level the history has never seen. It is a suggestion, not the
+     catalogue: the point of step 2 is to say what you can actually order now, which is
+     often less than what was run last year. */
+  function facFromHistory() {
+    if (!prof) return fail('pg-fac-error', 'Load the historical runs in step 1 first.');
+    const targets = [$('pg-target').value, $('pg-target2').value].filter(Boolean);
+    const cand = M.proteinColumns(prof, [], targets).filter(n => {
+      const c = prof.columns.find(x => x.name === n);
+      if (!c) return false;
+      if (c.kind === 'numeric') return true;
+      const lv = M.attributeChoices(prof, n);
+      return lv && lv.levels && lv.levels.length >= 2 && lv.levels.length <= 12;
+    });
+    if (!cand.length) return fail('pg-fac-error', 'Nothing in the history looks like a factor you choose between.');
+    clearErr('pg-fac-error');
+    facRows = cand.map(n => {
+      const ch = M.attributeChoices(prof, n);
+      return ch.kind === 'numeric'
+        ? { name: n, levels: '', min: String(Number(ch.min.toFixed(3))), max: String(Number(ch.max.toFixed(3))), step: '' }
+        : { name: n, levels: ch.levels.join('; '), min: '', max: '', step: '' };
+    });
+    renderFacBuild(); commitFacBuild();
+    $('pg-fac-read').textContent = 'Suggested ' + facRows.length + ' factors from the history. Delete the ones you cannot order, and trim the levels to what is actually available.';
+  }
+
+  // ---------- step 3: one programme at a time ----------
+  let builtPrograms = [];
+  function renderProgBuild() {
+    const host = $('pg-prog-build'), note = $('pg-prog-build-note');
+    if (!prof) { host.innerHTML = ''; note.hidden = false; return; }
+    note.hidden = true;
+    const targets = [$('pg-target').value, $('pg-target2').value].filter(Boolean);
+    const facNames = catalogue ? catalogue.factors.map(f => f.name) : [];
+    const attrs = M.proteinColumns(prof, facNames, targets);
+    if (!attrs.length) {
+      host.innerHTML = '<div class="plain not"><h4>No protein attributes to ask for</h4><p>Every column in the history is either a factor you chose in step 2 or an outcome, so there is nothing describing the molecule. Without that, a prediction for a different molecule has nothing to go on.</p></div>';
+      return;
+    }
+    /* One field per attribute the history records, offering the values it has actually
+       seen. A free-text box here would invite a typo that reads downstream as "a value the
+       historical runs do not contain" and correctly marks the programme untested - a
+       spelling mistake presenting as a scientific limitation. */
+    host.innerHTML = '<div class="desk-inputs"><label class="desk-row"><span class="desk-name">Programme ID</span>' +
+      '<input type="text" id="pg-new-id" placeholder="PRG-24-001"></label>' +
+      attrs.map(n => {
+        const ch = M.attributeChoices(prof, n);
+        if (ch && ch.kind === 'categorical') {
+          return '<label class="desk-row"><span class="desk-name">' + h(n) + '</span>' +
+            '<select data-attr="' + h(n) + '">' + ch.levels.map(l => '<option>' + h(l) + '</option>').join('') +
+            '<option value="\u0001other">(something not in the history&hellip;)</option></select>' +
+            '<input type="text" class="desk-free" data-attr-free="' + h(n) + '" placeholder="only if not listed" hidden>' +
+            '<span class="desk-range">' + ch.levels.length + ' seen</span></label>';
+        }
+        return '<label class="desk-row"><span class="desk-name">' + h(n) + '</span>' +
+          '<input type="number" step="any" data-attr="' + h(n) + '" value="' + (ch ? f2(ch.median) : '') + '">' +
+          '<span class="desk-range">' + (ch ? 'history ' + f2(ch.min) + ' to ' + f2(ch.max) : '') + '</span></label>';
+      }).join('') + '</div>' +
+      '<div class="row-actions"><button class="btn" type="button" id="pg-prog-add">Add this programme</button></div>';
+    host.querySelectorAll('[data-attr]').forEach(el => el.addEventListener('change', () => {
+      const free = host.querySelector('[data-attr-free="' + el.getAttribute('data-attr') + '"]');
+      if (free) free.hidden = el.value !== '\u0001other';
+    }));
+    $('pg-prog-add').addEventListener('click', addProgramme);
+  }
+  function addProgramme() {
+    const host = $('pg-prog-build');
+    const id = ($('pg-new-id').value || '').trim();
+    const row = { Program_ID: id || 'Programme ' + (builtPrograms.length + 1) };
+    host.querySelectorAll('[data-attr]').forEach(el => {
+      const name = el.getAttribute('data-attr');
+      let v = el.value;
+      if (v === '\u0001other') {
+        const free = host.querySelector('[data-attr-free="' + name + '"]');
+        v = free ? free.value.trim() : '';
+      }
+      if (String(v).trim() !== '') row[name] = String(v).trim();
+    });
+    builtPrograms.push(row);
+    $('pg-new-id').value = '';
+    commitProgBuild();
+  }
+  function commitProgBuild() {
+    const host = $('pg-prog-list');
+    if (!builtPrograms.length) { host.innerHTML = ''; programs = null; $('pg-prog-out').innerHTML = ''; $('pg-prog-read').textContent = ''; ready(); return; }
+    const cols = Object.keys(builtPrograms.reduce((a, r) => Object.assign(a, r), {}));
+    host.innerHTML = '<div class="table-scroll"><table><thead><tr>' + cols.map(c => '<th>' + h(c) + '</th>').join('') + '<th></th></tr></thead><tbody>' +
+      builtPrograms.map((r, i) => '<tr>' + cols.map(c => '<td>' + h(r[c] === undefined ? '' : r[c]) + '</td>').join('') +
+        '<td><button class="btn ghost small" type="button" data-prog-del="' + i + '">Remove</button></td></tr>').join('') +
+      '</tbody></table></div>';
+    host.querySelectorAll('[data-prog-del]').forEach(b => b.addEventListener('click', () => {
+      builtPrograms.splice(Number(b.getAttribute('data-prog-del')), 1);
+      commitProgBuild();
+    }));
+    takeProgram(asTable(cols, builtPrograms.map(r => cols.map(c => (r[c] === undefined ? '' : r[c])))));
+  }
 
   // ---------- step 4 ----------
   function run() {
@@ -317,6 +467,10 @@
 
   function clear() {
     hist = prof = catalogue = programs = lastPlan = null;
+    facRows = []; builtPrograms = [];
+    ['pg-hist-paste', 'pg-fac-paste', 'pg-prog-paste'].forEach(id => { if ($(id)) $(id).value = ''; });
+    ['pg-fac-build', 'pg-prog-build', 'pg-prog-list'].forEach(id => { if ($(id)) $(id).innerHTML = ''; });
+    if ($('pg-prog-build-note')) $('pg-prog-build-note').hidden = false;
     ['pg-hist-file', 'pg-fac-file', 'pg-prog-file'].forEach(id => { if ($(id)) $(id).value = ''; });
     ['pg-hist-read', 'pg-fac-read', 'pg-prog-read'].forEach(id => { $(id).textContent = ''; });
     ['pg-hist-sheet', 'pg-fac-sheet', 'pg-prog-sheet', 'pg-fac-out', 'pg-prog-out', 'pg-out'].forEach(id => { $(id).innerHTML = ''; });
@@ -343,10 +497,16 @@
     wire('pg-hist-file', 'pg-hist-sheet', takeHistory, 'pg-hist-error');
     wire('pg-fac-file', 'pg-fac-sheet', takeFactors, 'pg-fac-error');
     wire('pg-prog-file', 'pg-prog-sheet', takeProgram, 'pg-prog-error');
+    $('pg-hist-use').addEventListener('click', () => usePaste('pg-hist-paste', takeHistory, 'pg-hist-error'));
+    $('pg-fac-use').addEventListener('click', () => usePaste('pg-fac-paste', takeFactors, 'pg-fac-error'));
+    $('pg-prog-use').addEventListener('click', () => usePaste('pg-prog-paste', takeProgram, 'pg-prog-error'));
+    $('pg-fac-add').addEventListener('click', () => { facRows.push({ name: '', levels: '', min: '', max: '', step: '' }); renderFacBuild(); });
+    $('pg-fac-fromhist').addEventListener('click', facFromHistory);
     $('pg-demo').addEventListener('click', demo);
     $('pg-clear').addEventListener('click', clear);
     $('pg-run').addEventListener('click', run);
     ['pg-target', 'pg-target2', 'pg-conf', 'pg-runs'].forEach(id => $(id).addEventListener('change', () => {
+      if (id === 'pg-target' || id === 'pg-target2') renderProgBuild();
       if (lastPlan) run();
     }));
   }

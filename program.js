@@ -126,6 +126,39 @@
     return { programs, ignored, skipped };
   }
 
+  /* Protein attributes are whatever the history has that is not a chosen factor, not an
+     outcome and not a record-keeping column. The catalogue defines the levers, so this
+     falls out of it rather than needing a list of its own.
+
+     Exported because the interface needs the same answer: the form for entering a
+     programme by hand offers one field per protein attribute, with the levels the history
+     actually contains. Two implementations of this would drift, and the symptom would be a
+     form that offers a field the planner then ignores - or worse, omits one it needs. */
+  function proteinColumns(prof, factorNames, targets) {
+    const chosen = factorNames || [], outs = targets || [];
+    return prof.columns
+      .filter(c => chosen.indexOf(c.name) < 0 && outs.indexOf(c.name) < 0 &&
+        !ID_SKIP.test(c.name) && c.kind !== 'id')
+      .map(c => c.name);
+  }
+
+  /* What the history holds for one attribute, so a hand-entry form can offer the real
+     levels instead of a free-text box. A typo in a protein class reads downstream as "a
+     value the historical runs do not contain", which correctly but pointlessly marks the
+     programme untested - offering the levels prevents the typo rather than reporting it. */
+  function attributeChoices(prof, name) {
+    const col = prof.columns.find(c => c.name === name);
+    if (!col) return null;
+    const vals = col.values.filter(v => v !== null && norm(v) !== '');
+    if (col.kind === 'numeric') {
+      const nums = vals.map(Number).filter(isFinite).sort((a, b) => a - b);
+      return { kind: 'numeric', min: nums[0], max: nums[nums.length - 1], median: engine().quantile(nums, 0.5) };
+    }
+    const counts = {};
+    vals.forEach(v => { counts[norm(v)] = (counts[norm(v)] || 0) + 1; });
+    return { kind: 'categorical', levels: Object.keys(counts).sort((a, b) => counts[b] - counts[a]) };
+  }
+
   /* How much the history can say about a protein it has never seen. This is the measurement
      the whole module turns on, so it is separate, returns numbers, and is tested directly.
 
@@ -318,13 +351,7 @@
 
     const targets = input.targets || [];
     if (!targets.length) throw new Error('Pick at least one outcome column from the historical runs.');
-    /* Protein attributes are whatever the history has that is not a chosen factor, not an
-       outcome and not a record-keeping column. The catalogue defines the levers, so this
-       falls out of it rather than needing its own list. */
-    const proteinCols = prof.columns
-      .filter(c => present.indexOf(c.name) < 0 && targets.indexOf(c.name) < 0 &&
-        !ID_RE.test(c.name) && c.kind !== 'id')
-      .map(c => c.name);
+    const proteinCols = proteinColumns(prof, present, targets);
     /* A constant column is kept in the protein list and dropped from the features. Those
        are different jobs, and conflating them is how the first version of this reported
        "0 distinct proteins" for a history of one protein: profiling marks such a column
@@ -383,6 +410,6 @@
     };
   }
 
-  root.MLProgram = { parseCatalogue, parseProgram, transferability, candidates, runSheet, plan };
+  root.MLProgram = { parseCatalogue, parseProgram, proteinColumns, attributeChoices, transferability, candidates, runSheet, plan };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLProgram;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
