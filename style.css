@@ -35,7 +35,10 @@ code { font-family: var(--mono); font-size: .9em; background: var(--surface-2); 
 h1, h2, h3 { line-height: 1.2; margin: 0; }
 h3 { font-size: 1.05rem; margin-bottom: .5rem; }
 [hidden] { display: none !important; }
-.wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+/* Wider on a large screen. Capped reading width is right for prose - the lede and the
+   explanatory paragraphs carry their own max-width - but tables, run sheets and card grids
+   were being squeezed into a 1120px ribbon with 400px of margin either side of them. */
+.wrap { max-width: 1280px; margin: 0 auto; padding: 0 16px; }
 .skip { position: absolute; left: -999px; top: 0; background: var(--accent); color: var(--accent-ink); padding: 8px 12px; z-index: 10; }
 .skip:focus { left: 8px; }
 
@@ -148,7 +151,17 @@ h3 { font-size: 1.05rem; margin-bottom: .5rem; }
    "where to start" page, which left a two-column grid holding one card and half the row
    empty. Capped rather than stretched, because a drop zone spanning 1180px reads as a
    mistake. */
-.load-grid { display: grid; grid-template-columns: minmax(0, 760px); gap: 16px; align-items: start; }
+/* The practice datasets used to sit in the right-hand cell. Moving them to their own tab
+   left 360px of nothing beside the drop zone - and left somebody with no data and no
+   visible way to reach the datasets, which is the worse half of that. The cell now carries
+   the route back. */
+.load-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (min-width: 900px) { .load-grid { grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); } }
+.start-card { background: var(--surface-2); }
+.start-card h3 { margin: 0 0 8px; font-size: 1.02rem; }
+.start-card p { margin: 0 0 10px; font-size: .9rem; color: var(--muted); }
+.start-card .hint { margin-top: 12px; }
+.start-card .row-actions { margin: 0; }
 .load-grid .card, .privacy-grid .card { margin-bottom: 0; }
 
 /* The data as it actually arrived. A column profile answers "what did it make of my
@@ -195,15 +208,23 @@ textarea:focus, input:focus, select:focus, .btn:focus-visible { outline: 2px sol
 .btn.ghost { border-color: var(--line); color: var(--ink); }
 .btn:disabled { opacity: .55; cursor: progress; }
 .samples { display: grid; gap: 14px; }
+
 /* Practice datasets grouped by function, so somebody sees the ones their own group would
    recognise rather than a tour of unrelated industries. */
 /* Two or three across on a wide screen. One per row stretched a short dataset title over
    a thousand pixels of empty card, which reads as unfinished rather than spacious. */
-.sample-group { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); align-items: stretch; }
-.sample-group > h4 { grid-column: 1 / -1; }
-.sample-group > h4 { margin: 0; font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
-.sample-group.mine > h4 { color: var(--ink); }
-.sample-group.mine .sample { border-color: var(--steel-soft); }
+/* One grid, not one per function. Seven of the nine functions have a single dataset, so
+   headings gave each of them a row with two thirds of it empty; nine cards across three
+   columns fill exactly three rows instead. The function moves onto the card. */
+.samples { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-items: stretch; gap: 12px; }
+.sample { display: flex; flex-direction: column; gap: 4px; }
+.sample .s-fn { font-size: .7rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.sample.mine .s-fn { color: var(--steel); }
+.sample.mine { border-color: var(--steel-soft); }
+.sample b { font-size: .98rem; line-height: 1.3; }
+.sample .s-blurb { flex: 1; font-size: .86rem; color: var(--muted); }
+/* The analysis type reads as a footnote on the card rather than as its headline. */
+.sample .k { margin-top: 4px; font-size: .68rem; }
 .sample { text-align: left; font: inherit; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; cursor: pointer; }
 .sample:hover { border-color: var(--steel); }
 .sample b { display: block; }

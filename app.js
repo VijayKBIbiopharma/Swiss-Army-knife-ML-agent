@@ -22,6 +22,8 @@
      now live on the "Where to start" page, so the tool page has nothing to collapse. */
   function foldPanels() {
     if (!state.table) $('doe-wrap').open = false;
+    // The "no data to hand?" card is an invitation, so it goes once the invitation is taken.
+    if ($('start-card')) $('start-card').hidden = !!state.table;
   }
 
   function loadText(text, name, sampleTarget) {
@@ -1643,18 +1645,24 @@
     const list = window.MLSamples || [];
     const A = window.MLApplications;
     const labelFor = k => (A && A.FUNCTIONS && A.FUNCTIONS.find(f => f[0] === k) || [, k])[1];
-    // Keep the order the datasets are declared in, then float the person's own group.
+    /* One grid rather than a grid per function. Grouping under headings was right about the
+       information and wrong about the shape: seven of the nine functions have a single
+       dataset, so each got a heading and one card with two thirds of the row empty beneath
+       it. Nine cards in one three-column grid fill exactly three rows. The function is still
+       on every card, the cards are still ordered so a function's datasets sit together, and
+       whichever function you picked still comes first and is marked - so nothing is lost
+       except the gaps. */
     const groups = [];
     for (const s of list) if (groups.indexOf(s.fn) < 0) groups.push(s.fn);
     groups.sort((a, b) => (b === myFunction ? 1 : 0) - (a === myFunction ? 1 : 0));
-    $('samples').innerHTML = groups.map(fn => {
-      const mine = fn === myFunction;
-      return '<div class="sample-group' + (mine ? ' mine' : '') + '">' +
-        '<h4>' + h(labelFor(fn)) + (mine ? ' <span class="verdict capable">your group</span>' : '') + '</h4>' +
-        list.filter(s => s.fn === fn).map(s =>
-          '<button type="button" class="sample" data-sample="' + s.id + '">' +
-          '<span class="k">' + h(s.kind) + '</span><b>' + h(s.title) + '</b><span>' + h(s.blurb) + '</span></button>').join('') +
-        '</div>';
+    const ordered = groups.reduce((acc, fn) => acc.concat(list.filter(s => s.fn === fn)), []);
+    $('samples').innerHTML = ordered.map(s => {
+      const mine = s.fn === myFunction;
+      return '<button type="button" class="sample' + (mine ? ' mine' : '') + '" data-sample="' + h(s.id) + '">' +
+        '<span class="s-fn">' + h(labelFor(s.fn)) + (mine ? ' &middot; your group' : '') + '</span>' +
+        '<b>' + h(s.title) + '</b>' +
+        '<span class="s-blurb">' + h(s.blurb) + '</span>' +
+        '<span class="k">' + h(s.kind) + '</span></button>';
     }).join('');
   }
 
@@ -1752,6 +1760,11 @@
   }
   function initTools() {
     $('tool').addEventListener('change', () => { showTool($('tool').value, true); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+    /* The only route from the tool page to the data, now that the datasets live elsewhere.
+       Without it somebody who arrives with nothing to load has to work out that another tab
+       exists. */
+    $('go-practice').addEventListener('click', () => { showPage('data', true); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+    $('go-start').addEventListener('click', () => { showPage('apps', true); window.scrollTo({ top: 0, behavior: 'smooth' }); });
     PAGES.forEach(pg => $('page-btn-' + pg.id).addEventListener('click', () => {
       showPage(pg.id, true); window.scrollTo({ top: 0, behavior: 'smooth' });
     }));

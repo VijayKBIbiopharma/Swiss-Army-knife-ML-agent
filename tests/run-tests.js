@@ -3398,6 +3398,16 @@ test('the tool page carries the tool and nothing else', () => {
      the assertion that it is still there. */
   const showTool = app.slice(app.indexOf('function showTool('), app.indexOf('function initTools('));
   assert.ok(/showPage\('tools'/.test(showTool), 'showTool must switch to the tool page');
+
+  /* Moving the datasets off the tool page left somebody arriving with nothing to load and
+     no visible way to reach them - a dead end created by a tidy-up. The invitation beside
+     the drop zone is that route, and it fills the 360px the datasets used to occupy, so it
+     earns its place twice. */
+  assert.ok(tools.indexOf('id="start-card"') >= 0, 'the tool page needs a route to the practice data');
+  assert.ok(/\$\('go-practice'\)[\s\S]{0,120}showPage\('data'/.test(app), 'and that route must actually open the data tab');
+  assert.ok(/\$\('go-start'\)[\s\S]{0,120}showPage\('apps'/.test(app), 'with one to the guidance tab too');
+  // It is an invitation, so it goes once taken, rather than sitting beside loaded data.
+  assert.ok(/start-card'\)\.hidden = !!state\.table/.test(app), 'the invitation must clear once data is loaded');
 });
 
 test('the data is shown as a table before the model runs', () => {
