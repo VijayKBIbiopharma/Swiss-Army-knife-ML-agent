@@ -3352,12 +3352,17 @@ test('the tool page carries the tool and nothing else', () => {
     const end = nextPage >= 0 ? nextPage : html.indexOf('</main>', start);
     return html.slice(start, end);
   };
-  const tools = page('page-tools'), apps = page('page-apps');
+  const tools = page('page-tools'), apps = page('page-apps'), data = page('page-data');
 
-  // Everything that helps you choose a tool belongs on the other page.
-  for (const id of ['ask', 'tool-depts', 'tool-apps', 'samples']) {
-    assert.ok(apps.indexOf('id="' + id + '"') >= 0, id + ' must be on the "where to start" page');
+  /* Three pages, and each block has exactly one home. Choosing a technique lives with the
+     guidance, the datasets get a page of their own, and the tool page keeps neither. */
+  const home = { ask: apps, 'tool-depts': apps, 'tool-apps': apps, samples: data };
+  for (const id of Object.keys(home)) {
+    assert.ok(home[id].indexOf('id="' + id + '"') >= 0, id + ' is not on the page it belongs to');
     assert.ok(tools.indexOf('id="' + id + '"') < 0, id + ' must NOT be on the tool page');
+    // And on exactly one page, or it renders twice and the ids collide.
+    const where = [tools, apps, data].filter(pg => pg.indexOf('id="' + id + '"') >= 0);
+    assert.strictEqual(where.length, 1, id + ' appears on ' + where.length + ' pages');
   }
   // And the tool page keeps the selector and every tool panel.
   assert.ok(tools.indexOf('<select id="tool">') >= 0, 'the technique selector stays with the tools');
@@ -3369,13 +3374,22 @@ test('the tool page carries the tool and nothing else', () => {
   }
   // Nothing may be left outside both pages, or it renders on neither.
   const main = html.slice(html.indexOf('<main id="main">'), html.indexOf('</main>'));
-  const strays = main.replace(tools, '').replace(apps, '');
+  const strays = main.replace(tools, '').replace(apps, '').replace(data, '');
   assert.ok(!/<section class="wrap step"/.test(strays), 'a step section is outside both pages');
   assert.ok(!/<div class="tabpanel"/.test(strays), 'a tool panel is outside both pages');
 
   // The page switch itself, and the controls the script wires to it.
-  for (const id of ['page-btn-tools', 'page-btn-apps']) {
+  for (const id of ['page-btn-tools', 'page-btn-apps', 'page-btn-data']) {
     assert.ok(html.indexOf('id="' + id + '"') >= 0, 'missing page tab ' + id);
+  }
+  // Every page declared in the script must exist in the markup, with a tab to reach it.
+  const app0 = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  const pagesDecl = app0.slice(app0.indexOf('const PAGES = ['), app0.indexOf('];', app0.indexOf('const PAGES = [')));
+  const ids = Array.from(pagesDecl.matchAll(/id:\s*'(\w+)'/g)).map(m => m[1]);
+  assert.deepStrictEqual(ids.sort(), ['apps', 'data', 'tools']);
+  for (const id of ids) {
+    assert.ok(html.indexOf('id="page-' + id + '"') >= 0, 'no markup for page ' + id);
+    assert.ok(html.indexOf('id="page-btn-' + id + '"') >= 0, 'no tab for page ' + id);
   }
   const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
   /* Asking for a tool has to land you on the tool page regardless of where the request came

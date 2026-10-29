@@ -30,6 +30,7 @@
     <nav class="pages" role="tablist" aria-label="Sections">
       <button class="page-tab" id="page-btn-tools" type="button" role="tab" aria-selected="true" aria-controls="page-tools">Tools</button>
       <button class="page-tab" id="page-btn-apps" type="button" role="tab" aria-selected="false" aria-controls="page-apps">Where to start</button>
+      <button class="page-tab" id="page-btn-data" type="button" role="tab" aria-selected="false" aria-controls="page-data">Practice data</button>
     </nav>
   </div>
 </header>
@@ -1086,7 +1087,7 @@
   <div class="page" id="page-apps" hidden>
     <section class="wrap page-intro">
       <h2>Where to start</h2>
-      <p class="lede">Describe the problem in your own words, or start from your department. Then pick a practice dataset to try it on. The tool itself is on the <b>Tools</b> tab, deliberately kept clear of all this.</p>
+      <p class="lede">Describe the problem in your own words, start from your department, or read what each technique is used for. The tool itself is on the <b>Tools</b> tab and something to try it on is under <b>Practice data</b>, so this page can stay about choosing.</p>
     </section>
 
   <section class="wrap ask" id="ask">
@@ -1111,14 +1112,19 @@
   <section class="wrap" id="tool-depts"></section>
   <section class="wrap" id="tool-apps"></section>
 
+  </div><!-- /page-apps -->
+
+  <div class="page" id="page-data" hidden>
+    <section class="wrap page-intro">
+      <h2>Practice data</h2>
+      <p class="lede">Nine synthetic biologics datasets grouped by the function that would use them &mdash; generated in your browser from fixed seeds, so no company or batch data is involved. Each has a real structure built into it, so there is something to find. Clicking one loads it and takes you to the tool.</p>
+    </section>
     <section class="wrap step" id="apps-data">
-      <div class="step-head"><h2>Practice datasets</h2></div>
       <div class="card">
-        <p class="summary">Synthetic biologics data, generated in your browser from fixed seeds &mdash; no company or batch data. Each one has a real structure built into it, so there is something to find. Clicking one loads it and takes you to the tool.</p>
         <div class="samples" id="samples"></div>
       </div>
     </section>
-  </div><!-- /page-apps -->
+  </div><!-- /page-data -->
 
 </main>
 

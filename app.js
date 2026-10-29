@@ -1719,13 +1719,22 @@
      Everything that routes to a tool goes through showTool, so the advisor (which routes by
      setting the hash), the department job buttons, the privacy lock link and the selector
      all land on the tool page without each needing to know about pages. */
+  const PAGES = [
+    // The tool page's address is the tool itself, so #variance still works as a deep link.
+    { id: 'tools', hash: null },
+    { id: 'apps', hash: 'where-to-start' },
+    { id: 'data', hash: 'practice-data' }
+  ];
   function showPage(name, push) {
-    const apps = name === 'apps';
-    $('page-apps').hidden = !apps;
-    $('page-tools').hidden = apps;
-    $('page-btn-apps').setAttribute('aria-selected', String(apps));
-    $('page-btn-tools').setAttribute('aria-selected', String(!apps));
-    if (push) history.replaceState(null, '', apps ? '#where-to-start' : '#' + $('tool').value);
+    if (!PAGES.some(p => p.id === name)) name = 'tools';
+    for (const pg of PAGES) {
+      $('page-' + pg.id).hidden = pg.id !== name;
+      $('page-btn-' + pg.id).setAttribute('aria-selected', String(pg.id === name));
+    }
+    if (push) {
+      const pg = PAGES.find(x => x.id === name);
+      history.replaceState(null, '', '#' + (pg.hash || $('tool').value));
+    }
   }
 
   const TOOL_NAMES = Object.keys(TOOLS);
@@ -1743,17 +1752,21 @@
   }
   function initTools() {
     $('tool').addEventListener('change', () => { showTool($('tool').value, true); window.scrollTo({ top: 0, behavior: 'smooth' }); });
-    $('page-btn-tools').addEventListener('click', () => { showPage('tools', true); window.scrollTo({ top: 0, behavior: 'smooth' }); });
-    $('page-btn-apps').addEventListener('click', () => { showPage('apps', true); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+    PAGES.forEach(pg => $('page-btn-' + pg.id).addEventListener('click', () => {
+      showPage(pg.id, true); window.scrollTo({ top: 0, behavior: 'smooth' });
+    }));
     document.querySelectorAll('[data-tab-link]').forEach(a => a.addEventListener('click', () => showTool(a.getAttribute('data-tab-link'), true)));
-    window.addEventListener('hashchange', () => {
-      const hash = location.hash.slice(1);
-      if (hash === 'where-to-start') showPage('apps', false);
-      else showTool(hash, false);
-    });
-    // A link straight to "where to start" has to work, or the page cannot be shared.
-    if (location.hash.slice(1) === 'where-to-start') { showTool('analyze', false); showPage('apps', false); }
-    else showTool(location.hash.slice(1) || 'analyze', false);
+    /* Every page is addressable, or none of them can be shared. A tool's own id is its
+       address; the other pages have names of their own. */
+    const routeTo = hash => {
+      const pg = PAGES.find(x => x.hash && x.hash === hash);
+      if (!pg) { showTool(hash, false); return; }
+      // showTool would pull us back to the tool page, so the tool is set first and the page after.
+      showTool($('tool').value || 'analyze', false);
+      showPage(pg.id, false);
+    };
+    window.addEventListener('hashchange', () => routeTo(location.hash.slice(1)));
+    routeTo(location.hash.slice(1) || 'analyze');
   }
 
   function init() {

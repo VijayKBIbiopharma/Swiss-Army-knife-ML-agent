@@ -7,9 +7,10 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Have `demo-data/` open in a file window, ready to drag.
 - Optional: switch Wi-Fi off. Everything below still works, which is the strongest privacy proof you can give.
 
-## 0a. The two tabs (15 seconds, say this before anything else)
-- **Tools** is the tool and nothing else. **Where to start** is the front door, the department benches, what each technique is used for, and the practice datasets. *"Everything that helps you choose lives on one tab so the tool can have the other one to itself."*
-- Anything you click on *Where to start* carries you to the tool: a suggestion from the search box, a department job, a practice dataset. You never have to find your way back.
+## 0a. The three tabs (15 seconds, say this before anything else)
+- **Tools** is all nine techniques and nothing else. **Where to start** is the three things that help you choose one: describe the problem, start from your job, or read what each technique is used for. **Practice data** is nine datasets to try it on.
+- *"One job per tab, so the tool never has to share a screen with the material explaining it."*
+- Anything you click on the other two tabs carries you to the tool: a suggestion from the search box, a department job, a practice dataset. You never have to find your way back.
 
 ## 0d. The data preview (20 seconds, worth pausing on)
 - Load anything and the rows appear before the model runs: column names exactly as your file has them, blank cells marked, and a footer reading columns &times; rows and the cell count.
@@ -17,7 +18,7 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - The counts match what you would see in any data tool: a 6-column, 40,500-row file reads 243,000 cells.
 
 ## 0c. The practice datasets, if somebody asks what to click (30 seconds)
-- The nine built-in sets are all biologics, and they are grouped under the function that would use them: cell line development, upstream PD, downstream PD, AFS, MSAT, GMP manufacturing, QC, QA. *"Pick your group in the panel above and your datasets float to the top and get marked as yours. Nobody has to work out which industry's example is closest to theirs."*
+- On the **Practice data** tab the nine built-in sets are all biologics, grouped under the function that would use them: cell line development, upstream PD, downstream PD, AFS, MSAT, GMP manufacturing, QC, QA. *"Pick your group in the panel above and your datasets float to the top and get marked as yours. Nobody has to work out which industry's example is closest to theirs."*
 - If asked whether they are real: *"Synthetic, from fixed seeds, no company or batch data. But each one has a real structure built into it, because a practice set with nothing in it teaches you the wrong thing about the tool. The scale-up set is deliberately confounded so a careless read blames the site instead of the kLa; the capture set has yield and purity pulling against each other; the fed-batch design has a temperature-by-feed interaction. They are rigged to teach, not to flatter."*
 
 ## 0b. The selector, for a mixed audience (30 seconds)
@@ -76,7 +77,7 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Talking point: *"Purity, yield and aggregates fight each other. This finds the settings where none of them fails, and hands QA a package they can retrace."*
 
 ## 4b. Moving a batch up a disposition tier (1 minute, for QA audiences)
-- On **Where to start**, click the practice dataset **Batch disposition: four outcomes, in order** (under Quality assurance). It loads and drops you on the Tools tab; run it.
+- On **Practice data**, click **Batch disposition: four outcomes, in order** (under Quality assurance). It loads and drops you on the Tools tab; run it.
 - A disposition is *ranked* &mdash; Reject, Rework, Release with deviation, Release &mdash; so the tool treats it as an order rather than four unrelated labels. That is what makes the next move possible.
 - Above the action plan, set **Starting from: Rows now Reject** and **Target outcome: Rework or better**. The plan re-aims instantly: cut deviations and out-of-specs, shorten hold time, put more experienced operators on it.
 - Switch to **Rows now Release → Release or better** for the hold-position question; the headline changes to keeping them where they are, because there is nothing above Release.
