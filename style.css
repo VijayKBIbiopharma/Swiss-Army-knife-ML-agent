@@ -150,7 +150,13 @@ textarea:focus, input:focus, select:focus, .btn:focus-visible { outline: 2px sol
 .btn.primary:hover { filter: brightness(1.1); }
 .btn.ghost { border-color: var(--line); color: var(--ink); }
 .btn:disabled { opacity: .55; cursor: progress; }
-.samples { display: grid; gap: 8px; }
+.samples { display: grid; gap: 14px; }
+/* Practice datasets grouped by function, so somebody sees the ones their own group would
+   recognise rather than a tour of unrelated industries. */
+.sample-group { display: grid; gap: 8px; }
+.sample-group > h4 { margin: 0; font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.sample-group.mine > h4 { color: var(--ink); }
+.sample-group.mine .sample { border-color: var(--steel-soft); }
 .sample { text-align: left; font: inherit; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; cursor: pointer; }
 .sample:hover { border-color: var(--steel); }
 .sample b { display: block; }

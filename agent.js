@@ -825,8 +825,16 @@
   const GOOD_CLASS = /^(pass|passed|good|yes|y|true|1|success|successful|ok|accept|accepted|approved|win|won|on ?time|in ?spec|conforming|compliant|retained|active)$/i;
   const BAD_CLASS = /(fail|bad|^no$|^n$|false|^0$|defect|reject|late|scrap|churn|lost|out ?of ?spec|nonconform|error|delay)/i;
   // Ordered labels, best first, so tiers sort sensibly and "best" is the top tier.
+  /* Best first. A ranked outcome is what makes "what moves this up a tier" a real question,
+     so the ladders have to include the ones this industry actually uses - a batch
+     disposition is ordered, and treating Reject and Release as unrelated labels throws away
+     the most useful thing the model could say about them. A ladder may be a superset of the
+     classes present; every class simply has to appear in it. */
   const LADDERS = [['diamond', 'platinum', 'gold', 'silver', 'bronze', 'basic'], ['excellent', 'very good', 'good', 'fair', 'poor', 'very poor'],
-    ['very high', 'high', 'medium', 'low', 'very low'], ['a', 'b', 'c', 'd', 'e', 'f']];
+    ['very high', 'high', 'medium', 'low', 'very low'], ['a', 'b', 'c', 'd', 'e', 'f'],
+    ['release', 'release with deviation', 'conditional release', 'quarantine', 'rework', 'reprocess', 'reject', 'destroy'],
+    ['none', 'minor', 'major', 'critical'],
+    ['in specification', 'out of trend', 'out of specification']];
   function ladderRank(classes) {
     for (const L of LADDERS) {
       const r = classes.map(c => L.indexOf(String(c).trim().toLowerCase()));

@@ -156,7 +156,7 @@
         {
           title: 'Show a prospect the analysis rather than the conclusion',
           tool: 'analyze',
-          sample: 'molding',
+          sample: 'capture',
           data: 'A dataset you are permitted to show, or one of the practice sets for a live demonstration.',
           out: 'A PDF report leading with a plain-English finding, every chart with a how-to-read-it note, the models in plain words, and an audit trail. It runs with the network off, which is itself the answer to the first question a client’s IT team will ask.',
           not: 'No slides, no proposal text, no formatting to your brand. Export the PDF or the workbook and build the deck yourself.'

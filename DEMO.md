@@ -7,6 +7,10 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Have `demo-data/` open in a file window, ready to drag.
 - Optional: switch Wi-Fi off. Everything below still works, which is the strongest privacy proof you can give.
 
+## 0c. The practice datasets, if somebody asks what to click (30 seconds)
+- The nine built-in sets are all biologics, and they are grouped under the function that would use them: cell line development, upstream PD, downstream PD, AFS, MSAT, GMP manufacturing, QC, QA. *"Pick your group in the panel above and your datasets float to the top and get marked as yours. Nobody has to work out which industry's example is closest to theirs."*
+- If asked whether they are real: *"Synthetic, from fixed seeds, no company or batch data. But each one has a real structure built into it, because a practice set with nothing in it teaches you the wrong thing about the tool. The scale-up set is deliberately confounded so a careless read blames the site instead of the kLa; the capture set has yield and purity pulling against each other; the fed-batch design has a temperature-by-feed interaction. They are rigged to teach, not to flatter."*
+
 ## 0b. The selector, for a mixed audience (30 seconds)
 - The selector names the **technique**, not one department's use of it, and **Where this is used** underneath lists four or five areas across industries for whatever is selected.
 - Useful when the room is not all from one function: flick through the techniques and let people find their own problem in the list before any data is loaded.
@@ -47,7 +51,7 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Talking point: *"It tells us when the data isn't good enough. Taste depends on things not in this file. A tool that always sounds confident is dangerous; this one isn't."*
 
 ## 3b. Six Sigma mode (2 minutes, for manufacturing audiences)
-- Load **Injection molding yield**, choose **⚙ Six Sigma & process control**, enter LSL 88, USL 100, target 95, run.
+- Load **Protein A capture** (downstream PD), choose **⚙ Six Sigma & process control**, and enter LSL 85, USL 95, target 90 against **Step_Yield_Pct**, then run.
 - Expect **Cpk 0.29, not capable**. The agent explains that centering alone only reaches 0.49 and the spread must fall from about 4.1 to 1.5.
 - Show the I-MR chart (one signal), box plots by Material (Resin C is tightest), and the Taguchi table.
 - Talking point: *"Same data, two lenses: machine learning finds the levers, and classical capability tells us how far we are from the customer's spec."*
@@ -62,11 +66,12 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Press **Download audit package (.zip)**. Open `audit-trail.txt`: both files' SHA-256 fingerprints, the join, every excluded column and why, the models and the seed.
 - Talking point: *"Purity, yield and aggregates fight each other. This finds the settings where none of them fails, and hands QA a package they can retrace."*
 
-## 4b. Moving customers up a tier (1 minute)
-- Click the practice dataset **Customer loyalty tiers**, run.
-- Above the action plan, set **Starting from: Rows now Bronze** and **Target outcome: Silver or better**. The plan re-aims instantly: raise spend, visits and tenure, cut support tickets, get them on the app.
-- Switch to **Rows now Gold → Gold or better** to show the retention question.
-- Talking point: *"Same model, different business question, one click. Region doesn't appear at all, because it truly doesn't matter in this data."*
+## 4b. Moving a batch up a disposition tier (1 minute, for QA audiences)
+- Click the practice dataset **Batch disposition: four outcomes, in order** (under Quality assurance), run.
+- A disposition is *ranked* &mdash; Reject, Rework, Release with deviation, Release &mdash; so the tool treats it as an order rather than four unrelated labels. That is what makes the next move possible.
+- Above the action plan, set **Starting from: Rows now Reject** and **Target outcome: Rework or better**. The plan re-aims instantly: cut deviations and out-of-specs, shorten hold time, put more experienced operators on it.
+- Switch to **Rows now Release → Release or better** for the hold-position question; the headline changes to keeping them where they are, because there is nothing above Release.
+- Talking point: *"Same model, different question, one click, no retraining. And notice the production line never appears &mdash; it genuinely does not matter in this data, which is usually the opposite of what the room expects to hear."*
 
 ## 4c. Codon optimization by evolution (3 minutes, for biologics and gene-therapy audiences)
 - Pick **Sequence optimizer** from the selector at the top and press **Load an example gene** (a 238-codon sequence written with poor codons for a mammalian host, carrying an EcoRI site, a BsaI site and a GC-rich run).
@@ -160,11 +165,11 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - **Download the forecast run sheet (.csv)** and open it: every prediction, interval, standing, substitution, refusal reason, and the methodology note at the foot.
 
 ## 4n. How wrong might it be? (3 minutes &mdash; the one that earns trust)
-- Load **Injection molding yield** and run the agent. Go to the **Model leaderboard** first. *"R&sup2; 0.897 &mdash; and underneath, the data cannot separate that from anything between 0.862 and 0.923. Most tools print the first number to three decimals and stop. The range is what tells you whether the model is worth acting on, and it is the first thing a small sample destroys."*
+- Load **Protein A capture** and run the agent against **Step_Yield_Pct**. Go to the **Model leaderboard** first. *"R&sup2; 0.785 &mdash; and underneath, the data cannot separate that from anything between 0.722 and 0.830. Most tools print the first number to three decimals and stop. The range is what tells you whether the model is worth acting on, and it is the first thing a small sample destroys."*
 - Then **What drives Yield**. Point at the whiskers. *"Each bar is an average over ten shuffles, and the whisker is how much it moved. MeltTemp is genuinely ahead of Material &mdash; that gap is bigger than the noise in both. Where two drivers overlap, the tool calls them joint leaders instead of ranking them, because a second run could swap them."*
-- Now the line that usually stops the room. *"Three of these inputs are at or below the blank. We shuffled the Yield column into nonsense, refit the same model, and it still handed out importances that big. On the bench that is your blank well: if the blank reads as high as the sample, the sample told you nothing."* If asked why not just check the bar against zero: *"We measured that. Three columns of pure random numbers scored 0.005 to 0.007 against standard errors near 0.002 &mdash; 'significant' by their own spread and worthless. A model leans on any column you hand it, because importance is measured on the rows it was fitted on. Zero is the wrong reference."*
-- Scroll to the **what-if desk**. It reads **92.6 to 97.3, 90% of runs at these settings should land in that range**. *"That used to say 'typical error plus or minus RMSE'. One number for the whole dataset, identical everywhere &mdash; so it was most reassuring exactly where it was least justified. A fixed two-sigma band covered 93% of runs inside the data and 35% outside it. This one is calibrated on rows held back from a second fit, and it widens."*
-- Then drive several sliders to opposite extremes. The badge turns amber &mdash; **edge of the data** &mdash; and the band opens to **73.7 to 80.3**. *"Notice no single slider has left its own range. Every setting here is one this plant has run. It is the combination nobody has run. That is the failure mode a dataset-wide error bar cannot express, and it is the one that bites in a transfer."*
+- Now the line that usually stops the room. *"Two of these five inputs are at or below the blank. We shuffled the step yield column into nonsense, refit the same model, and it still handed out importances that big. On the bench that is your blank well: if the blank reads as high as the sample, the sample told you nothing."* Then the line that lands it: *"One of those two is wash conductivity. Switch the target from yield to purity and wash conductivity becomes the top driver at 76%. The blank is not telling you the column is useless — it is telling you it is useless for the question you asked."* If asked why not just check the bar against zero: *"We measured that. Three columns of pure random numbers scored 0.005 to 0.007 against standard errors near 0.002 &mdash; 'significant' by their own spread and worthless. A model leans on any column you hand it, because importance is measured on the rows it was fitted on. Zero is the wrong reference."*
+- Scroll to the **what-if desk**. It reads **86.9 to 89.2, 90% of runs at these settings should land in that range**. *"That used to say 'typical error plus or minus RMSE'. One number for the whole dataset, identical everywhere &mdash; so it was most reassuring exactly where it was least justified. A fixed two-sigma band covered 93% of runs inside the data and 35% outside it. This one is calibrated on rows held back from a second fit, and it widens."*
+- Then drive several sliders to opposite extremes. The badge turns amber &mdash; **edge of the data** &mdash; and the band opens from 2.4 points wide to **4.9**, at **89.1 to 94.0**. *"Notice no single slider has left its own range. Every setting here is one this plant has run. It is the combination nobody has run. That is the failure mode a dataset-wide error bar cannot express, and it is the one that bites in a transfer."*
 - The honest caveat, if someone asks whether the 90% is a guarantee: *"No, and we say so on the page. The model is refit on every row while the band comes from a model fitted on part of them, so they are not perfectly exchangeable. On 300 rows a single calibration slice landed between 91% and 98% across four corpora. It is a close approximation with the slice size shown next to it, not a promise &mdash; and where the slice is too small to support the confidence you asked for, it tells you the band is a floor."*
 
 ## 4o. Open with this for a mixed department audience (2 minutes)

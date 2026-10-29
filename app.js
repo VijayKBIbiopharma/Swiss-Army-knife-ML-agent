@@ -1590,6 +1590,33 @@
     loadText(s.make(), s.title + ' (practice data)', s.target);
   }
 
+  /* The practice datasets, grouped by the function they belong to.
+
+     They used to be a flat list that toured unrelated industries - injection molding, loyalty
+     tiers, customer segments - which made the tool look like a generic demo and left a
+     downstream engineer with nothing to click that resembled their own work. Every dataset is
+     now a biologics one, tagged with its function, and the groups are shown under those
+     headings. Whichever function the person picked in "Where this is used" comes first and is
+     marked, because that is the one they will actually open. */
+  function renderSamples() {
+    const list = window.MLSamples || [];
+    const A = window.MLApplications;
+    const labelFor = k => (A && A.FUNCTIONS && A.FUNCTIONS.find(f => f[0] === k) || [, k])[1];
+    // Keep the order the datasets are declared in, then float the person's own group.
+    const groups = [];
+    for (const s of list) if (groups.indexOf(s.fn) < 0) groups.push(s.fn);
+    groups.sort((a, b) => (b === myFunction ? 1 : 0) - (a === myFunction ? 1 : 0));
+    $('samples').innerHTML = groups.map(fn => {
+      const mine = fn === myFunction;
+      return '<div class="sample-group' + (mine ? ' mine' : '') + '">' +
+        '<h4>' + h(labelFor(fn)) + (mine ? ' <span class="verdict capable">your group</span>' : '') + '</h4>' +
+        list.filter(s => s.fn === fn).map(s =>
+          '<button type="button" class="sample" data-sample="' + s.id + '">' +
+          '<span class="k">' + h(s.kind) + '</span><b>' + h(s.title) + '</b><span>' + h(s.blurb) + '</span></button>').join('') +
+        '</div>';
+    }).join('');
+  }
+
   /* Under the selector: what the chosen technique is used for across industries, so the
      page can be shown to people who know the problem but not the method. The write-ups are
      about the technique in general, and each one states what this page actually reads, so
@@ -1612,7 +1639,12 @@
       '</div></details>';
     $('apps-details').addEventListener('toggle', e => { appsOpen = e.target.open; });
     $('apps-modality').addEventListener('change', e => { myModality = e.target.value; renderApplications(name); });
-    $('apps-function').addEventListener('change', e => { myFunction = e.target.value; renderApplications(name); });
+    $('apps-function').addEventListener('change', e => {
+      myFunction = e.target.value;
+      renderApplications(name);
+      // The practice datasets are grouped by function, so they reorder with this choice.
+      if ($('samples')) renderSamples();
+    });
   }
   let appsOpen = typeof window === 'undefined' || window.innerWidth >= 760;
   /* Held for the session only. Nothing is stored, so this resets on reload like the data
@@ -1657,7 +1689,7 @@
   function init() {
     initTools();
     C.bindTips($('tip'));
-    $('samples').innerHTML = window.MLSamples.map(s => '<button type="button" class="sample" data-sample="' + s.id + '"><span class="k">' + h(s.kind) + '</span><b>' + h(s.title) + '</b><span>' + h(s.blurb) + '</span></button>').join('');
+    renderSamples();
     $('samples').addEventListener('click', e => {
       const b = e.target.closest('[data-sample]'); if (!b) return;
       const s = window.MLSamples.find(x => x.id === b.getAttribute('data-sample'));

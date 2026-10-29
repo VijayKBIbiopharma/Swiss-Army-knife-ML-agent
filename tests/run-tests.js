@@ -152,22 +152,66 @@ test('DOE analysis flags aliasing in a half fraction', () => {
 });
 
 test('the agent picks the right task for each practice dataset', async () => {
-  const expect = { molding: 'regression', factorial: 'regression', batches: 'classification', loyalty: 'classification', segments: 'clustering' };
+  /* Every practice dataset is a biologics one now, and each is tagged with the function it
+     belongs to so the picker can group them. Both of those are checked here: a dataset
+     pointing at a column it does not emit, or at a function that does not exist, fails in
+     front of whoever trusted it first. */
+  const APPS = require(path.join(ROOT, 'applications.js'));
+  const fnIds = APPS.FUNCTIONS.map(f => f[0]);
+  const expect = {
+    clones: 'regression', clonegroups: 'clustering', fedbatch: 'regression', capture: 'regression',
+    formulation: 'regression', scaleup: 'regression', batches: 'classification', disposition: 'classification'
+  };
+  for (const s of S) {
+    assert.ok(fnIds.indexOf(s.fn) >= 0, s.id + ' is tagged with function "' + s.fn + '", which is not in FUNCTIONS');
+    assert.ok(s.title && s.blurb && s.kind, s.id + ' needs a title, kind and blurb');
+    const first = s.files ? E.parseCSV(s.files[0].make()) : E.parseCSV(s.make());
+    if (!s.files && s.target !== '__none__') {
+      assert.ok(first.columns.indexOf(s.target) >= 0,
+        s.id + ' declares target "' + s.target + '" which it does not emit');
+    }
+  }
   for (const s of S.filter(x => !x.files)) {
     const rep = await A.run(E.parseCSV(s.make()), { target: s.target });
     assert.strictEqual(rep.task, expect[s.id], s.id);
     assert.ok(rep.insights.length > 0 && rep.nextSteps.length > 0);
-    if (s.id === 'factorial') {
-      assert.ok(rep.doe, 'factorial detected as a DOE');
+    if (s.id === 'fedbatch') {
+      assert.ok(rep.doe, 'the factorial must be detected as a DOE');
       const sig = rep.doe.terms.filter(t => t.p < 0.05).map(t => t.name);
-      assert.ok(sig.includes('Temperature') && sig.includes('Catalyst') && sig.includes('Temperature × Catalyst'));
+      /* Temperature and feed rate interact by construction, and the interaction is the
+         finding worth having: a feed that helps warm hurts cool. */
+      assert.ok(sig.includes('Temp_C') && sig.includes('FeedRate_mL_h') && sig.includes('Temp_C × FeedRate_mL_h'),
+        'significant terms were ' + sig.join(', '));
     }
-    if (s.id === 'molding') {
-      assert.ok(rep.best.metrics.r2 > 0.8);
-      assert.strictEqual(rep.importance[0].name, 'MeltTemp');
+    if (s.id === 'clones') {
+      /* The day 3 reads and the specific productivity are measured results, so the agent
+         sets them aside as inputs by default rather than letting another measurement of the
+         same batch predict the answer. That is the conservative call and it cannot know the
+         reads came first - so this dataset doubles as the demonstration of that guard, and
+         the score below is the one you get with the guard on. Re-including them deliberately
+         is the exercise. */
+      assert.ok(rep.features.indexOf('Specific_Productivity_qp') < 0,
+        'a measured productivity must not silently become an input: ' + rep.features.join(', '));
+      assert.ok(rep.features.indexOf('Promoter') >= 0, 'but the construct features must be used');
+      assert.ok(rep.best.metrics.r2 > 0.7, 'and it should still model well on those alone: ' + rep.best.metrics.r2);
+      assert.strictEqual(rep.importance[0].name, 'Promoter', 'the promoter is the dominant driver by construction');
       assert.ok(rep.doeRecommendation && rep.doeRecommendation.factors.length >= 2);
     }
-    if (s.id === 'segments') assert.strictEqual(rep.clustering.k, 3);
+    if (s.id === 'scaleup') {
+      /* The confounding is the lesson. kLa falls as the vessel grows and that is what costs
+         titer; Site B simply runs the big vessels more often. A careless read blames the
+         site, so the dataset exists to be read carefully. */
+      assert.strictEqual(rep.importance[0].name, 'kLa_per_h',
+        'the real cause must lead, not the site it correlates with; got ' + rep.importance[0].name);
+      const site = rep.importance.find(v => v.name === 'Site');
+      assert.ok(!site || site.share < 0.25, 'Site must not dominate: ' + JSON.stringify(site));
+    }
+    if (s.id === 'clonegroups') assert.strictEqual(rep.clustering.k, 3, 'three phenotypes were built in');
+  }
+  // And the practice set must cover every analysis the tool offers, or the tour has a hole.
+  const kinds = S.map(x => x.kind).join(' ');
+  for (const need of ['Regression', 'Classification', 'DOE', 'clustering', 'join']) {
+    assert.ok(kinds.indexOf(need) >= 0, 'no practice dataset covers ' + need);
   }
 });
 
@@ -261,22 +305,38 @@ test('round trip: a generated run sheet, once filled in, is analyzed as a DOE', 
 
 test('action plan turns drivers into plain-English moves', async () => {
   const get = id => S.find(s => s.id === id);
-  const mold = await A.run(E.parseCSV(get('molding').make()), { target: 'Yield', goal: 'max' });
+  const mold = await A.run(E.parseCSV(get('capture').make()), { target: 'Step_Yield_Pct', goal: 'max' });
   const items = mold.actionPlan.items;
-  const temp = items.find(i => i.factor === 'MeltTemp');
-  assert.strictEqual(temp.verb, 'Target', 'MeltTemp has a sweet spot');
-  const mat = items.find(i => i.factor === 'Material');
-  assert.ok(mat && /Resin C/.test(mat.text) && /Resin B/.test(mat.text), 'best and worst material named');
-  assert.ok(items.find(i => i.factor === 'Pressure').verb === 'Increase');
+  // A monotonic driver becomes a direction, and the direction has to follow the data.
+  assert.strictEqual(items.find(i => i.factor === 'Residence_Time_min').verb, 'Increase');
+  assert.strictEqual(items.find(i => i.factor === 'Load_g_per_L_resin').verb, 'Decrease');
+  // A categorical driver names the worst level as well as the best.
+  const lot = items.find(i => i.factor === 'Resin_Lot');
+  assert.ok(lot && /RL-231/.test(lot.text) && /RL-224/.test(lot.text), 'best and worst resin lot named: ' + (lot && lot.text));
   assert.ok(/would average/.test(mold.actionPlan.combined));
-  // Flipping the goal flips the advice.
-  const low = await A.run(E.parseCSV(get('molding').make()), { target: 'Yield', goal: 'min' });
-  assert.strictEqual(low.actionPlan.items.find(i => i.factor === 'Pressure').verb, 'Decrease');
+  /* Flipping the goal must flip the advice. This is the check that it is reading the model
+     rather than reciting a direction it likes. */
+  const low = await A.run(E.parseCSV(get('capture').make()), { target: 'Step_Yield_Pct', goal: 'min' });
+  assert.strictEqual(low.actionPlan.items.find(i => i.factor === 'Residence_Time_min').verb, 'Decrease');
+  assert.strictEqual(low.actionPlan.items.find(i => i.factor === 'Load_g_per_L_resin').verb, 'Increase');
 
-  const doe = await A.run(E.parseCSV(get('factorial').make()), { target: 'Yield' });
-  assert.ok(doe.actionPlan.items.some(i => i.factor === 'Temperature' && i.verb === 'Increase'));
-  assert.ok(doe.actionPlan.items.some(i => i.verb === 'Combine'), 'interaction becomes a "change together" action');
-  assert.ok(doe.actionPlan.quiet.includes('Time'));
+  /* A factor whose optimum sits inside its range must come back as "hold it here", not as a
+     direction. The formulation screen has a real pH optimum away from both edges, which is
+     exactly what a two-level screen is blind to by construction. */
+  const form = await A.run(E.parseCSV(get('formulation').make()), { target: 'HMW_Increase_Pct', goal: 'min' });
+  const ph = form.actionPlan.items.find(i => i.factor === 'pH');
+  assert.strictEqual(ph.verb, 'Target', 'pH has a sweet spot');
+  assert.ok(/sweet spot/.test(ph.text), ph.text);
+  const buf = form.actionPlan.items.find(i => i.factor === 'Buffer');
+  assert.ok(buf && /Histidine/.test(buf.text), 'the best buffer is named: ' + (buf && buf.text));
+
+  const doe = await A.run(E.parseCSV(get('fedbatch').make()), { target: 'Titer_gL' });
+  assert.ok(doe.actionPlan.items.some(i => i.factor === 'Temp_C' && i.verb === 'Increase'));
+  assert.ok(doe.actionPlan.items.some(i => i.verb === 'Combine'), 'an interaction becomes a "change together" action');
+  // And it must be the interaction that was actually built in.
+  assert.ok(doe.actionPlan.items.some(i => i.verb === 'Combine' && /Temp_C/.test(i.factor) && /FeedRate/.test(i.factor)),
+    'the temperature-by-feed interaction must be the one combined: ' +
+    JSON.stringify(doe.actionPlan.items.filter(i => i.verb === 'Combine').map(i => i.factor)));
 
   const bat = await A.run(E.parseCSV(get('batches').make()), { target: 'Result' });
   assert.strictEqual(bat.classes[bat.favorable], 'Pass');
@@ -319,7 +379,7 @@ test('columns that copy the target (data leakage) are set aside', async () => {
   assert.ok(!rep.features.includes('Tag') && rep.features.includes('Temp'));
   assert.ok(rep.best.metrics.balancedAccuracy < 0.99, 'no fake perfect score');
   // A real but strong driver is not flagged.
-  const reg = await A.run(E.parseCSV(S.find(s => s.id === 'molding').make()), { target: 'Yield' });
+  const reg = await A.run(E.parseCSV(S.find(s => s.id === 'capture').make()), { target: 'Step_Yield_Pct' });
   assert.ok(!(reg.leaks || []).length);
 });
 
@@ -343,24 +403,35 @@ test('PDF writer produces a well-formed file', () => {
 });
 
 test('target outcome selector: ranked tiers, starting class and no re-training', async () => {
-  const rep = await A.run(E.parseCSV(S.find(s => s.id === 'loyalty').make()), { target: 'Tier' });
+  const rep = await A.run(E.parseCSV(S.find(s => s.id === 'disposition').make()), { target: 'Disposition' });
   const ci = n => rep.classes.indexOf(n);
-  assert.strictEqual(rep.classes[rep.favorable], 'Platinum', 'top tier is the default target');
-  assert.deepStrictEqual(A.classOrder(rep.classes).map(k => rep.classes[k]), ['Platinum', 'Gold', 'Silver', 'Bronze']);
+  /* A batch disposition is ordered, so "what moves this up a tier" is a real question.
+     Treating Reject and Release as unrelated labels throws away the most useful thing the
+     model can say about them, which is why the ladder carries this industry's own wording. */
+  assert.strictEqual(rep.classes[rep.favorable], 'Release', 'the best disposition is the default target');
+  assert.deepStrictEqual(A.classOrder(rep.classes).map(k => rep.classes[k]),
+    ['Release', 'Release with deviation', 'Rework', 'Reject'], 'best to worst, not alphabetical');
   const best = rep.best;
-  A.retarget(rep, ci('Silver'), ci('Bronze'));
+  A.retarget(rep, ci('Rework'), ci('Reject'));
   assert.strictEqual(rep.best, best, 'same model, no re-training');
-  assert.deepStrictEqual(rep.favorableSet.map(k => rep.classes[k]).sort(), ['Gold', 'Platinum', 'Silver'], 'Silver means Silver or better');
+  assert.deepStrictEqual(rep.favorableSet.map(k => rep.classes[k]).sort(),
+    ['Release', 'Release with deviation', 'Rework'], 'Rework means Rework or better');
   const plan = rep.actionPlan;
-  assert.ok(/now Tier = Bronze to Silver or better/.test(plan.headline));
-  const spend = plan.items.find(i => i.factor === 'MonthlySpend');
-  assert.strictEqual(spend.verb, 'Increase');
-  assert.ok(/typical Bronze level/.test(spend.text));
-  assert.ok(!plan.items.some(i => i.factor === 'Region'), 'Region has no real effect');
+  assert.ok(/now Disposition = Reject to Rework or better/.test(plan.headline), plan.headline);
+  const exp = plan.items.find(i => i.factor === 'Operator_Experience_Months');
+  assert.strictEqual(exp.verb, 'Increase');
+  assert.ok(/typical Reject level/.test(exp.text), exp.text);
+  assert.ok(plan.items.some(i => i.factor === 'Deviation_Count' && i.verb === 'Decrease'));
+  // The line barely matters by construction, which is usually the opposite of what the room
+  // expects, so it must not show up as a lever.
+  assert.ok(!plan.items.some(i => i.factor === 'Line'), 'the line has no real effect');
   const m = plan.combined.match(/average (\d+)% instead of (\d+)%/);
-  assert.ok(m && Number(m[1]) > Number(m[2]), 'levers together help rather than overshoot');
-  A.retarget(rep, ci('Gold'), ci('Gold'));
-  assert.ok(/keep rows that are now Tier = Gold at Gold or better/.test(rep.actionPlan.headline));
+  assert.ok(m && Number(m[1]) > Number(m[2]), 'levers together help rather than overshoot: ' + plan.combined);
+  /* Aiming the top class at itself reads as holding position, not as "or better" - there is
+     nothing better than Release, and saying so would be nonsense. */
+  A.retarget(rep, ci('Release'), ci('Release'));
+  assert.ok(/keep rows that are now Disposition = Release where they are/.test(rep.actionPlan.headline),
+    rep.actionPlan.headline);
   // Unranked classes keep the exact class.
   const pen = await A.run(E.parseCSV(fs.readFileSync(path.join(ROOT, 'demo-data', 'penguins.csv'), 'utf8')), { target: 'species' });
   A.retarget(pen, pen.classes.indexOf('Chinstrap'), pen.classes.indexOf('Adelie'));
@@ -394,15 +465,23 @@ test('Six Sigma statistics match textbook values', () => {
 
 test('Six Sigma mode in the agent', async () => {
   const get = id => S.find(s => s.id === id);
-  const mold = await A.run(E.parseCSV(get('molding').make()), { target: 'Yield', sixSigma: { lsl: 88, usl: 100, target: 95, timeOrdered: true } });
+  const mold = await A.run(E.parseCSV(get('capture').make()), { target: 'Step_Yield_Pct', sixSigma: { lsl: 85, usl: 95, target: 90, timeOrdered: true } });
   const c = mold.spc.capability;
   assert.ok(c && c.Cpk < c.Cp && c.verdict === 'not capable');
-  assert.ok(mold.spc.imr && mold.spc.boxes.by.some(b => b.name === 'Material') && mold.spc.taguchi.type === 'nominal');
+  assert.ok(mold.spc.imr && mold.spc.boxes.by.some(b => b.name === 'Resin_Lot') && mold.spc.taguchi.type === 'nominal');
   assert.ok(mold.insights.some(i => /Process capability: Cpk/.test(i.text)));
-  assert.ok(mold.nextSteps.some(s => /Gage R&R/.test(s.text)) && mold.nextSteps.some(s => /Center the process/.test(s.title)));
-  const plain = await A.run(E.parseCSV(get('molding').make()), { target: 'Yield' });
+  assert.ok(mold.nextSteps.some(s => /Gage R&R/.test(s.text)));
+  /* Centred against these limits, so the advice is to reduce spread rather than to move the
+     mean. Both branches are checked, because an agent that only ever says one of them is
+     reciting rather than reading the data. */
+  assert.ok(mold.nextSteps.some(s => /Reduce variation/.test(s.title)), 'centred: reduce spread');
+  const offCentre = await A.run(E.parseCSV(get('capture').make()), { target: 'Step_Yield_Pct', sixSigma: { lsl: 86, usl: 99, target: 92.5, timeOrdered: true } });
+  assert.ok(offCentre.nextSteps.some(s => /Center the process/.test(s.title)), 'off centre: move the mean first');
+  assert.ok(offCentre.spc.capability.centeredCpk > offCentre.spc.capability.Cpk,
+    'and centring must be shown to be worth more than tightening here');
+  const plain = await A.run(E.parseCSV(get('capture').make()), { target: 'Step_Yield_Pct' });
   assert.strictEqual(plain.spc, undefined, 'standard mode adds nothing');
-  const doe = await A.run(E.parseCSV(get('factorial').make()), { target: 'Yield', sixSigma: { lsl: 60 } });
+  const doe = await A.run(E.parseCSV(get('fedbatch').make()), { target: 'Titer_gL', sixSigma: { lsl: 2.5 } });
   assert.ok(doe.spc.designed && !doe.spc.imr, 'no control chart on a designed experiment');
   assert.ok(doe.insights.some(i => /designed experiment: its spread/.test(i.text)));
   const bat = await A.run(E.parseCSV(get('batches').make()), { target: 'Result', sixSigma: {} });
@@ -420,11 +499,11 @@ test('neural network learns non-linear patterns, stops early and is reproducible
   assert.deepStrictEqual(run().model().predict(X.slice(0, 5)), m.predict(X.slice(0, 5)), 'same seed, same network');
   const tc = E.mlpTrainer(X, yc, { task: 'classification', nClasses: 2, rand: E.rng(2) }); while (!tc.step(20));
   assert.ok(E.classificationMetrics(yc, tc.model().predict(X), 2).accuracy > 0.95);
-  const rep = await A.run(E.parseCSV(S.find(s => s.id === 'molding').make()), { target: 'Yield' });
+  const rep = await A.run(E.parseCSV(S.find(s => s.id === 'capture').make()), { target: 'Step_Yield_Pct' });
   const nn = rep.leaderboard.find(b => b.id === 'mlp');
-  assert.ok(nn && nn.metrics.r2 > 0.5, 'on the leaderboard with a real score (150 rows is small for a network)');
+  assert.ok(nn && nn.metrics.r2 > 0.5, 'on the leaderboard with a real score (160 rows is small for a network)');
   assert.ok(rep.nn && rep.nn.history.length > 5 && rep.nn.sizes[1] === 32 && rep.nn.sizes[2] === 16);
-  const tiny = await A.run(E.parseCSV(S.find(s => s.id === 'factorial').make()), { target: 'Yield' });
+  const tiny = await A.run(E.parseCSV(S.find(s => s.id === 'fedbatch').make()), { target: 'Titer_gL' });
   assert.ok(!tiny.leaderboard.some(b => b.id === 'mlp') && !tiny.nn, 'skipped on tiny data');
 });
 
