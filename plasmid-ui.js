@@ -14,6 +14,7 @@
   const f3 = v => (v === null || !isFinite(v) ? '–' : Number(v).toFixed(3));
 
   let table = null, prof = null, models = null, env = null, feats = [], values = {}, lastPrediction = null;
+  let lastDesign = null, lastSheet = null;
 
   function download(name, data, type) {
     const url = URL.createObjectURL(new Blob([data], { type: type + ';charset=utf-8' }));
@@ -67,6 +68,7 @@
         for (const n of Object.keys(env.categorical)) values[n] = env.categorical[n].levels[0];
         renderFit(); renderDesk(); run();
         $('pl-desk-wrap').hidden = false;
+        $('pl-sheet-wrap').hidden = false;
         $('pl-desk-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
       } catch (e) { fail(e.message); }
       finally { btn.disabled = false; btn.textContent = 'Fit and calibrate'; }
@@ -163,6 +165,7 @@
   function doe() {
     if (!lastPrediction || !lastPrediction.ok) return;
     const d = P.suggestDOE(env, values, lastPrediction.outside, { seed: Date.now() % 10000 });
+    lastDesign = d;
     if (!d) { $('pl-doe-out').innerHTML = '<p class="hint">Not enough numeric inputs to build a screen over.</p>'; return; }
     $('pl-doe-out').innerHTML = '<div class="card"><h4>Four runs to settle it</h4><p class="hint">' + h(d.why) + '</p>' +
       '<div class="table-scroll"><table class="runsheet"><thead><tr><th class="num-cell">Run</th><th class="num-cell">Std</th>' +
@@ -224,8 +227,226 @@
     return lines.join('\n');
   }
 
+  // ---------- the proposed run sheet ----------
+  const sheetFail = m => { $('pl-sheet-error').textContent = m; $('pl-sheet-error').hidden = false; };
+
+  /* Take the design from the button above into the sheet box, so the four runs the tool
+     just proposed can be forecast without retyping them. */
+  function sheetFromDoe() {
+    if (!lastDesign) return sheetFail('Design the runs above first, or paste a sheet of your own.');
+    const head = ['RunOrder', 'StdOrder'].concat(lastDesign.factors.map(f => f.name));
+    const lines = [head.join(',')];
+    for (const r of lastDesign.runs) lines.push([r.run, r.std].concat(r.values).join(','));
+    $('pl-sheet').value = lines.join('\n');
+    $('pl-sheet-error').hidden = true;
+    sheetGo();
+  }
+
+  /* An example programme: two promoters crossed with a walk along the two numeric features,
+     deliberately running off the end of the corpus on the last level of each so the sheet
+     comes back with a mix of standings rather than a uniformly confident block. */
+  function exampleSheet() {
+    if (!env) return '';
+    const nums = Object.keys(env.numeric), cats = Object.keys(env.categorical);
+    const a = nums[0], b = nums[1];
+    const head = ['RunOrder', 'StdOrder'].concat(cats.length ? [cats[0]] : [], a ? [a] : [], b ? [b] : []);
+    const lines = [head.join(',')];
+    const levels = cats.length ? env.categorical[cats[0]].levels.slice(0, 2) : [''];
+    const walk = f => { const e = env.numeric[f], span = (e.max - e.min) || 1; return [e.min + span * 0.25, e.median, e.max, e.max + span * 0.35]; };
+    const as = a ? walk(a) : [null];
+    const bs = b ? (function () { const e = env.numeric[b], span = (e.max - e.min) || 1; return [e.median, e.max + span * 0.3]; })() : [null];
+    let run = 0;
+    for (const lv of levels) for (const av of as) for (const bv of bs) {
+      run++;
+      const row = [run, run];
+      if (cats.length) row.push(lv);
+      if (a) row.push(Number(av.toFixed(3)));
+      if (b) row.push(Number(bv.toFixed(3)));
+      lines.push(row.join(','));
+    }
+    return lines.join('\n');
+  }
+
+  function sheetGo() {
+    $('pl-sheet-error').hidden = true;
+    if (!models || !env) return sheetFail('Fit the corpus first.');
+    const text = $('pl-sheet').value.trim();
+    if (!text) return sheetFail('Paste a run sheet, or take the runs designed above.');
+    let t;
+    try { t = E.parseCSV(text); } catch (e) { return sheetFail('Could not read that sheet: ' + e.message); }
+    if (!t.rows.length) return sheetFail('That sheet has a header row but no runs under it.');
+    const parsed = P.parseRunSheet(t, env, values);
+    const res = P.forecastSheet(models, env, parsed.rows, {
+      confidence: Number($('pl-conf').value),
+      simultaneous: $('pl-sheet-mode').value === 'simultaneous'
+    });
+    if (!res.ok) return sheetFail(res.why);
+    lastSheet = { parsed, res };
+    renderSheet(parsed, res);
+  }
+
+  function renderSheet(parsed, res) {
+    const keys = Object.keys(models);
+    const featureNames = Object.keys(env.numeric).concat(Object.keys(env.categorical));
+    // Only the features that actually move belong in columns; the rest are a note.
+    const varying = featureNames.filter(f => new Set(parsed.rows.map(r => String(r.values[f]))).size > 1);
+    const shown = varying.length ? varying : parsed.factors.slice(0, 3);
+    const hasStd = parsed.rows.some(r => r.std !== null && r.std !== undefined);
+    const badge = t => ({ inside: ['capable', 'inside'], edge: ['marginal', 'edge'], outside: ['not', 'outside'] }[t] || ['not', '—']);
+
+    let html = '<div class="card"><h4>' + res.tally.n + ' proposed runs, every one forecast</h4>';
+
+    // What the intervals are claiming, and whether the calibration slice can back it.
+    html += '<p class="sub-head"><span class="verdict ' + (res.tally.outside ? 'marginal' : 'capable') + '">' +
+      res.tally.inside + ' near the data &middot; ' + res.tally.edge + ' at the edge &middot; ' + res.tally.outside + ' far from it</span> ' +
+      Math.round(res.confidence * 100) + '% ' + (res.simultaneous ? 'across the whole sheet' : 'per run') +
+      (res.simultaneous ? ' &middot; each band built at ' + (res.rowConfidence * 100).toFixed(2) + '% so all ' + res.tally.n + ' hold together' : '') +
+      (res.tally.refused ? ' &middot; ' + res.tally.refused + ' refused' : '') + '</p>';
+
+    if (res.simultaneous && !res.supported) {
+      html += '<div class="plain not"><h4>The calibration slice cannot back this claim</h4>' +
+        '<p>Holding all ' + res.tally.n + ' bands at once needs each one built at ' + (res.rowConfidence * 100).toFixed(2) +
+        '%, but ' + res.nCal + ' held-back runs can only resolve a tail out to ' + (res.maxConf * 100).toFixed(2) +
+        '%. The bands below are therefore the widest this calibration slice can honestly quote &mdash; a floor, not a guarantee. ' +
+        'Measured consequence, on a corpus too small to back the claim: sheet-wide coverage came in at 0.86 on average and as low as 0.74, against the 0.90 asked for. ' +
+        'Either read the sheet one run at a time, or add runs to the corpus so more can be held back.</p></div>';
+    }
+
+    // ---- the sheet itself ----
+    html += '<div class="table-scroll"><table class="runsheet"><thead><tr><th class="num-cell">Run</th>' +
+      (hasStd ? '<th class="num-cell">Std</th>' : '') +
+      shown.map(f => '<th class="num-cell">' + h(f) + '</th>').join('') +
+      keys.map(k => '<th class="num-cell">' + h(k) + '</th><th class="num-cell">interval</th>').join('') +
+      '<th>Standing</th></tr></thead><tbody>';
+    for (const r of parsed.rows.map((p, i) => res.rows[i])) {
+      const b = r.ok ? badge(r.trust) : ['not', 'refused'];
+      html += '<tr><td class="num-cell">' + r.run + '</td>' + (hasStd ? '<td class="num-cell">' + (r.std == null ? '' : r.std) + '</td>' : '') +
+        shown.map(f => '<td class="num-cell">' + h(env.numeric[f] ? f2(Number(r.values[f])) : String(r.values[f] == null ? '' : r.values[f])) + '</td>').join('');
+      if (!r.ok) {
+        html += '<td class="num-cell" colspan="' + (keys.length * 2) + '"><span class="flagged-note">' + h(r.blocking.map(x => x.field).join(', ')) + ' could not be filled</span></td>';
+      } else {
+        html += keys.map(k => {
+          const x = r.results[k];
+          return '<td class="num-cell"><b>' + f2(x.value) + '</b>' + (x.capped ? ' <span class="flagged-note">capped</span>' : '') + '</td>' +
+            '<td class="num-cell">' + f2(x.low) + ' – ' + f2(x.high) + '</td>';
+        }).join('');
+      }
+      html += '<td><span class="verdict ' + b[0] + '">' + b[1] + '</span>' +
+        (r.ok && r.outside.length ? ' <span class="flagged-note" title="' + h(r.outside.map(o => o.field + ' ' + f2(o.value) + ' vs corpus ' + f2(o.min) + '–' + f2(o.max)).join('; ')) + '">beyond range</span>' : '') +
+        '</td></tr>';
+    }
+    html += '</tbody></table></div>';
+
+    // ---- can the sheet tell its own runs apart ----
+    for (const k of keys) {
+      const s = res.byTarget[k];
+      if (!s) continue;
+      const cls = s.separated ? 'capable' : s.bestBeatsWorst ? 'marginal' : 'not';
+      html += '<div class="plain ' + cls + '"><h4>' + h(s.target) + ': will this sheet settle anything?</h4>';
+      html += '<p>Best forecast is <b>run ' + s.best.run + '</b> at ' + f2(s.best.value) + ' (' + f2(s.best.low) + ' – ' + f2(s.best.high) +
+        '), lowest is run ' + s.worst.run + ' at ' + f2(s.worst.value) + '. The sheet spans ' + f2(s.spread) +
+        ', and a typical band here is &plusmn;' + f2(s.meanHalfWidth) + '.</p>';
+      if (s.separated) {
+        html += '<p>Run ' + s.best.run + '’s band clears every other run on the sheet, so this programme can be expected to identify a winner.</p>';
+      } else if (s.bestBeatsWorst) {
+        html += '<p>Run ' + s.best.run + ' separates from the bottom of the sheet but its band still overlaps run' +
+          (s.indistinguishable.length > 1 ? 's ' : ' ') + h(s.indistinguishable.join(', ')) +
+          '. Expect this sheet to tell the good region from the bad one, but not to rank the leaders. ' +
+          'Replicating the leading runs is what narrows that, and replication is cheaper than a second programme.</p>';
+      } else {
+        html += '<p>Every run’s band overlaps run ' + s.best.run + '’s. On the evidence available, this sheet is not expected to rank its own candidates &mdash; ' +
+          'the spread it is trying to detect (' + f2(s.spread) + ') is smaller than the uncertainty it carries (&plusmn;' + f2(s.meanHalfWidth) +
+          '). Widen the factor settings, replicate, or accept that the result will be a region rather than a winner.</p>';
+      }
+      if (s.capped) html += '<p><span class="flagged-note">' + s.capped + ' of these runs hit the metabolic-burden cap</span>, which is a stated assumption rather than something the corpus shows.</p>';
+      html += '</div>';
+    }
+
+    // ---- what the sheet did and did not say ----
+    const notes = [];
+    if (parsed.held.length) notes.push('Held at the desk settings because the sheet does not carry them: <b>' + parsed.held.map(h).join(', ') + '</b>.');
+    if (parsed.ignored.length) notes.push('Columns in the sheet that are not features of this model, so they were carried no further: <b>' + parsed.ignored.map(h).join(', ') + '</b>.');
+    if (parsed.missing.length) notes.push('Neither in the sheet nor on the desk, which is why those runs are refused: <b>' + parsed.missing.map(h).join(', ') + '</b>.');
+    const subs = res.rows.filter(r => r.ok && r.substitutions.length);
+    if (subs.length) {
+      notes.push('Levels the corpus has never seen, mapped to the nearest it has: ' +
+        subs.map(r => 'run ' + r.run + ' (' + r.substitutions.map(s2 => h(s2.entered) + ' &rarr; ' + h(s2.used)).join(', ') + ')').join('; ') + '.');
+    }
+    if (notes.length) html += '<div class="plain marginal"><h4>What was substituted or held</h4><ul>' + notes.map(x => '<li>' + x + '</li>').join('') + '</ul></div>';
+
+    if (res.tally.beyondEnvelope) {
+      html += '<p class="hint"><b>' + res.tally.beyondEnvelope + ' of these ' + res.tally.n +
+        ' runs set at least one input past the range the corpus actually covers</b> (marked <i>beyond range</i> above). ' +
+        'Their bands have widened to match, and that widening is calibrated rather than decorative &mdash; but a wide band on an extrapolation is still an extrapolation. ' +
+        'Those are the rows the programme will actually learn something from, and also the rows whose forecast should carry the least weight in deciding whether to book it.</p>';
+    }
+    html += '<p class="hint">The standing column is a different measure from <i>beyond range</i>, and they disagree often enough to be worth keeping apart. Standing is how far the whole construct sits from the corpus once every feature is taken together, which is what sets the width of its band. <i>Beyond range</i> is the blunter fact that one input is past the end of its own column. A run can sit close to the data overall and still be past the end of one input' + (res.tally.beyondEnvelope && !res.tally.outside ? ' &mdash; which is exactly what this sheet is doing' : '') + '.</p>';
+    html += '<p class="hint">Every row came off the same fitted model, so the errors across this sheet are correlated: if the fit is biased in one region, every run there is wrong in the same direction. That is why the sheet-wide mode is the honest one to read a whole programme by, and why neither mode is a substitute for running the thing.</p>';
+    html += '<div class="row-actions"><button class="btn primary" type="button" id="pl-sheet-csv">Download the forecast run sheet (.csv)</button></div></div>';
+    $('pl-sheet-out').innerHTML = html;
+    $('pl-sheet-csv').addEventListener('click', () => download('vector-runsheet-forecast.csv', sheetCSV(), 'text/csv'));
+  }
+
+  function sheetCSV() {
+    if (!lastSheet) return '';
+    const { parsed, res } = lastSheet;
+    const keys = Object.keys(models);
+    const q = v => '"' + String(v).replace(/"/g, '""') + '"';
+    const featureNames = Object.keys(env.numeric).concat(Object.keys(env.categorical));
+    const L = [['Plasmid and vector run sheet forecast'], ['Generated', q(new Date().toISOString())],
+      ['Computed', q('In the browser. No data was uploaded or stored.')],
+      ['Runs forecast', res.tally.n], ['Confidence asked for', res.confidence],
+      ['Interval claim', q(res.simultaneous ? 'every run at once, across the whole sheet' : 'each run on its own')],
+      ['Per-run confidence used', res.rowConfidence],
+      ['Calibration slice supports that tail', q(res.supported ? 'yes' : 'no - the bands are a floor, not a guarantee')],
+      ['Runs held back to calibrate', res.nCal],
+      ['Inside the envelope', res.tally.inside], ['At the edge', res.tally.edge],
+      ['Outside the envelope', res.tally.outside], ['Refused', res.tally.refused], []];
+    L.push(['RunOrder', 'StdOrder'].concat(featureNames,
+      keys.reduce((a, k) => a.concat([k, k + '_low', k + '_high', k + '_capped'], []), []),
+      ['Standing', 'DistanceFromCorpus', 'Substitutions', 'OutsideEnvelope', 'Refused_because']));
+    for (const r of res.rows) {
+      const row = [r.run, r.std == null ? '' : r.std].concat(featureNames.map(f => {
+        const v = r.values[f];
+        return env.numeric[f] ? (v == null ? '' : v) : q(v == null ? '' : v);
+      }));
+      for (const k of keys) {
+        if (r.ok) { const x = r.results[k]; row.push(x.value, x.low, x.high, x.capped ? 'yes' : 'no'); }
+        else row.push('', '', '', '');
+      }
+      row.push(q(r.ok ? r.trust : 'refused'), r.ok ? r.distance : '',
+        q(r.ok ? r.substitutions.map(s2 => s2.entered + '->' + s2.used).join('; ') : ''),
+        q(r.ok ? r.outside.map(o => o.field + '=' + o.value).join('; ') : ''),
+        q(r.ok ? '' : r.blocking.map(b => b.field + ': ' + b.why).join('; ')));
+      L.push(row);
+    }
+    for (const k of keys) {
+      const s = res.byTarget[k];
+      if (!s) continue;
+      L.push([], [q('Can the sheet rank its runs on ' + s.target + '?')],
+        ['Best run', s.best.run, 'Predicted', s.best.value, 'Interval', s.best.low, s.best.high],
+        ['Lowest run', s.worst.run, 'Predicted', s.worst.value],
+        ['Spread across the sheet', s.spread], ['Typical half-width', s.meanHalfWidth],
+        ['Best run separated from every other', q(s.separated ? 'yes' : 'no')],
+        ['Best run separated from the lowest', q(s.bestBeatsWorst ? 'yes' : 'no')],
+        ['Runs its band still overlaps', q(s.indistinguishable.join('; '))]);
+    }
+    if (parsed.held.length) L.push([], ['Held at the desk settings'], parsed.held.map(q));
+    if (parsed.ignored.length) L.push([], ['Sheet columns that are not features of this model'], parsed.ignored.map(q));
+    if (parsed.missing.length) L.push([], ['Neither in the sheet nor on the desk'], parsed.missing.map(q));
+    L.push([], [q('Intervals are split-conformal, calibrated on held-back runs, and not a multiple of a residual standard deviation. ' +
+      'A per-run interval covers each run on its own: measured on this tool, per-run coverage was 0.908 against 0.900 claimed, but only 0.344 of twelve-run sheets had every row inside. ' +
+      'The sheet-wide mode spends the error budget across the runs and brought that to 0.978. ' +
+      'Every row comes off one fitted model, so errors across a sheet are correlated. ' +
+      'Caps are a stated assumption about metabolic burden, not a finding. Decision support, not a validated system.')]);
+    return L.map(x => x.join(',')).join('\n') + '\n';
+  }
+
   function clear() {
     table = prof = models = env = lastPrediction = null; values = {}; feats = [];
+    lastDesign = lastSheet = null;
+    $('pl-sheet').value = ''; $('pl-sheet-file').value = '';
+    $('pl-sheet-out').innerHTML = ''; $('pl-sheet-error').hidden = true; $('pl-sheet-wrap').hidden = true;
     $('pl-data').value = ''; $('pl-file').value = '';
     $('pl-read').textContent = ''; $('pl-map').hidden = true; $('pl-error').hidden = true;
     $('pl-fit').innerHTML = ''; $('pl-out').innerHTML = ''; $('pl-inputs').innerHTML = '';
@@ -243,10 +464,21 @@
       fr.readAsText(f);
     });
     ['pl-titer', 'pl-qp'].forEach(id => $(id).addEventListener('change', renderFeatureChoices));
-    $('pl-conf').addEventListener('change', run);
+    $('pl-conf').addEventListener('change', () => { run(); if (lastSheet) sheetGo(); });
     $('pl-train').addEventListener('click', train);
     $('pl-doe').addEventListener('click', doe);
     $('pl-csv').addEventListener('click', () => { if (lastPrediction) download('vector-prediction.csv', predictionCSV(), 'text/csv'); });
+    $('pl-sheet-go').addEventListener('click', sheetGo);
+    $('pl-sheet-fill').addEventListener('click', sheetFromDoe);
+    $('pl-sheet-example').addEventListener('click', () => { $('pl-sheet').value = exampleSheet(); $('pl-sheet-error').hidden = true; sheetGo(); });
+    $('pl-sheet-clear').addEventListener('click', () => { $('pl-sheet').value = ''; $('pl-sheet-out').innerHTML = ''; $('pl-sheet-error').hidden = true; lastSheet = null; });
+    $('pl-sheet-mode').addEventListener('change', () => { if (lastSheet) sheetGo(); });
+    $('pl-sheet-file').addEventListener('change', e => {
+      const f = e.target.files && e.target.files[0]; if (!f) return;
+      const fr = new FileReader();
+      fr.onload = () => { $('pl-sheet').value = String(fr.result); sheetGo(); };
+      fr.readAsText(f);
+    });
   }
 
   window.MLPlasmidUI = { clear, example };

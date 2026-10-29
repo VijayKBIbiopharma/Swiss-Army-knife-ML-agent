@@ -2205,3 +2205,279 @@ test('unseen levels are mapped or refused, never silently treated as the commone
   assert.ok(PL.trainTarget.length >= 3);
   assert.throws(() => PL.trainTarget(E.profile(plasmidCorpus(8, 1)), 'Titer_gL', PL_FEATS, {}), /at least 12/);
 });
+
+/* Forecasting a whole proposed run sheet. The per-row mechanics are the same conformal
+   machinery already checked above, so what needs establishing here is the part that is
+   new when the question moves from one run to many: that a per-run interval does NOT
+   cover a whole sheet, by how much it falls short, and that spending the error budget
+   across the runs fixes it. All three are measured, not asserted. */
+test('a run sheet is forecast row by row, with what was held and substituted named', () => {
+  const prof = E.profile(plasmidCorpus(200, 11));
+  const models = { Titer_gL: PL.trainTarget(prof, 'Titer_gL', PL_FEATS, { seed: 7 }) };
+  const env = PL.summarise(prof, PL_FEATS);
+  const desk = { Promoter_Type: 'CMV', Enhancer_Present: 'Yes', CAI_Score: 0.85, Plasmid_Size_kb: 7, Selection_Marker: 'GS', Expression_Mode: 'Stable', Seed_Density_10e5: 4 };
+
+  // The sheet only carries the two things being varied; everything else is held at the desk.
+  const sheet = {
+    columns: ['RunOrder', 'StdOrder', 'Promoter_Type', 'Plasmid_Size_kb'],
+    rows: [['1', '1', 'CMV', '6'], ['2', '2', 'EF1a', '6'], ['3', '3', 'CMV', '19'], ['4', '4', 'CMV-intron', '8']]
+  };
+  const parsed = PL.parseRunSheet(sheet, env, desk);
+  assert.strictEqual(parsed.rows.length, 4);
+  assert.deepStrictEqual(parsed.rows.map(r => r.run), [1, 2, 3, 4]);
+  assert.deepStrictEqual(parsed.rows.map(r => r.std), [1, 2, 3, 4]);
+  // The columns the sheet does carry are mapped; the rest are named as held, not dropped.
+  assert.deepStrictEqual(parsed.factors.slice().sort(), ['Plasmid_Size_kb', 'Promoter_Type']);
+  assert.deepStrictEqual(parsed.held.slice().sort(),
+    ['CAI_Score', 'Enhancer_Present', 'Expression_Mode', 'Seed_Density_10e5', 'Selection_Marker']);
+  assert.strictEqual(parsed.missing.length, 0);
+  assert.strictEqual(parsed.rows[0].values.CAI_Score, 0.85, 'a feature the sheet omits must come from the desk');
+  assert.strictEqual(parsed.rows[2].values.Plasmid_Size_kb, 19, 'and one it carries must come from the sheet');
+
+  // A column that is not a feature is reported rather than silently absorbed.
+  const noisy = PL.parseRunSheet({ columns: ['RunOrder', 'Plasmid_Size_kb', 'Operator_Initials'], rows: [['1', '6', 'VK']] }, env, desk);
+  assert.deepStrictEqual(noisy.ignored, ['Operator_Initials']);
+  // Loose matching, so a shortened header still finds its feature.
+  assert.strictEqual(PL.parseRunSheet({ columns: ['CAI'], rows: [['0.7']] }, env, desk).rows[0].values.CAI_Score, 0.7);
+
+  const fc = PL.forecastSheet(models, env, parsed.rows, { confidence: 0.9 });
+  assert.ok(fc.ok);
+  assert.strictEqual(fc.rows.length, 4);
+  assert.strictEqual(fc.tally.n, 4);
+  assert.strictEqual(fc.tally.refused, 0);
+  // Every row gets its own prediction, its own interval and its own standing.
+  for (const r of fc.rows) {
+    assert.ok(r.ok, 'run ' + r.run + ' should have been forecast');
+    const x = r.results.Titer_gL;
+    assert.ok(isFinite(x.value) && x.low < x.value && x.value < x.high, JSON.stringify(x));
+    assert.ok(['inside', 'edge', 'outside'].indexOf(r.trust) >= 0);
+  }
+  // The row that leaves the envelope is the row that is flagged, and its band is wider.
+  const big = fc.rows.find(r => r.run === 3), small = fc.rows.find(r => r.run === 1);
+  assert.ok(big.outside.some(o => o.field === 'Plasmid_Size_kb'), 'run 3 is outside the corpus on size');
+  assert.strictEqual(small.outside.length, 0);
+  assert.ok(big.results.Titer_gL.halfWidth > small.results.Titer_gL.halfWidth,
+    'the extrapolating row must carry the wider band: ' + big.results.Titer_gL.halfWidth + ' vs ' + small.results.Titer_gL.halfWidth);
+  assert.ok(fc.tally.inside + fc.tally.edge + fc.tally.outside === 4);
+  /* Standing and beyond-range are counted separately because they are different claims,
+     and a sheet where they disagree is the normal case rather than a curiosity. Run 3 is
+     past the end of the size column; the counts must reflect that independently. */
+  assert.strictEqual(fc.tally.beyondEnvelope, 1, 'exactly one row sets an input past the corpus range');
+  assert.ok(fc.tally.beyondEnvelope !== fc.tally.outside,
+    'this sheet is the case where the two measures disagree, which is what makes keeping them apart worth doing');
+  assert.strictEqual(fc.rows.filter(r => r.ok && r.outside.length).length, fc.tally.beyondEnvelope);
+  // The unseen promoter is mapped and the mapping is attached to that row, not the sheet.
+  const mapped = fc.rows.find(r => r.run === 4);
+  assert.strictEqual(mapped.substitutions.length, 1);
+  assert.strictEqual(mapped.substitutions[0].used, 'CMV');
+
+  // A sheet that cannot fill a categorical refuses that row rather than defaulting it,
+  // which is the whole point of the module and must survive the batch path.
+  const bare = PL.parseRunSheet({ columns: ['RunOrder', 'Plasmid_Size_kb'], rows: [['1', '6']] }, env, {});
+  assert.ok(bare.missing.indexOf('Promoter_Type') >= 0);
+  const refused = PL.forecastSheet(models, env, bare.rows, { confidence: 0.9 });
+  assert.strictEqual(refused.tally.refused, 1);
+  assert.strictEqual(refused.rows[0].ok, false);
+  assert.ok(refused.rows[0].blocking.some(b => b.field === 'Promoter_Type'));
+
+  // An empty sheet is an error, not an empty forecast that looks like a clean one.
+  assert.strictEqual(PL.forecastSheet(models, env, [], {}).ok, false);
+
+  // A design from the screen button becomes forecastable rows with the desk held around it.
+  const far = PL.predict(models, env, Object.assign({}, desk, { Plasmid_Size_kb: 19, CAI_Score: 0.35 }), {});
+  const design = PL.suggestDOE(env, Object.assign({}, desk, { Plasmid_Size_kb: 19, CAI_Score: 0.35 }), far.outside, { seed: 3 });
+  const rows = PL.sheetFromDesign(design, desk);
+  assert.strictEqual(rows.length, 4);
+  assert.strictEqual(rows[0].values.Promoter_Type, 'CMV', 'the desk settings must be carried into every run');
+  design.factors.forEach((f, j) => {
+    rows.forEach((r, i) => assert.strictEqual(r.values[f.name], design.runs[i].values[j], 'design factor must reach the row'));
+  });
+  assert.ok(PL.forecastSheet(models, env, rows, { confidence: 0.9 }).tally.refused === 0);
+});
+
+test('whether the sheet can rank its own runs is reported, not assumed', () => {
+  const prof = E.profile(plasmidCorpus(300, 23));
+  const models = { Titer_gL: PL.trainTarget(prof, 'Titer_gL', PL_FEATS, { seed: 7 }) };
+  const env = PL.summarise(prof, PL_FEATS);
+  const desk = { Promoter_Type: 'CMV', Enhancer_Present: 'Yes', CAI_Score: 0.85, Plasmid_Size_kb: 7, Selection_Marker: 'GS', Expression_Mode: 'Stable', Seed_Density_10e5: 4 };
+  const at = over => over.map((v, i) => ({ run: i + 1, values: Object.assign({}, desk, v) }));
+
+  /* A sheet that only jiggles one factor a little cannot separate its runs, and must say
+     so. TK against CMV is the largest promoter contrast the table carries, so the wide
+     sheet is the one that should come back separable. */
+  const narrow = PL.forecastSheet(models, env, at([
+    { Seed_Density_10e5: 4.0 }, { Seed_Density_10e5: 4.1 }, { Seed_Density_10e5: 4.2 }
+  ]), { confidence: 0.9 });
+  const ns = narrow.byTarget.Titer_gL;
+  assert.strictEqual(ns.separated, false, 'runs a tenth apart cannot be separable');
+  assert.strictEqual(ns.bestBeatsWorst, false);
+  assert.ok(ns.indistinguishable.length === 2, 'both other runs overlap the best');
+  assert.ok(ns.spread < ns.meanHalfWidth, 'the effect it is chasing is smaller than its own uncertainty');
+
+  // A sheet spanning the strongest and weakest promoter in the corpus should separate.
+  const wide = PL.forecastSheet(models, env, at([
+    { Promoter_Type: 'CMV', CAI_Score: 0.95 }, { Promoter_Type: 'SV40', CAI_Score: 0.62 }
+  ]), { confidence: 0.9 });
+  const ws = wide.byTarget.Titer_gL;
+  assert.ok(ws.spread > ns.spread * 5, 'the wide sheet must chase a bigger effect');
+  assert.strictEqual(ws.separated, true, 'a sheet spanning the promoter range should separate its runs');
+  assert.strictEqual(ws.bestBeatsWorst, true);
+  assert.deepStrictEqual(ws.indistinguishable, []);
+  assert.strictEqual(ws.best.run, 1, 'the strong promoter at high CAI must be the better forecast');
+  assert.ok(ws.best.value > ws.worst.value);
+  assert.ok(ws.best.low > ws.worst.high, 'separated means the bands clear each other');
+
+  // Asking for more confidence widens every band, so it can only cost separability.
+  const strict = PL.forecastSheet(models, env, at([
+    { Promoter_Type: 'CMV', CAI_Score: 0.95 }, { Promoter_Type: 'SV40', CAI_Score: 0.62 }
+  ]), { confidence: 0.95 });
+  assert.ok(strict.byTarget.Titer_gL.meanHalfWidth > ws.meanHalfWidth);
+});
+
+test('a per-run interval does not cover a whole sheet; the sheet-wide mode fixes it', () => {
+  /* The claim being checked is the one a programme actually rests on. A 90% per-run band
+     covers 90% of runs on average, which is NOT the same as all twelve runs of a sheet
+     landing inside their bands. Measured here rather than reasoned about. */
+  const SHEET = 12, SHEETS = 120, CONF = 0.9;
+  const FEATS = PL_FEATS;
+  function trial(seed, ncorpus, sheets) {
+    const SHEETS = sheets || 120;
+    // 560 is big enough that the calibration slice can resolve the Bonferroni tail; the
+    // case where it cannot is measured too, further down.
+    const prof = E.profile(plasmidCorpus(ncorpus || 560, seed));
+    const models = { Titer_gL: PL.trainTarget(prof, 'Titer_gL', FEATS, { seed: 7 }) };
+    const env = PL.summarise(prof, FEATS);
+    const pool = E.profile(plasmidCorpus(SHEET * SHEETS, seed + 5000));
+    const tcol = pool.columns.find(c => c.name === 'Titer_gL');
+    const obj = ri => { const o = {}; pool.columns.forEach(c => { o[c.name] = c.values[ri]; }); return o; };
+    let hits = 0, seen = 0, allMarginal = 0, allSimultaneous = 0, supported = true;
+    for (let s = 0; s < SHEETS; s++) {
+      const idx = E.range(SHEET).map(j => s * SHEET + j);
+      const rows = idx.map((ri, j) => ({ run: j + 1, values: obj(ri) }));
+      const truth = idx.map(ri => tcol.values[ri]);
+      for (const sim of [false, true]) {
+        // The cap is an assumption about burden, not part of the interval, so it is lifted
+        // here: capping a band would confound a coverage measurement with a policy choice.
+        const f = PL.forecastSheet(models, env, rows, { confidence: CONF, simultaneous: sim, caps: { Titer_gL: Infinity } });
+        if (sim) supported = supported && f.supported;
+        let all = true;
+        f.rows.forEach((r, j) => {
+          const x = r.results.Titer_gL;
+          const inside = truth[j] >= x.low && truth[j] <= x.high;
+          if (!inside) all = false;
+          if (!sim) { seen++; if (inside) hits++; }
+        });
+        if (all) { if (sim) allSimultaneous++; else allMarginal++; }
+      }
+    }
+    return { perRun: hits / seen, allMarginal: allMarginal / SHEETS, allSimultaneous: allSimultaneous / SHEETS, supported };
+  }
+  const trials = [11, 23, 37].map(s => trial(s, 560));
+  const avg = k => trials.reduce((s, t) => s + t[k], 0) / trials.length;
+
+  // Per run, the interval delivers what it says - the guarantee already established above.
+  assert.ok(avg('perRun') >= CONF - 0.03, 'per-run coverage fell short: ' + avg('perRun').toFixed(3));
+
+  /* The point of the whole mode. Reading a twelve-run sheet as one forecast through per-run
+     bands is far worse than the 90% on the label, and lands near what independence would
+     predict (0.9^12 = 0.282). Measured: about 0.33. */
+  assert.ok(avg('allMarginal') < 0.55,
+    'per-run bands must NOT be presentable as whole-sheet coverage; got ' + avg('allMarginal').toFixed(3));
+  assert.ok(avg('allMarginal') > 0.12, 'sanity: it should not be near zero either, got ' + avg('allMarginal').toFixed(3));
+
+  // And spending the error budget across the runs restores the claim.
+  assert.ok(trials.every(t => t.supported), 'this corpus should be able to back the Bonferroni tail');
+  assert.ok(avg('allSimultaneous') >= CONF,
+    'sheet-wide coverage fell short of ' + CONF + ': ' + avg('allSimultaneous').toFixed(3));
+  assert.ok(avg('allSimultaneous') > avg('allMarginal') + 0.3,
+    'the sheet-wide mode must actually buy something: ' + avg('allMarginal').toFixed(3) + ' -> ' + avg('allSimultaneous').toFixed(3));
+
+  // Sheet-wide bands are wider than per-run bands, which is the price being paid for it.
+  const prof = E.profile(plasmidCorpus(560, 11));
+  const models = { Titer_gL: PL.trainTarget(prof, 'Titer_gL', FEATS, { seed: 7 }) };
+  const env = PL.summarise(prof, FEATS);
+  const desk = { Promoter_Type: 'CMV', Enhancer_Present: 'Yes', CAI_Score: 0.85, Plasmid_Size_kb: 7, Selection_Marker: 'GS', Expression_Mode: 'Stable', Seed_Density_10e5: 4 };
+  const rows = E.range(SHEET).map(j => ({ run: j + 1, values: desk }));
+  const m = PL.forecastSheet(models, env, rows, { confidence: CONF });
+  const sm = PL.forecastSheet(models, env, rows, { confidence: CONF, simultaneous: true });
+  assert.strictEqual(m.rowConfidence, CONF, 'per-run mode must use the confidence as asked');
+  assert.ok(Math.abs(sm.rowConfidence - (1 - (1 - CONF) / SHEET)) < 1e-12, 'the budget must be split across the runs');
+  assert.ok(sm.byTarget.Titer_gL.meanHalfWidth > m.byTarget.Titer_gL.meanHalfWidth,
+    'holding every run at once has to cost width');
+
+  /* And where the calibration slice is too small to resolve that tail, the tool says so
+     instead of printing a band that looks identical. A 200-run corpus holds back 60, which
+     can only resolve out to 60/61 = 0.9836 - short of the 0.99167 a twelve-run sheet needs. */
+  const small = { Titer_gL: PL.trainTarget(E.profile(plasmidCorpus(200, 11)), 'Titer_gL', FEATS, { seed: 7 }) };
+  const senv = PL.summarise(E.profile(plasmidCorpus(200, 11)), FEATS);
+  const short = PL.forecastSheet(small, senv, rows, { confidence: CONF, simultaneous: true });
+  assert.strictEqual(short.supported, false, 'a 60-run calibration slice cannot back a 12-run Bonferroni tail');
+  assert.ok(short.maxConf < short.rowConfidence);
+  assert.ok(Math.abs(short.maxConf - small.Titer_gL.nCal / (small.Titer_gL.nCal + 1)) < 1e-12);
+
+  /* And the shortfall is real, not theoretical - which is what earns the warning the tool
+     prints. The figures the UI and DEMO.md quote for the unsupported case come from here. */
+  const sat = [11, 23, 37].map(s => trial(s, 200, 60));
+  const satAvg = sat.reduce((a, t) => a + t.allSimultaneous, 0) / sat.length;
+  const satWorst = sat.reduce((a, t) => Math.min(a, t.allSimultaneous), 1);
+  assert.ok(sat.every(t => !t.supported), 'a 200-run corpus must report the tail as unsupported');
+  assert.ok(satAvg < CONF, 'the unsupported case must actually fall short of ' + CONF + ': ' + satAvg.toFixed(3));
+  assert.ok(satWorst < 0.85, 'and must be seen to dip well below it: ' + satWorst.toFixed(3));
+  assert.ok(satAvg > 0.70, 'sanity - it is a floor, not a collapse: ' + satAvg.toFixed(3));
+  // Per-run mode on the same corpus is within what the slice can resolve, so it is fine.
+  assert.strictEqual(PL.forecastSheet(small, senv, rows, { confidence: CONF }).supported, true);
+});
+
+/* The comparison the conformal machinery exists to win, measured rather than asserted.
+   A fixed multiple of the residual spread is the thing a reader assumes an interval is,
+   and the whole reason this module does something else is that such a band is at its most
+   confident exactly where it is least justified. The figures quoted in README.md and
+   DEMO.md come from here, so they cannot drift away from the code. */
+test('a fixed multiple of sigma collapses outside the data where the conformal band holds', () => {
+  const prof = E.profile(plasmidCorpus(240, 11));
+  const m = PL.trainTarget(prof, 'Titer_gL', PL_FEATS, { seed: 7 });
+  // The residual spread on the corpus the model was fitted on, which is what a fixed band uses.
+  const tcol = prof.columns.find(c => c.name === 'Titer_gL');
+  let se = 0, cnt = 0;
+  for (let i = 0; i < prof.nRows; i++) {
+    const o = {}; prof.columns.forEach(c => { o[c.name] = c.values[i]; });
+    const d = tcol.values[i] - m.predictRaw(m.enc.encodeValues(o));
+    se += d * d; cnt++;
+  }
+  const sigma = Math.sqrt(se / Math.max(1, cnt - 1));
+  const cover = (table, mode) => {
+    const tp = E.profile(table), col = tp.columns.find(c => c.name === 'Titer_gL');
+    let ins = 0, w = 0, n = 0;
+    for (let i = 0; i < tp.nRows; i++) {
+      const o = {}; tp.columns.forEach(c => { o[c.name] = c.values[i]; });
+      const x = m.enc.encodeValues(o);
+      // 1.959964 sigma is the two-sided 95% band a normal assumption would give.
+      const half = mode === 'fixed' ? 1.959964 * sigma : m.q(0.95) * (m.beta + m.distance(x));
+      if (Math.abs(col.values[i] - m.predictRaw(x)) <= half) ins++;
+      w += 2 * half; n++;
+    }
+    return { cov: ins / n, width: w / n };
+  };
+  const insideTbl = plasmidCorpus(400, 77, { caiLo: 0.7, caiHi: 0.9, kbLo: 5, kbHi: 9 });
+  const outsideTbl = plasmidCorpus(400, 78, { caiLo: 0.3, caiHi: 0.55, kbLo: 14, kbHi: 20 });
+  const fi = cover(insideTbl, 'fixed'), fo = cover(outsideTbl, 'fixed');
+  const ci = cover(insideTbl, 'conf'), co = cover(outsideTbl, 'conf');
+
+  // Inside the data both are fine; that is not where the difference lives.
+  assert.ok(fi.cov >= 0.95, 'the fixed band should be fine inside the data: ' + fi.cov.toFixed(3));
+  assert.ok(ci.cov >= 0.95, 'and so should the conformal band: ' + ci.cov.toFixed(3));
+
+  /* Outside it the fixed band falls apart, because it cannot widen - its width does not
+     depend on where the question is asked. README.md quotes 99.0% inside against 60.3%
+     outside; these bounds are what pin that claim. */
+  assert.ok(fo.cov < 0.70, 'the fixed band must be shown to collapse outside the data: ' + fo.cov.toFixed(3));
+  assert.ok(Math.abs(fo.width - fi.width) < 1e-9, 'a fixed band cannot widen, which is the point');
+  assert.ok(fi.cov - fo.cov > 0.30, 'the coverage it loses on leaving the data: ' + (fi.cov - fo.cov).toFixed(3));
+
+  // The conformal band keeps most of its coverage out there, and widens to do it.
+  assert.ok(co.cov >= 0.85, 'the conformal band must hold up outside the data: ' + co.cov.toFixed(3));
+  assert.ok(co.cov > fo.cov + 0.20, 'and must beat the fixed band where it matters: ' +
+    fo.cov.toFixed(3) + ' vs ' + co.cov.toFixed(3));
+  const widening = co.width / ci.width;
+  assert.ok(widening > 1.4 && widening < 2.0, 'README quotes a 1.66x widening; measured ' + widening.toFixed(3));
+});

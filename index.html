@@ -813,6 +813,43 @@
       <div id="pl-doe-out"></div>
     </div>
   </section>
+
+  <section class="wrap step" id="pl-sheet-wrap" hidden>
+    <div class="step-head"><h2>Forecast a proposed run sheet</h2></div>
+    <div class="card">
+      <p class="summary">The desk above answers one setting. A screening programme is a sheet of them. Paste the runs you are about to book &mdash; or take the ones designed above &mdash; and every row is predicted with its own interval and its own standing against the historical runs.</p>
+      <div class="row-actions">
+        <button class="btn ghost small" id="pl-sheet-fill" type="button">Use the runs designed above</button>
+        <button class="btn ghost small" id="pl-sheet-example" type="button">Load an example sheet</button>
+        <button class="btn ghost small" id="pl-sheet-clear" type="button">Clear</button>
+      </div>
+      <details class="shape">
+        <summary>What the run sheet should look like</summary>
+        <div class="shape-body">
+          <div class="table-scroll"><table class="shape-table"><thead><tr><th>RunOrder</th><th>Promoter_Type</th><th>CAI_Score</th><th>Plasmid_Size_kb</th></tr></thead>
+            <tbody><tr><td>1</td><td>CMV</td><td>0.88</td><td>6.4</td></tr>
+            <tr><td>2</td><td>EF1a</td><td>0.72</td><td>11.0</td></tr>
+            <tr class="dim"><td colspan="4">&hellip; one row per run you intend to execute</td></tr></tbody></table></div>
+          <p class="hint">Only the columns you are varying are needed. <code>RunOrder</code> and <code>StdOrder</code> are recognised and carried through. Any feature the sheet does not carry is held at the desk setting, and the tool lists which ones those were &mdash; a sheet that silently omits the factor you care about otherwise looks identical to one that has it.</p>
+        </div>
+      </details>
+      <label class="full" for="pl-sheet">Proposed runs (CSV or tab separated, with a header row)</label>
+      <textarea id="pl-sheet" rows="6" spellcheck="false" placeholder="RunOrder,Promoter_Type,CAI_Score,Plasmid_Size_kb"></textarea>
+      <input type="file" id="pl-sheet-file" accept=".csv,.tsv,.txt" class="file-input">
+      <div class="controls">
+        <label>What the intervals should claim
+          <select id="pl-sheet-mode">
+            <option value="marginal" selected>Each run on its own</option>
+            <option value="simultaneous">Every run at once (across the whole sheet)</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint">A 90% interval covers 90% of runs <i>on average</i>. That is not the same as every row of a twelve-run sheet landing inside its band &mdash; even if the runs were independent that would be 0.9<sup>12</sup>, about 28%. Measured on this tool: per-run coverage 0.908 against the 0.900 claimed, but only <b>0.344</b> of twelve-run sheets had every row inside. Switching to <i>every run at once</i> spends the error budget across the sheet and brought that to <b>0.978</b>. Pick the second if you are going to read the whole sheet as one forecast.</p>
+      <div class="row-actions"><button class="btn primary" id="pl-sheet-go" type="button">Forecast every run</button></div>
+      <p class="error" id="pl-sheet-error" role="alert" hidden></p>
+      <div id="pl-sheet-out"></div>
+    </div>
+  </section>
   </div>
 
   <div class="tabpanel" id="tab-sequence" role="tabpanel" aria-labelledby="tab-btn-sequence" hidden>

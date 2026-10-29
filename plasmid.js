@@ -158,6 +158,10 @@
     return {
       target: targetName, model: best.model.id, modelName: best.model.name, r2: best.r2,
       n, nCal, enc: full.enc, fitted: full.fitted,
+      /* The tightest tail nCal+1 order statistics can resolve. Past this the conformal
+         quantile saturates at the widest calibration score, so a caller asking for more
+         gets a floor rather than a guarantee - and is told which it got. */
+      maxConf: nCal / (nCal + 1),
       distance: x => distance(x) / typicalDist,
       q: qAt, beta,
       observed: { min: ys[0], max: ys[ys.length - 1], median: E.quantile(ys, 0.5) },
@@ -292,6 +296,179 @@
     };
   }
 
-  root.MLPlasmid = { PROMOTERS, MARKERS, nearestLevel, trainTarget, summarise, predict, suggestDOE };
+  /* ---- Forecasting a whole proposed run sheet ----
+
+     The desk answers one question: what would THIS construct give. A screening programme
+     asks a different one - of the runs I am about to book, which are worth booking, and
+     will the sheet even tell them apart. Three things change when the question moves from
+     one row to many, and each is a way to be wrong that a per-row number hides.
+
+     First, the envelope flag has to stay per row. A sheet built to probe a new region will
+     have some rows inside the corpus and some outside it; reporting one standing for the
+     whole sheet turns a mixed sheet into a uniformly confident one.
+
+     Second, the conformal guarantee is MARGINAL. A 90% interval covers 90% of rows on
+     average. It does not mean every row of a sixteen-run sheet lands inside its band with
+     90% probability - even if the rows were independent that would be 0.9^16, about 19%.
+     So the sheet offers a simultaneous mode: spend the error budget across the rows
+     (Bonferroni) so the claim being made is the one a programme actually needs. Both the
+     shortfall and the fix are measured in the tests rather than asserted here.
+
+     Third, a calibration slice can only support so narrow a tail. The widest band split
+     conformal can honestly quote is the largest calibration score, which caps the
+     achievable confidence at nCal/(nCal+1). Past that the band is a floor, not a
+     guarantee, and it says so instead of printing a number that looks the same.
+
+     Fourth, the errors across one sheet are not independent anyway - every row comes off
+     the same fitted model - so a simultaneous band is conservative and a per-row band is
+     optimistic about the sheet as a whole. The tool reports which one it is showing. */
+
+  /* A design from suggestDOE, turned into rows the forecaster can take. Everything the
+     design does not set is held at the desk settings, which is what the run sheet means. */
+  function sheetFromDesign(design, values) {
+    if (!design || !design.runs) return [];
+    return design.runs.map(r => {
+      const v = {};
+      for (const k of Object.keys(values || {})) v[k] = values[k];
+      design.factors.forEach((f, j) => { v[f.name] = r.values[j]; });
+      return { run: r.run, std: r.std, values: v };
+    });
+  }
+
+  /* A pasted sheet, mapped onto the features the model was fitted on. Columns are matched
+     by name, loosely enough that "CAI" finds "CAI_Score"; anything unrecognised is listed
+     rather than dropped in silence, and any feature the sheet does not carry is named as
+     having been held at the desk setting. A column nobody can place is not quietly
+     ignored, because a run sheet missing the factor you care about looks identical to one
+     that has it until the predictions come back flat. */
+  function parseRunSheet(table, env, defaults) {
+    const numericNames = Object.keys(env.numeric), catNames = Object.keys(env.categorical);
+    const featureNames = numericNames.concat(catNames);
+    const cols = (table && table.columns) || [];
+    const map = {}, ignored = [];
+    let runIdx = -1, stdIdx = -1;
+    cols.forEach((c, i) => {
+      const k = key(c);
+      if (/^run(order|no|number|id)?$/.test(k)) { runIdx = i; return; }
+      if (/^std(order|no|number)?$/.test(k)) { stdIdx = i; return; }
+      const exact = featureNames.find(f => key(f) === k);
+      if (exact) { map[i] = exact; return; }
+      const loose = k.length >= 3 ? featureNames.filter(f => key(f).indexOf(k) >= 0 || k.indexOf(key(f)) >= 0)
+        .sort((a, b) => key(b).length - key(a).length)[0] : null;
+      if (loose) { map[i] = loose; return; }
+      ignored.push(c);
+    });
+    const idxs = Object.keys(map);
+    const carried = idxs.map(i => map[i]);
+    const held = featureNames.filter(f => carried.indexOf(f) < 0 && defaults && defaults[f] !== undefined && String(defaults[f]).trim() !== '');
+    const missing = featureNames.filter(f => carried.indexOf(f) < 0 && held.indexOf(f) < 0);
+    const rows = (table.rows || []).map((r, ri) => {
+      const v = {};
+      for (const f of featureNames) if (defaults && defaults[f] !== undefined) v[f] = defaults[f];
+      for (const i of idxs) {
+        const f = map[i], raw = r[i];
+        if (raw === null || raw === undefined || String(raw).trim() === '') continue;
+        v[f] = numericNames.indexOf(f) >= 0 ? Number(raw) : norm(raw);
+      }
+      return {
+        run: runIdx >= 0 && isFinite(Number(r[runIdx])) ? Number(r[runIdx]) : ri + 1,
+        std: stdIdx >= 0 && isFinite(Number(r[stdIdx])) ? Number(r[stdIdx]) : null,
+        values: v
+      };
+    });
+    return {
+      rows,
+      mapped: idxs.map(i => ({ column: cols[i], feature: map[i] })),
+      ignored, held, missing,
+      factors: carried.slice()
+    };
+  }
+
+  /* Every row of the sheet, each with its own interval and its own standing against the
+     corpus. A row the sheet cannot fill is refused rather than completed from the desk
+     without saying so - a blank promoter column would otherwise become the reference
+     level, which is the failure this whole module is built to avoid. */
+  function forecastSheet(models, env, rows, opt) {
+    opt = opt || {};
+    const conf = opt.confidence || 0.9;
+    const n = (rows || []).length;
+    if (!n) return { ok: false, why: 'The run sheet has no rows to forecast.' };
+    const keys = Object.keys(models);
+    if (!keys.length) return { ok: false, why: 'No model has been fitted yet.' };
+
+    const simultaneous = !!opt.simultaneous;
+    const rowConf = simultaneous ? 1 - (1 - conf) / n : conf;
+    /* What the calibration slice can actually support. Asking for a tighter tail than
+       nCal+1 order statistics can resolve does not fail - it saturates at the widest
+       calibration score - so the shortfall is reported rather than hidden. */
+    let maxConf = 1, nCalMin = Infinity;
+    for (const k of keys) {
+      const m = models[k];
+      if (isFinite(m.maxConf)) maxConf = Math.min(maxConf, m.maxConf);
+      if (isFinite(m.nCal)) nCalMin = Math.min(nCalMin, m.nCal);
+    }
+    const supported = rowConf <= maxConf + 1e-12;
+
+    const featureNames = Object.keys(env.numeric).concat(Object.keys(env.categorical));
+    const out = (rows || []).map((r, i) => {
+      const values = r.values || {};
+      const blanks = featureNames.filter(f => {
+        const v = values[f];
+        if (v === undefined || v === null || String(v).trim() === '') return true;
+        return !!env.numeric[f] && !isFinite(Number(v));
+      }).map(f => ({
+        field: f, value: '(blank)',
+        why: 'the run sheet does not give it and no desk setting stands in for it, so filling it would mean inventing a level'
+      }));
+      const head = { run: r.run != null ? r.run : i + 1, std: r.std == null ? null : r.std, values };
+      if (blanks.length) return Object.assign(head, { ok: false, blocking: blanks, substitutions: [], outside: [] });
+      return Object.assign(head, predict(models, env, values, { confidence: rowConf, caps: opt.caps }));
+    });
+
+    const done = out.filter(r => r.ok);
+    /* Two different things get counted, because conflating them is the easiest way to
+       mislead with this table. The standing (inside / edge / outside) is how far the row
+       sits from the corpus in the encoded space, which is what sets the band width.
+       Beyond-envelope is the separate, blunter fact that some input is past the measured
+       range of that column. A row can be comfortably near the data on the whole and still
+       be past the end of one input, and the reverse happens too. */
+    const tally = { n, refused: out.length - done.length, inside: 0, edge: 0, outside: 0, beyondEnvelope: 0 };
+    done.forEach(r => { tally[r.trust]++; if (r.outside.length) tally.beyondEnvelope++; });
+
+    const byTarget = {};
+    for (const k of keys) {
+      const vals = done.map(r => ({
+        run: r.run, value: r.results[k].value, low: r.results[k].low, high: r.results[k].high,
+        half: r.results[k].halfWidth, trust: r.trust, capped: r.results[k].capped
+      }));
+      if (!vals.length) continue;
+      const ranked = vals.slice().sort((a, b) => b.value - a.value);
+      const best = ranked[0], worst = ranked[ranked.length - 1];
+      /* Whether the sheet can rank its own rows. Two runs are separated at this confidence
+         only if their bands do not overlap; if the best row's band overlaps everything,
+         running the sheet will not order the candidates however carefully it is executed.
+         Better to know that before it is booked than after. */
+      const overlapping = ranked.slice(1).filter(x => x.high >= best.low);
+      byTarget[k] = {
+        target: models[k].target, model: models[k].modelName, r2: models[k].r2,
+        best, worst, spread: best.value - worst.value,
+        meanHalfWidth: vals.reduce((s, x) => s + x.half, 0) / vals.length,
+        maxHalfWidth: vals.reduce((s, x) => Math.max(s, x.half), 0),
+        indistinguishable: overlapping.map(x => x.run),
+        separated: overlapping.length === 0,
+        bestBeatsWorst: ranked.length > 1 && best.low > worst.high,
+        capped: vals.filter(x => x.capped).length,
+        observed: models[k].observed
+      };
+    }
+    return {
+      ok: true, confidence: conf, rowConfidence: rowConf, simultaneous,
+      supported, maxConf, nCal: isFinite(nCalMin) ? nCalMin : null,
+      rows: out, tally, byTarget
+    };
+  }
+
+  root.MLPlasmid = { PROMOTERS, MARKERS, nearestLevel, trainTarget, summarise, predict, suggestDOE,
+    sheetFromDesign, parseRunSheet, forecastSheet };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLPlasmid;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
