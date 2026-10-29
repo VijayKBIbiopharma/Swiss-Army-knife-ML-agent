@@ -3335,3 +3335,53 @@ test('the hand-entry form is offered the attributes and levels the history reall
   assert.strictEqual(t.perProgram[0].standing, 'untested');
   assert.deepStrictEqual(t.perProgram[0].unseen.map(u => u.field).sort(), ['Protein_Class', 'Protein_kDa']);
 });
+
+test('the tool page carries the tool and nothing else', () => {
+  /* The page drifted once and would drift again. Every time something useful was added -
+     the plain-English front door, the department workbenches, the applications panel, nine
+     practice datasets - it went in above the tool, and the thing people came for ended up
+     below three screens of material they had already read. This asserts the split so the
+     next addition has to choose a side on purpose. */
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+
+  const page = id => {
+    const start = html.indexOf('<div class="page" id="' + id + '"');
+    assert.ok(start >= 0, 'no page called ' + id);
+    // Pages are siblings in <main>, so the next page marker (or </main>) ends this one.
+    const nextPage = html.indexOf('<div class="page" id="', start + 10);
+    const end = nextPage >= 0 ? nextPage : html.indexOf('</main>', start);
+    return html.slice(start, end);
+  };
+  const tools = page('page-tools'), apps = page('page-apps');
+
+  // Everything that helps you choose a tool belongs on the other page.
+  for (const id of ['ask', 'tool-depts', 'tool-apps', 'samples']) {
+    assert.ok(apps.indexOf('id="' + id + '"') >= 0, id + ' must be on the "where to start" page');
+    assert.ok(tools.indexOf('id="' + id + '"') < 0, id + ' must NOT be on the tool page');
+  }
+  // And the tool page keeps the selector and every tool panel.
+  assert.ok(tools.indexOf('<select id="tool">') >= 0, 'the technique selector stays with the tools');
+  const sel = html.slice(html.indexOf('<select id="tool">'), html.indexOf('</select>', html.indexOf('<select id="tool">')));
+  const toolIds = Array.from(sel.matchAll(/<option value="([a-z]+)"/g)).map(m => m[1]);
+  assert.ok(toolIds.length >= 8);
+  for (const t of toolIds) {
+    assert.ok(tools.indexOf('id="tab-' + t + '"') >= 0, 'tool panel tab-' + t + ' must be on the tool page');
+  }
+  // Nothing may be left outside both pages, or it renders on neither.
+  const main = html.slice(html.indexOf('<main id="main">'), html.indexOf('</main>'));
+  const strays = main.replace(tools, '').replace(apps, '');
+  assert.ok(!/<section class="wrap step"/.test(strays), 'a step section is outside both pages');
+  assert.ok(!/<div class="tabpanel"/.test(strays), 'a tool panel is outside both pages');
+
+  // The page switch itself, and the controls the script wires to it.
+  for (const id of ['page-btn-tools', 'page-btn-apps']) {
+    assert.ok(html.indexOf('id="' + id + '"') >= 0, 'missing page tab ' + id);
+  }
+  const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  /* Asking for a tool has to land you on the tool page regardless of where the request came
+     from - the advisor routes by hash, the department buttons call showTool directly, the
+     privacy lock is a data-tab-link. One line in showTool covers all of them, and this is
+     the assertion that it is still there. */
+  const showTool = app.slice(app.indexOf('function showTool('), app.indexOf('function initTools('));
+  assert.ok(/showPage\('tools'/.test(showTool), 'showTool must switch to the tool page');
+});

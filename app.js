@@ -17,12 +17,11 @@
   // ---------- Loading ----------
   function showError(id, msg) { const el = $(id); el.textContent = msg; el.hidden = !msg; }
 
-  /* Panels that are only worth reading when there is a reason to: the practice datasets
-     while nothing is loaded, the DOE builder once the agent has something to suggest. */
+  /* Panels that are only worth reading when there is a reason to: the DOE builder once the
+     agent has something to suggest. The practice datasets used to fold away here too; they
+     now live on the "Where to start" page, so the tool page has nothing to collapse. */
   function foldPanels() {
-    const loaded = !!state.table;
-    $('samples-wrap').open = !loaded;
-    if (!loaded) $('doe-wrap').open = false;
+    if (!state.table) $('doe-wrap').open = false;
   }
 
   function loadText(text, name, sampleTarget) {
@@ -1580,7 +1579,9 @@
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }));
   }
-  let deptOpen = false;
+  /* Open by default now that it has a page of its own. On a page called "where to start",
+     the panel that routes you to a tool is the point; the reference panel below it is not. */
+  let deptOpen = true;
   /* Loads a practice dataset by id, the same way the sample buttons do, so a department
      job can land somebody on the right tool with something already in it. */
   function loadNamedSample(id) {
@@ -1646,7 +1647,8 @@
       if ($('samples')) renderSamples();
     });
   }
-  let appsOpen = typeof window === 'undefined' || window.innerWidth >= 760;
+  // Folded by default: it is reference material about the chosen technique, read once.
+  let appsOpen = false;
   /* Held for the session only. Nothing is stored, so this resets on reload like the data
      does. Modality has no "any": there are two, and every unit operation differs between
      them, so a default of mammalian is more useful than a blank. */
@@ -1668,9 +1670,29 @@
       (ops.length ? '<h4 class="ops-head">Unit operations in ' + h(fn) + '<span class="hint">' + h(labelOf(A.MODALITIES, myModality)) + ' &middot; what machine learning is used for at each step</span></h4>' +
         '<ol class="ops">' + ops.map(([op, ml]) => '<li><b>' + h(op) + '</b><span>' + h(ml) + '</span></li>').join('') + '</ol>' : '');
   }
+  /* Two pages, not one scroll. The tool page carries the technique selector and the tool,
+     and nothing else: every time something useful got added - the plain-English front door,
+     the department workbenches, the applications panel, nine practice datasets - it went
+     above the tool, and the thing people came for ended up below three screens of material
+     they had already read once. All of that now lives on its own page.
+
+     Everything that routes to a tool goes through showTool, so the advisor (which routes by
+     setting the hash), the department job buttons, the privacy lock link and the selector
+     all land on the tool page without each needing to know about pages. */
+  function showPage(name, push) {
+    const apps = name === 'apps';
+    $('page-apps').hidden = !apps;
+    $('page-tools').hidden = apps;
+    $('page-btn-apps').setAttribute('aria-selected', String(apps));
+    $('page-btn-tools').setAttribute('aria-selected', String(!apps));
+    if (push) history.replaceState(null, '', apps ? '#where-to-start' : '#' + $('tool').value);
+  }
+
   const TOOL_NAMES = Object.keys(TOOLS);
   function showTool(name, push) {
     if (!TOOL_NAMES.includes(name)) name = 'analyze';
+    // Asking for a tool means wanting to see it, wherever the request came from.
+    showPage('tools', false);
     if ($('tool').value !== name) $('tool').value = name;
     $('tool-desc').textContent = TOOLS[name];
     renderDepartments(name);
@@ -1681,9 +1703,17 @@
   }
   function initTools() {
     $('tool').addEventListener('change', () => { showTool($('tool').value, true); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+    $('page-btn-tools').addEventListener('click', () => { showPage('tools', true); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+    $('page-btn-apps').addEventListener('click', () => { showPage('apps', true); window.scrollTo({ top: 0, behavior: 'smooth' }); });
     document.querySelectorAll('[data-tab-link]').forEach(a => a.addEventListener('click', () => showTool(a.getAttribute('data-tab-link'), true)));
-    window.addEventListener('hashchange', () => showTool(location.hash.slice(1), false));
-    showTool(location.hash.slice(1) || 'analyze', false);
+    window.addEventListener('hashchange', () => {
+      const hash = location.hash.slice(1);
+      if (hash === 'where-to-start') showPage('apps', false);
+      else showTool(hash, false);
+    });
+    // A link straight to "where to start" has to work, or the page cannot be shared.
+    if (location.hash.slice(1) === 'where-to-start') { showTool('analyze', false); showPage('apps', false); }
+    else showTool(location.hash.slice(1) || 'analyze', false);
   }
 
   function init() {
@@ -1693,6 +1723,11 @@
     $('samples').addEventListener('click', e => {
       const b = e.target.closest('[data-sample]'); if (!b) return;
       const s = window.MLSamples.find(x => x.id === b.getAttribute('data-sample'));
+      /* The datasets sit on the "where to start" page and the tool is on the other one, so
+         loading one has to carry you across. Leaving somebody on a page whose button just
+         did something invisible elsewhere is the worst of both layouts. */
+      showTool('analyze', true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       if (s.files) { loadText(s.files[0].make(), s.files[0].name, s.target); stageSecond(s.files[1].make(), s.files[1].name); return; }
       loadText(s.make(), s.title + ' (practice data)', s.target);
     });

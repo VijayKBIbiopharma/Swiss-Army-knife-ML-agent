@@ -41,6 +41,18 @@ h3 { font-size: 1.05rem; margin-bottom: .5rem; }
 
 .top { background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
 .top-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; flex-wrap: wrap; }
+/* Two pages: the tool, and everything that helps you choose one. The tool page used to
+   carry the front door, the department benches, the applications panel and nine datasets
+   above the thing people came for, which pushed it below three screens of material they
+   had already read once. These tabs are the fix. */
+.pages { display: flex; gap: 2px; margin: 0 0 -1px; padding: 0 20px; }
+.page-tab { font: 600 .9rem/1 inherit; color: var(--muted); background: none; border: 1px solid transparent; border-bottom: none;
+  border-radius: 8px 8px 0 0; padding: 10px 16px; cursor: pointer; }
+.page-tab:hover { color: var(--ink); }
+.page-tab[aria-selected="true"] { color: var(--ink); background: var(--bg); border-color: var(--line); }
+.page-intro { padding-top: 22px; }
+.page-intro h2 { margin: 0 0 6px; font-size: 1.35rem; }
+.page-intro .lede { margin: 0; max-width: 72ch; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.1rem; color: var(--ink); text-decoration: none; letter-spacing: .02em; }
 .logo { width: 22px; height: 22px; border-radius: 5px; background: var(--steel); position: relative; }
 .logo::after { content: ""; position: absolute; left: 4px; bottom: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
@@ -116,17 +128,27 @@ h3 { font-size: 1.05rem; margin-bottom: .5rem; }
 @media (max-width: 560px) { .plan-list li { grid-template-columns: 1fr; } .verb { justify-self: start; padding: 0 8px; } }
 .lock svg, .lock-num svg { width: 14px; height: 14px; fill: currentColor; }
 
-.hero { padding: 40px 0 8px; }
-.eyebrow { font: 600 .78rem/1.4 var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; }
-.hero h1 { font-size: clamp(1.5rem, 3.6vw, 2.3rem); max-width: 26em; letter-spacing: -.01em; }
-.lede { max-width: 46em; color: var(--muted); font-size: 1.05rem; }
+/* The hero is the tool's title, not a landing page. It used to put a 2.3rem headline and a
+   full lede above step 1, so on a 900px screen the thing people came for started below the
+   fold - with a one-line description of the same tool already sitting in the strip above it.
+   Compacted rather than deleted: the words are good, they were just set at poster size. */
+.hero { padding: 22px 0 2px; }
+.eyebrow { font: 600 .7rem/1.4 var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 6px; }
+.hero h1 { font-size: clamp(1.25rem, 2.1vw, 1.6rem); max-width: 34em; letter-spacing: -.01em; margin: 0 0 8px; line-height: 1.25; }
+.hero .lede { font-size: .92rem; margin: 0; }
+.lede { max-width: 54em; color: var(--muted); font-size: 1.05rem; }
 
-.step { padding: 28px 16px 8px; }
+.step { padding: 22px 16px 8px; }
 .step-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .step-head h2 { font-size: 1.35rem; }
 .num { width: 30px; height: 30px; flex: none; border-radius: 50%; background: var(--steel); color: var(--surface); display: grid; place-items: center; font-weight: 700; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; box-shadow: var(--shadow); margin-bottom: 16px; min-width: 0; }
-.load-grid, .privacy-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; align-items: start; }
+.privacy-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; align-items: start; }
+/* One column: the practice datasets used to sit in the right-hand cell and now live on the
+   "where to start" page, which left a two-column grid holding one card and half the row
+   empty. Capped rather than stretched, because a drop zone spanning 1180px reads as a
+   mistake. */
+.load-grid { display: grid; grid-template-columns: minmax(0, 760px); gap: 16px; align-items: start; }
 .load-grid .card, .privacy-grid .card { margin-bottom: 0; }
 @media (max-width: 760px) { .load-grid, .privacy-grid { grid-template-columns: 1fr; } }
 
@@ -153,7 +175,10 @@ textarea:focus, input:focus, select:focus, .btn:focus-visible { outline: 2px sol
 .samples { display: grid; gap: 14px; }
 /* Practice datasets grouped by function, so somebody sees the ones their own group would
    recognise rather than a tour of unrelated industries. */
-.sample-group { display: grid; gap: 8px; }
+/* Two or three across on a wide screen. One per row stretched a short dataset title over
+   a thousand pixels of empty card, which reads as unfinished rather than spacious. */
+.sample-group { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); align-items: stretch; }
+.sample-group > h4 { grid-column: 1 / -1; }
 .sample-group > h4 { margin: 0; font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 .sample-group.mine > h4 { color: var(--ink); }
 .sample-group.mine .sample { border-color: var(--steel-soft); }
@@ -512,11 +537,24 @@ table.mini { font-size: .82rem; } table.mini td, table.mini th { padding: 3px 8p
 
 /* Tool selector */
 .toolbar { border-bottom: 1px solid var(--line); background: var(--surface); position: sticky; top: 0; z-index: 30; }
-.toolbar-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 20px; }
-.toolbar-row label { font-size: .85rem; font-weight: 600; color: var(--muted); }
-.toolbar-row select { width: auto; min-width: 260px; max-width: 100%; font-size: .95rem; font-weight: 600; padding: 7px 10px; }
-.tool-desc { flex: 1 1 100%; margin: 0; font-size: .85rem; color: var(--muted); }
-@media (min-width: 900px) { .tool-desc { flex: 1 1 auto; } }
+.toolbar-row { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 12px; padding: 14px 20px; }
+.toolbar-row label { grid-column: 1; font-size: .72rem; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+/* The select is given room on a wide screen and the full width on a narrow one. A fixed
+   300px minimum sat beside the label and pushed the strip 17px past a 390px viewport, which
+   is the one thing the layout is not allowed to do. */
+.toolbar-row select { grid-column: 2; justify-self: start; width: 100%; max-width: 100%; font-size: 1.02rem; font-weight: 600; padding: 8px 12px; }
+@media (min-width: 620px) { .toolbar-row select { width: auto; min-width: 320px; } }
+@media (max-width: 619px) {
+  .toolbar-row { grid-template-columns: 1fr; }
+  .toolbar-row label, .toolbar-row select { grid-column: 1; }
+}
+/* The description sits under the selector rather than beside it: on one line it competed
+   with the technique name for the same glance and neither won. */
+/* Kept for screen readers - it is the aria-live announcement when the technique changes -
+   but not drawn: every tool page opens with a heading and a lede that say the same thing at
+   more length, and two descriptions of one tool stacked on top of each other is the kind of
+   duplication that makes a page feel padded. */
+.tool-desc { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 details.advanced { margin: 12px 0 4px; }
 details.advanced > summary { cursor: pointer; font-size: .88rem; font-weight: 600; color: var(--steel); padding: 6px 0; }
 @media print { .toolbar { display: none; } }

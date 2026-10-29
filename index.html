@@ -26,30 +26,20 @@
     </nav>
     <a class="lock" href="#privacy" data-tab-link="privacy"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 7V5a4 4 0 1 1 8 0v2h1v8H3V7h1zm2 0h4V5a2 2 0 1 0-4 0v2z"/></svg>Private: data never leaves this browser</a>
   </div>
+  <div class="wrap">
+    <nav class="pages" role="tablist" aria-label="Sections">
+      <button class="page-tab" id="page-btn-tools" type="button" role="tab" aria-selected="true" aria-controls="page-tools">Tools</button>
+      <button class="page-tab" id="page-btn-apps" type="button" role="tab" aria-selected="false" aria-controls="page-apps">Where to start</button>
+    </nav>
+  </div>
 </header>
 
 <main id="main">
-  <section class="wrap ask" id="ask">
-    <div class="card ask-card">
-      <label class="ask-label" for="ask-text">Describe what you are trying to find out, in your own words</label>
-      <div class="ask-row">
-        <input type="text" id="ask-text" autocomplete="off" spellcheck="false"
-          placeholder="e.g. my purity results jump around between lots and I cant tell if its the assay">
-        <button class="btn primary" id="ask-go" type="button">Point me at the right tool</button>
-      </div>
-      <p class="hint ask-note">What you type stays on this page: it is matched against a word list in the source, never sent anywhere, and never stored. Clearing your data clears it too. <a class="learn-link" href="#ask-how" id="ask-how-link">How this works, and what it cannot do &#8595;</a></p>
-      <div class="ask-examples" id="ask-examples"></div>
-      <div id="ask-out" aria-live="polite"></div>
-      <details class="advanced" id="ask-how">
-        <summary>How this works, and what it cannot do</summary>
-        <div id="ask-how-body"></div>
-      </details>
-    </div>
-  </section>
 
+  <div class="page" id="page-tools">
   <div class="toolbar">
     <div class="wrap toolbar-row">
-      <label for="tool">Or choose the technique yourself</label>
+      <label for="tool">Technique</label>
       <select id="tool">
         <option value="analyze">Machine learning &amp; design of experiments</option>
         <option value="stability">Linear regression &amp; confidence limits (ICH Q1E)</option>
@@ -65,8 +55,6 @@
     </div>
   </div>
 
-  <section class="wrap" id="tool-depts"></section>
-  <section class="wrap" id="tool-apps"></section>
 
   <div class="tabpanel" id="tab-analyze" role="tabpanel" aria-labelledby="tab-btn-analyze">
   <section class="hero">
@@ -95,10 +83,6 @@
         </div>
         <label class="check auto-del"><input type="checkbox" id="auto-delete" checked> Auto-delete my data after 30 minutes without activity</label>
       </div>
-      <details class="card samples-card" id="samples-wrap" open>
-        <summary><b>Or try a practice dataset</b><span class="hint">Synthetic data, generated in your browser.</span></summary>
-        <div class="samples" id="samples"></div>
-      </details>
     </div>
     <p class="error" id="load-error" role="alert" hidden></p>
     <p class="deleted" id="deleted-note" role="status" hidden></p>
@@ -1096,6 +1080,45 @@
     </div>
   </section>
   </div>
+  </div><!-- /page-tools -->
+
+  <div class="page" id="page-apps" hidden>
+    <section class="wrap page-intro">
+      <h2>Where to start</h2>
+      <p class="lede">Describe the problem in your own words, or start from your department. Then pick a practice dataset to try it on. The tool itself is on the <b>Tools</b> tab, deliberately kept clear of all this.</p>
+    </section>
+
+  <section class="wrap ask" id="ask">
+    <div class="card ask-card">
+      <label class="ask-label" for="ask-text">Describe what you are trying to find out, in your own words</label>
+      <div class="ask-row">
+        <input type="text" id="ask-text" autocomplete="off" spellcheck="false"
+          placeholder="e.g. my purity results jump around between lots and I cant tell if its the assay">
+        <button class="btn primary" id="ask-go" type="button">Point me at the right tool</button>
+      </div>
+      <p class="hint ask-note">What you type stays on this page: it is matched against a word list in the source, never sent anywhere, and never stored. Clearing your data clears it too. <a class="learn-link" href="#ask-how" id="ask-how-link">How this works, and what it cannot do &#8595;</a></p>
+      <div class="ask-examples" id="ask-examples"></div>
+      <div id="ask-out" aria-live="polite"></div>
+      <details class="advanced" id="ask-how">
+        <summary>How this works, and what it cannot do</summary>
+        <div id="ask-how-body"></div>
+      </details>
+    </div>
+  </section>
+
+
+  <section class="wrap" id="tool-depts"></section>
+  <section class="wrap" id="tool-apps"></section>
+
+    <section class="wrap step" id="apps-data">
+      <div class="step-head"><h2>Practice datasets</h2></div>
+      <div class="card">
+        <p class="summary">Synthetic biologics data, generated in your browser from fixed seeds &mdash; no company or batch data. Each one has a real structure built into it, so there is something to find. Clicking one loads it and takes you to the tool.</p>
+        <div class="samples" id="samples"></div>
+      </div>
+    </section>
+  </div><!-- /page-apps -->
+
 </main>
 
 <footer class="foot">
