@@ -150,6 +150,28 @@ h3 { font-size: 1.05rem; margin-bottom: .5rem; }
    mistake. */
 .load-grid { display: grid; grid-template-columns: minmax(0, 760px); gap: 16px; align-items: start; }
 .load-grid .card, .privacy-grid .card { margin-bottom: 0; }
+
+/* The data as it actually arrived. A column profile answers "what did it make of my
+   columns"; this answers "did my file load correctly", which is the question somebody
+   actually has at the moment they press the button. A row shifted by a stray comma or a
+   header read as data is obvious here and invisible in a summary. */
+.preview { margin: 4px 0 14px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); }
+.preview-head { margin: 0; padding: 9px 14px; font-size: .86rem; color: var(--muted); background: var(--surface-2); border-bottom: 1px solid var(--line); }
+.preview-head b { color: var(--ink); }
+.preview .table-scroll { max-height: 340px; overflow: auto; }
+.preview-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+/* text-transform is reset deliberately: the table's own header style upper-cases, and a
+   column called Day3_VCD_e6 shown as DAY3_VCD_E6 is not the column the file contains. This
+   panel exists to show the data as it arrived, so it may not restyle the names. */
+.preview-table thead th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); text-align: left;
+  padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; font-weight: 600;
+  text-transform: none; letter-spacing: normal; font-size: .85rem; }
+.preview-table td { padding: 7px 12px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+.preview-table tbody tr:last-child td { border-bottom: none; }
+.preview-table .cell-empty { color: var(--muted); }
+.preview-foot { margin: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 9px 14px; font-size: .8rem;
+  color: var(--muted); background: var(--surface-2); border-top: 1px solid var(--line); }
+.preview-foot span { white-space: nowrap; }
 @media (max-width: 760px) { .load-grid, .privacy-grid { grid-template-columns: 1fr; } }
 
 .drop { display: block; border: 2px dashed var(--line); border-radius: 10px; padding: 22px 16px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }

@@ -3385,3 +3385,53 @@ test('the tool page carries the tool and nothing else', () => {
   const showTool = app.slice(app.indexOf('function showTool('), app.indexOf('function initTools('));
   assert.ok(/showPage\('tools'/.test(showTool), 'showTool must switch to the tool page');
 });
+
+test('the data is shown as a table before the model runs', () => {
+  /* A column profile answers "what did it make of my columns". It does not answer "did my
+     file load correctly", which is the question somebody actually has at the moment they
+     press the button - a row shifted by a stray comma, a header read as data, a date column
+     that arrived as numbers are all obvious in a table of rows and invisible in a summary. */
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(ROOT, 'style.css'), 'utf8');
+
+  // It sits in step 2, which runs after loading and before the run button.
+  const setup = html.slice(html.indexOf('id="setup"'), html.indexOf('id="results"'));
+  assert.ok(setup.indexOf('id="data-preview"') >= 0, 'the preview belongs in the step between loading and running');
+  assert.ok(setup.indexOf('id="data-preview"') < setup.indexOf('id="profile"'),
+    'the data itself comes before the agent\\u2019s reading of the columns');
+  assert.ok(html.indexOf('id="data-preview"') < html.indexOf('id="run"'),
+    'and before the button that runs the model');
+
+  // Rendered on every path that changes the table: load, join, and undoing a join all go
+  // through renderSetup, so one call there covers them.
+  const renderSetup = app.slice(app.indexOf('function renderSetup()'), app.indexOf('function renderProfile()'));
+  assert.ok(/renderPreview\(\)/.test(renderSetup), 'renderSetup must draw the preview');
+  assert.ok(/state\.table = r\.table/.test(app) && /renderSetup\(\)/.test(app), 'the join path refreshes through renderSetup');
+
+  /* Capped, because this renders synchronously on the load path and the tool takes files of
+     tens of thousands of rows. A 40,000-row table would freeze the tab for rows nobody
+     scrolls to. */
+  const m = app.match(/const PREVIEW_ROWS = (\d+);/);
+  assert.ok(m, 'the row cap must be a named constant, not buried in a loop');
+  const cap = Number(m[1]);
+  assert.ok(cap >= 20 && cap <= 500, 'the cap should be a readable preview, got ' + cap);
+  const render = app.slice(app.indexOf('function renderPreview()'), app.indexOf('function renderProfile()'));
+  assert.ok(/Math\.min\(PREVIEW_ROWS/.test(render), 'the cap has to actually bound the loop');
+  // A file shorter than the cap must not claim to be truncated.
+  assert.ok(/t\.rows\.length > shown/.test(render), 'a short file must not say "the first 100 rows"');
+  // The counts quoted in the footer are the whole file, not the preview.
+  assert.ok(/t\.rows\.length\.toLocaleString\(\)/.test(render), 'the footer counts every row, not the shown ones');
+
+  /* The header style must not restyle the column names. The table's own th rule upper-cases,
+     and a column called Day3_VCD_e6 shown as DAY3_VCD_E6 is not the column in the file -
+     which defeats the one job this panel has. */
+  assert.ok(/th\s*\{[^}]*text-transform:\s*uppercase/.test(css), 'the base table header does upper-case, so the reset below is load-bearing');
+  const previewTh = css.slice(css.indexOf('.preview-table thead th'), css.indexOf('}', css.indexOf('.preview-table thead th')) + 1);
+  assert.ok(/text-transform:\s*none/.test(previewTh), 'the preview must show column names exactly as the file has them');
+
+  // An empty cell is worth seeing as empty rather than as nothing at all.
+  assert.ok(/cell-empty/.test(render) && /cell-empty/.test(css), 'blank cells are marked rather than rendered as nothing');
+  // And clearing the data clears the preview with it, or deleted data stays on screen.
+  assert.ok(/data-preview'\)\.innerHTML = ''/.test(app), 'deleting the data must remove the preview');
+});

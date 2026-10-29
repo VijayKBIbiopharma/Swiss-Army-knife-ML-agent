@@ -61,6 +61,7 @@
   function renderSetup() {
     const prof = state.prof;
     $('data-summary').innerHTML = '<b>' + h(state.name) + '</b>: ' + prof.nRows.toLocaleString() + ' rows × ' + prof.nCols + ' columns. The agent has checked each column below.';
+    renderPreview();
     const usable = prof.columns.filter(E.isUsableFeature);
     const guess = state.sampleTarget || A.guessTarget(prof);
     $('target').innerHTML = usable.map(c => '<option value="' + h(c.name) + '"' + (c.name === guess ? ' selected' : '') + '>' + h(c.name) + '</option>').join('') +
@@ -84,6 +85,44 @@
       sel.innerHTML = '<option value="max">Higher ' + h(col.name) + ' is better</option><option value="min">Lower ' + h(col.name) + ' is better</option>';
       if (/defect|scrap|cost|time|delay|downtime|error|waste|reject|cycle|lead|days|hours/i.test(col.name)) sel.value = 'min';
     }
+  }
+
+  /* The data itself, before anything is done to it.
+
+     Step 2 showed a column profile - type, role, missing, distinct, range - which answers
+     "what did it make of my columns" and not "did my file load correctly". Those are
+     different questions, and the second one is the one somebody has at the moment they press
+     the button. A row shifted by a stray comma, a header read as data, a date column that
+     arrived as numbers: all obvious in a table of rows and invisible in a summary of columns.
+
+     Capped at 100 rows because this renders synchronously on the load path and a 40,000-row
+     table would freeze the tab for the sake of rows nobody scrolls to. */
+  const PREVIEW_ROWS = 100;
+  function renderPreview() {
+    const host = $('data-preview');
+    if (!host) return;
+    const t = state.table;
+    if (!t || !t.rows.length) { host.innerHTML = ''; return; }
+    const shown = Math.min(PREVIEW_ROWS, t.rows.length);
+    const cells = t.rows.length * t.columns.length;
+    const head = '<tr>' + t.columns.map(c => '<th>' + h(c) + '</th>').join('') + '</tr>';
+    let body = '';
+    for (let i = 0; i < shown; i++) {
+      const r = t.rows[i];
+      body += '<tr>' + t.columns.map((c, j) => {
+        const v = r[j];
+        // An empty cell is worth seeing as empty rather than as nothing at all.
+        return v === undefined || v === null || String(v).trim() === ''
+          ? '<td class="cell-empty">&mdash;</td>' : '<td>' + h(String(v)) + '</td>';
+      }).join('') + '</tr>';
+    }
+    host.innerHTML = '<div class="preview">' +
+      '<p class="preview-head">Previewing ' + (t.rows.length > shown ? 'the first <b>' + shown + '</b> rows of ' : 'all <b>' + shown + '</b> rows of ') +
+      '<b>' + h(state.name || 'your data') + '</b></p>' +
+      '<div class="table-scroll"><table class="preview-table"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>' +
+      '<p class="preview-foot"><span>Tabular</span><span>' + t.columns.length + ' columns &times; ' +
+      t.rows.length.toLocaleString() + ' rows</span><span>' + cells.toLocaleString() + ' cells</span>' +
+      '<span>Read in this browser. Never uploaded.</span></p></div>';
   }
 
   function renderProfile() {
@@ -1482,6 +1521,7 @@
     ['setup', 'results', 'next', 'progress'].forEach(id => { $(id).hidden = true; });
     ['result-blocks', 'insights', 'tiles', 'agent-log', 'plan', 'profile', 'preview', 'target', 'goal', 'next-steps', 'self-test-out'].forEach(id => { $(id).innerHTML = ''; });
     $('data-summary').textContent = ''; $('target-hint').textContent = '';
+    if ($('data-preview')) $('data-preview').innerHTML = '';
     showError('load-error', ''); showError('run-error', '');
     resetDOE();
     ['lsl', 'usl', 'spec-target'].forEach(id => { $(id).value = ''; });

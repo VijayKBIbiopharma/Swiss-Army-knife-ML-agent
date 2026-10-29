@@ -11,6 +11,11 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - **Tools** is the tool and nothing else. **Where to start** is the front door, the department benches, what each technique is used for, and the practice datasets. *"Everything that helps you choose lives on one tab so the tool can have the other one to itself."*
 - Anything you click on *Where to start* carries you to the tool: a suggestion from the search box, a department job, a practice dataset. You never have to find your way back.
 
+## 0d. The data preview (20 seconds, worth pausing on)
+- Load anything and the rows appear before the model runs: column names exactly as your file has them, blank cells marked, and a footer reading columns &times; rows and the cell count.
+- *"This is the question you actually have when you press load: did my file come in right? A row shifted by a stray comma, a header read as data, dates that arrived as numbers &mdash; you can see all of that here and none of it in a summary of column types."*
+- The counts match what you would see in any data tool: a 6-column, 40,500-row file reads 243,000 cells.
+
 ## 0c. The practice datasets, if somebody asks what to click (30 seconds)
 - The nine built-in sets are all biologics, and they are grouped under the function that would use them: cell line development, upstream PD, downstream PD, AFS, MSAT, GMP manufacturing, QC, QA. *"Pick your group in the panel above and your datasets float to the top and get marked as yours. Nobody has to work out which industry's example is closest to theirs."*
 - If asked whether they are real: *"Synthetic, from fixed seeds, no company or batch data. But each one has a real structure built into it, because a practice set with nothing in it teaches you the wrong thing about the tool. The scale-up set is deliberately confounded so a careless read blames the site instead of the kLa; the capture set has yield and purity pulling against each other; the fed-batch design has a temperature-by-feed interaction. They are rigged to teach, not to flatter."*

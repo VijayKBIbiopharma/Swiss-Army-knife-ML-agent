@@ -111,7 +111,6 @@
     });
     $('ask-go').addEventListener('click', run);
     $('ask-text').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
-    $('ask-how-link').addEventListener('click', e => { e.preventDefault(); $('ask-how').open = true; $('ask-how').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); });
     $('ask-how').addEventListener('toggle', e => { if (e.target.open && !$('ask-how-body').innerHTML) howItWorks(); });
   }
 
