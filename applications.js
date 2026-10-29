@@ -77,6 +77,17 @@
         { name: 'Why not mean plus three standard deviations', note: true, text: 'On a handful of batches the standard deviation is itself a rough guess, and plugging it into a formula meant for a known sigma produces limits that cover far less than they claim. On ten results the honest factor for 99% coverage is about 4.4, not 3. That gap is the whole reason specifications set on early batches get broken later, and it is arithmetic rather than bad luck.' }
       ]
     },
+    plasmid: {
+      tech: 'Regression with conformal prediction intervals and explicit extrapolation control',
+      scope: 'In this tool: a corpus of screened constructs with their genetic features and measured outcomes, plus a desk for asking about one that has not been built.',
+      groups: [
+        { name: 'Vector and construct selection', text: 'Promoter and enhancer combinations ranked before synthesis, selection marker choice against expected productivity, plasmid size traded against titer, a shortlist cut to what is worth building, constructs compared on evidence rather than on the last project that worked.' },
+        { name: 'Cell line development', text: 'Expected titer and specific productivity for a candidate construct, seed density effects on volumetric output, stable against transient expression compared on the same footing, screening effort pointed at the combinations the history cannot already answer.' },
+        { name: 'Deciding what to build next', text: 'The four runs that would settle a question the corpus cannot, high-uncertainty regions identified before money is spent, a screen designed around the inputs that are genuinely outside the data, synthesis budget spent on information rather than on confirmation.' },
+        { name: 'Knowing when not to trust the answer', text: 'Predictions flagged when the construct leaves the historical envelope, intervals that widen with distance from the data, promoters and markers never used here mapped to the nearest that were, and a question the corpus cannot support refused outright.' },
+        { name: 'Why the interval is the product', text: 'A point prediction for a construct nobody has built is worth very little on its own; what decides whether to spend on synthesis is how wrong it could be. A fixed plus-or-minus band is at its most confident exactly where it is least justified, because it assumes the errors are the same size everywhere. A conformal interval is calibrated against runs held back from training, so it keeps its stated coverage whatever shape the errors take, and widens where the evidence thins.' }
+      ]
+    },
     sequence: {
       tech: 'Genetic algorithms and multi-objective optimization (NSGA-II)',
       scope: 'In this tool: pointed at codon optimization, evolving synonymous codons while the protein stays identical.',
@@ -304,6 +315,16 @@
       mfg: 'Alert and action levels that reflect real capability, and sampling plans defended on how much of production they cover.',
       qc: 'Release limits argued from capability rather than from history, and the number of replicates a result needs to be trusted.',
       qa: 'Specification limits with the statistical argument attached for filings and inspections, and study protocols with the sample size justified in advance.'
+    },
+    plasmid: {
+      cld: 'The core use: rank candidate constructs on expected titer and specific productivity before any of them are built.',
+      uspd: 'Carry a construct choice into process conditions, with seed density and expression mode on the same footing as the genetics.',
+      dspd: 'Judge whether a construct change moves the feed stream enough to matter downstream before the train is re-developed.',
+      afs: 'Predict the attribute a method will have to measure, and size the assay effort to the spread the model expects.',
+      msat: 'Compare a proposed construct against the historical envelope before a transfer commits to it.',
+      mfg: 'Check that a new vector sits inside the range the facility has actually run before it reaches the floor.',
+      qc: 'Set expectations for incoming material from a new construct, with an interval rather than a single number.',
+      qa: 'A prediction that records what it rested on: which runs, which substitutions, and how far outside the data it was.'
     },
     sequence: {
       cld: 'Codon-optimise the construct for the host while removing restriction sites and holding GC inside the synthesis window.',

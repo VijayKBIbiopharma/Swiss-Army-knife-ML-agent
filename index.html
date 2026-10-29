@@ -57,6 +57,7 @@
         <option value="equivalence">Equivalence &amp; non-inferiority testing (TOST)</option>
         <option value="variance">Variance components, ANOVA &amp; Gage R&amp;R</option>
         <option value="limits">Tolerance intervals, power &amp; sample size</option>
+        <option value="plasmid">Plasmid &amp; vector selection sandbox</option>
         <option value="sequence">Genetic algorithms &amp; multi-objective optimization</option>
         <option value="privacy">Privacy &amp; data handling</option>
       </select>
@@ -744,6 +745,76 @@
   </section>
   </div>
 
+  <div class="tabpanel" id="tab-plasmid" role="tabpanel" aria-labelledby="tab-btn-plasmid" hidden>
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow">Vector screening &middot; conformal prediction &middot; extrapolation control</p>
+      <h1>What would this construct give, and how much of that is a guess?</h1>
+      <p class="lede">Predict titer and specific productivity from a construct's genetic features, with sliders that answer as you move them. The point is not the number: it is that the interval widens honestly as you leave the runs the model learned from, a promoter nobody has used here is mapped rather than silently ignored, and a question the corpus cannot answer is refused.</p>
+    </div>
+  </section>
+
+  <section class="wrap step" id="plasmid">
+    <div class="step-head"><h2>Historical runs</h2></div>
+    <div class="card">
+      <p class="summary">One row per construct already screened. Needs the genetic features and at least one measured outcome. <a class="learn-link" href="learn.html#extrapolation" target="_blank" rel="noopener noreferrer">Learn how the interval works &#8599;</a></p>
+      <div class="row-actions">
+        <button class="btn ghost small" id="pl-sample" type="button">Load an example corpus</button>
+        <button class="btn ghost small" id="pl-clear" type="button">Clear</button>
+      </div>
+      <details class="shape">
+        <summary>What the data should look like</summary>
+        <div class="shape-body">
+          <div class="table-scroll"><table class="shape-table"><thead><tr><th>Construct_ID</th><th>Promoter_Type</th><th>Enhancer_Present</th><th>CAI_Score</th><th>Plasmid_Size_kb</th><th>Selection_Marker</th><th>Expression_Mode</th><th>Seed_Density_10e5</th><th>Titer_gL</th><th>Productivity_qp</th></tr></thead>
+            <tbody><tr><td>C-001</td><td>CMV</td><td>Yes</td><td>0.84</td><td>7.2</td><td>GS</td><td>Stable</td><td>4.0</td><td>6.9</td><td>24.1</td></tr>
+            <tr class="dim"><td colspan="10">&hellip; one row per construct screened</td></tr></tbody></table></div>
+          <p class="hint">Column names need not match exactly &mdash; you map them below. Twelve complete runs is the minimum: most of them train the model and a slice is held back to calibrate the interval, and that held-back slice is what makes the interval mean anything.</p>
+        </div>
+      </details>
+      <label class="full" for="pl-data">Historical runs (CSV or tab separated, with a header row)</label>
+      <textarea id="pl-data" rows="6" spellcheck="false" placeholder="Construct_ID,Promoter_Type,Enhancer_Present,CAI_Score,Plasmid_Size_kb,Selection_Marker,Expression_Mode,Seed_Density_10e5,Titer_gL,Productivity_qp"></textarea>
+      <input type="file" id="pl-file" accept=".csv,.tsv,.txt" class="file-input">
+      <p class="hint" id="pl-read" aria-live="polite"></p>
+      <div id="pl-map" hidden>
+        <div class="controls">
+          <label>Titer column <select id="pl-titer"></select></label>
+          <label>Productivity column <select id="pl-qp"></select></label>
+          <label>Confidence
+            <select id="pl-conf">
+              <option value="0.9" selected>90%</option>
+              <option value="0.8">80%</option>
+              <option value="0.95">95%</option>
+            </select>
+          </label>
+        </div>
+        <fieldset class="avoid">
+          <legend>Features to predict from</legend>
+          <div id="pl-feats" class="chips"></div>
+        </fieldset>
+        <div class="row-actions"><button class="btn primary" id="pl-train" type="button">Fit and calibrate</button></div>
+      </div>
+      <p class="error" id="pl-error" role="alert" hidden></p>
+      <div id="pl-fit"></div>
+    </div>
+  </section>
+
+  <section class="wrap step" id="pl-desk-wrap" hidden>
+    <div class="step-head"><h2>Simulation desk</h2></div>
+    <div class="card">
+      <p class="summary">Move a slider and the prediction follows. The amber badge means you have left the range of the historical runs, and the band widens to match.</p>
+      <div class="desk">
+        <div class="desk-inputs" id="pl-inputs"></div>
+        <div class="desk-out" id="pl-out"></div>
+      </div>
+      <div class="row-actions">
+        <button class="btn primary" id="pl-doe" type="button">Design 4 runs to settle this</button>
+        <button class="btn" id="pl-csv" type="button">Download the prediction (.csv)</button>
+      </div>
+      <div id="pl-doe-out"></div>
+    </div>
+  </section>
+  </div>
+
   <div class="tabpanel" id="tab-sequence" role="tabpanel" aria-labelledby="tab-btn-sequence" hidden>
   <section class="wrap step" id="seq">
     <div class="step-head"><h2>Sequence optimizer</h2></div>
@@ -893,6 +964,8 @@
 <script src="advisor.js"></script>
 <script src="advisor-eval.js"></script>
 <script src="advisor-ui.js"></script>
+<script src="plasmid.js"></script>
+<script src="plasmid-ui.js"></script>
 <script src="seq.js"></script>
 </body>
 </html>

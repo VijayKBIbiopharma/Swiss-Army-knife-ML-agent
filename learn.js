@@ -1543,6 +1543,71 @@
   });
 
   add({
+    id: 'extrapolation', group: 'Using the results', title: 'Extrapolation: the interval is the answer',
+    analogy: 'A thermometer calibrated between 0 and 50 degrees, held in a furnace. It will show a number. It will show it to one decimal place, steadily, with no outward sign that it is now a piece of decorative glass. Every model does this: asked about conditions it never saw, it answers in exactly the same confident voice it uses for conditions it knows well.',
+    intro: 'A prediction for a construct nobody has built is worth very little on its own. What decides whether to spend on synthesis is how wrong it could be — and that is where the usual habit, mean plus or minus two standard deviations of the residuals, quietly fails. That band is one fixed width everywhere. It is therefore at its most confident exactly where it is least justified. Drag the slider below past the edge of the data and watch the two approaches disagree.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-controls">' + slider('x', 'Where you are asking about', 0, 20, 0.5, 5) + '</div><div data-role="plot"></div><p class="demo-read" data-role="read"></p>';
+      const rand = E.rng(5);
+      // Training runs live between 2 and 10, and get noisier to the right.
+      const xs = [], ys = [];
+      for (let i = 0; i < 40; i++) {
+        const x = 2 + rand() * 8;
+        xs.push(x); ys.push(3 + 1.4 * x + normal(rand) * (0.4 + 0.25 * (x - 2)));
+      }
+      // A straight line fit, and the residual spread it leaves behind.
+      const mx = xs.reduce((a, b) => a + b, 0) / xs.length, my = ys.reduce((a, b) => a + b, 0) / ys.length;
+      let sxy = 0, sxx = 0;
+      xs.forEach((x, i) => { sxy += (x - mx) * (ys[i] - my); sxx += (x - mx) * (x - mx); });
+      const slope = sxy / sxx, intercept = my - slope * mx;
+      const fit = x => intercept + slope * x;
+      const res = xs.map((x, i) => Math.abs(ys[i] - fit(x)));
+      const sigma = Math.sqrt(res.reduce((s, v) => s + v * v, 0) / res.length);
+      // Conformal, scaled by how far the question sits from the training runs.
+      const dist = x => { const d = xs.map(v => Math.abs(v - x)).sort((a, b) => a - b); return (d[0] + d[1] + d[2]) / 3; };
+      const typical = dist(6);
+      const scores = xs.map((x, i) => res[i] / (0.5 + dist(x) / typical)).sort((a, b) => a - b);
+      const qHat = scores[Math.min(scores.length - 1, Math.ceil((scores.length + 1) * 0.9) - 1)];
+      const draw = () => {
+        const at = Number(el.querySelector('[data-role="x"]').value);
+        setOut(el, 'x', at.toFixed(1));
+        const f = frame(640, 290, [0, 20], [0, 42], { xLabel: 'Plasmid size (made up units)', yLabel: 'Titer' });
+        let b = '';
+        // The region the runs actually cover.
+        b += '<rect class="region-c3" fill-opacity=".10" x="' + f.sx(2) + '" y="' + f.sy(42) + '" width="' + (f.sx(10) - f.sx(2)) + '" height="' + (f.sy(0) - f.sy(42)) + '"/>';
+        b += f.axes;
+        b += '<text x="' + f.sx(6) + '" y="' + (f.sy(41)) + '" text-anchor="middle">runs the model learned from</text>';
+        // Both bands across the whole range.
+        const band = (lo, hi, cls) => {
+          let d = 'M';
+          for (let x = 0; x <= 20; x += 0.5) d += ' ' + f.sx(x).toFixed(1) + ' ' + f.sy(hi(x)).toFixed(1);
+          for (let x = 20; x >= 0; x -= 0.5) d += ' ' + f.sx(x).toFixed(1) + ' ' + f.sy(lo(x)).toFixed(1);
+          return '<path class="' + cls + '" d="' + d + 'Z"/>';
+        };
+        const halfC = x => qHat * (0.5 + dist(x) / typical);
+        b += band(x => fit(x) - 2 * sigma, x => fit(x) + 2 * sigma, 'band-naive');
+        b += band(x => fit(x) - halfC(x), x => fit(x) + halfC(x), 'band-conformal');
+        b += '<path class="line" d="' + pathOf(range(41).map(i => [i / 2, fit(i / 2)]), f) + '"/>';
+        xs.forEach((x, i) => { b += dot(f.sx(x), f.sy(ys[i]), 'c1', 3.5); });
+        b += '<line class="ref" x1="' + f.sx(at) + '" x2="' + f.sx(at) + '" y1="' + f.sy(0) + '" y2="' + f.sy(42) + '"/>';
+        el.querySelector('[data-role="plot"]').innerHTML = svg(640, 290, 'Two ways of putting an interval on a prediction', b);
+        const inside = at >= 2 && at <= 10;
+        el.querySelector('[data-role="read"]').innerHTML =
+          'At <b>' + at.toFixed(1) + '</b>: the fixed band is <b>&plusmn;' + fmt(2 * sigma) + '</b> wherever you ask. The calibrated band is <b>&plusmn;' + fmt(halfC(at)) + '</b>.' +
+          (inside ? ' Inside the data they are much the same, which is the point: the calibrated one costs nothing where the evidence is.'
+            : ' <b class="warn">Outside the data the fixed band has not moved at all.</b> It is still claiming the same precision about a region containing no runs, while the calibrated one has widened to ' + (halfC(at) / (2 * sigma)).toFixed(1) + ' times its width.') +
+          '<br>Neither band makes a prediction out here into evidence. The widening is a warning, not a licence — the honest response to a wide band is usually to go and run the experiment.';
+      };
+      el.querySelector('[data-role="x"]').oninput = draw; draw();
+    },
+    steps: ['Hold back a slice of the data that the model never trains on.', 'Measure how wrong the model is on that slice. Those errors, not an assumed bell curve, set the width.', 'Scale the width by how far the question sits from the training data, so sparse regions get wider bands.', 'The result keeps its stated coverage whatever shape the errors have — that is the guarantee a fixed multiple of sigma cannot give.'],
+    when: 'Any prediction about conditions you have not run: a construct not yet built, a setting outside the historical range, a supplier not yet used.',
+    watch: 'A calibrated interval is honest about the model, not about the world. If the process behaves differently out there — a new failure mode, a biological limit — no interval computed from old runs can know. Widening is a warning that the answer rests on the shape of the fit rather than on evidence, and the right response to a very wide band is usually an experiment, not a decision.',
+    where: 'Pick "Plasmid & vector selection sandbox" from the selector; the band widens as you drag a slider out of range.',
+    quiz: { q: 'A model trained on plasmids of 4 to 13 kb is asked about one of 19 kb. Its ±2σ interval is the same width as for a 7 kb plasmid. What does that tell you?', options: ['The model is equally confident, so 19 kb is fine', 'Nothing about 19 kb: the band is one fixed width by construction and cannot react to being outside the data', 'The model has extrapolated correctly'], answer: 1, why: 'A fixed multiple of the residual spread is the same number everywhere. Its not widening is a property of the formula, not evidence about the prediction. Measured against fresh runs outside the training range, such a band typically delivers far less coverage than it claims.' }
+  });
+
+  add({
     id: 'reading-results', group: 'Using the results', title: 'From charts to actions: reading the action plan',
     analogy: 'A mixing desk: turn one knob while leaving the others alone, and listen. That is what "how each driver moves the result" does with the model.',
     intro: 'The agent turns its model into plain-English actions by asking, for each top driver: if I change only this, holding everything else as it was, what happens to the result? The shape of that curve becomes the action.',

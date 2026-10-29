@@ -2074,3 +2074,134 @@ test('the structure drawing does not cross itself', () => {
     }
   }
 });
+
+const PL = require(path.join(ROOT, 'plasmid.js'));
+
+/* A synthetic screening corpus with a known generating process and deliberately
+   heteroscedastic noise - bigger plasmids are noisier - because that is exactly the shape
+   where a fixed multiple of the residual spread misleads. */
+function plasmidCorpus(n, seed, opt) {
+  opt = opt || {};
+  const r = E.rng(seed);
+  const prom = ['CMV', 'EF1a', 'SV40', 'CAG'], mark = ['GS', 'DHFR', 'Puromycin'], mode = ['Stable', 'Transient'];
+  const rows = [];
+  for (let i = 0; i < n; i++) {
+    const pr = prom[Math.floor(r() * prom.length)], mk = mark[Math.floor(r() * mark.length)], md = mode[Math.floor(r() * mode.length)];
+    const cai = (opt.caiLo || 0.6) + r() * ((opt.caiHi || 0.98) - (opt.caiLo || 0.6));
+    const kb = (opt.kbLo || 4) + r() * ((opt.kbHi || 13) - (opt.kbLo || 4));
+    const sd = 1.5 + r() * 7, enh = r() < 0.5 ? 'Yes' : 'No';
+    const ps = PL.PROMOTERS[pr].strength, ms = PL.MARKERS[mk].stringency;
+    const nz = () => { const u = Math.max(1e-9, r()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+    const noise = 0.08 + 0.05 * (kb - 4);
+    const titer = 1.2 + 3.4 * ps + 1.8 * cai + 0.9 * ms + (enh === 'Yes' ? 0.45 : 0) - 0.11 * kb + 0.06 * sd + (md === 'Stable' ? 0.5 : 0) + nz() * noise;
+    rows.push(['C' + i, pr, enh, cai.toFixed(3), kb.toFixed(2), mk, md, sd.toFixed(2), Math.max(0.05, titer).toFixed(3)]);
+  }
+  return { columns: ['Construct_ID', 'Promoter_Type', 'Enhancer_Present', 'CAI_Score', 'Plasmid_Size_kb', 'Selection_Marker', 'Expression_Mode', 'Seed_Density_10e5', 'Titer_gL'], rows };
+}
+const PL_FEATS = ['Promoter_Type', 'Enhancer_Present', 'CAI_Score', 'Plasmid_Size_kb', 'Selection_Marker', 'Expression_Mode', 'Seed_Density_10e5'];
+
+test('conformal intervals keep the coverage they claim', () => {
+  const m = PL.trainTarget(E.profile(plasmidCorpus(240, 11)), 'Titer_gL', PL_FEATS, { seed: 7 });
+  assert.ok(isFinite(m.r2) && m.r2 > 0.5, 'the model must actually fit: r2 ' + m.r2);
+  assert.ok(m.nCal >= 5, 'runs must be held back to calibrate');
+
+  const measure = (table, conf) => {
+    const tp = E.profile(table);
+    const col = tp.columns.find(c => c.name === 'Titer_gL');
+    let inside = 0, width = 0, n = 0;
+    for (let r = 0; r < tp.nRows; r++) {
+      const obj = {}; tp.columns.forEach(c => { obj[c.name] = c.values[r]; });
+      const x = m.enc.encodeValues(obj);
+      const half = m.q(conf) * (m.beta + m.distance(x));
+      const yhat = m.predictRaw(x);
+      if (Math.abs(col.values[r] - yhat) <= half) inside++;
+      width += 2 * half; n++;
+    }
+    return { cov: inside / n, width: width / n };
+  };
+  /* The guarantee is that coverage does not fall below what was asked for. Some conservatism
+     is expected and fine; falling short is the failure that matters. */
+  for (const conf of [0.8, 0.9, 0.95]) {
+    const got = measure(plasmidCorpus(600, 99), conf);
+    assert.ok(got.cov >= conf - 0.04, 'at ' + conf + ' the interval only covered ' + got.cov.toFixed(3));
+    assert.ok(got.cov <= conf + 0.12, 'at ' + conf + ' the interval is uselessly wide: ' + got.cov.toFixed(3));
+  }
+  // Asking for more confidence must widen the band, never narrow it.
+  assert.ok(measure(plasmidCorpus(300, 5), 0.95).width > measure(plasmidCorpus(300, 5), 0.8).width);
+
+  /* The behaviour the whole module exists for: outside the data the band widens. A fixed
+     multiple of the residual spread cannot do this, which is the point of the comparison. */
+  const near = measure(plasmidCorpus(400, 77, { caiLo: 0.7, caiHi: 0.9, kbLo: 5, kbHi: 9 }), 0.9);
+  const far = measure(plasmidCorpus(400, 78, { caiLo: 0.3, caiHi: 0.55, kbLo: 14, kbHi: 20 }), 0.9);
+  assert.ok(far.width > near.width * 1.25, 'outside the data the band must widen: ' + near.width.toFixed(3) + ' -> ' + far.width.toFixed(3));
+});
+
+test('unseen levels are mapped or refused, never silently treated as the commonest', () => {
+  const known = ['CMV', 'EF1a', 'SV40'];
+  assert.strictEqual(PL.nearestLevel('CMV', known, PL.PROMOTERS).exact, true);
+  // Matched on name: a variant of a known promoter is treated as that promoter, and says so.
+  const variant = PL.nearestLevel('CMV-intron', known, PL.PROMOTERS);
+  assert.strictEqual(variant.level, 'CMV');
+  assert.strictEqual(variant.exact, false);
+  assert.ok(/contains/.test(variant.why));
+  // Matched on declared property when the name gives nothing away.
+  const byProp = PL.nearestLevel('UBC', known, PL.PROMOTERS);
+  assert.ok(byProp.level && byProp.level !== null, 'UBC should map to something');
+  assert.ok(/strength/.test(byProp.why), byProp.why);
+  // And something nobody can place must come back as unplaceable, not as the reference level.
+  assert.strictEqual(PL.nearestLevel('Zorb9000', known, PL.PROMOTERS).level, null);
+
+  const prof = E.profile(plasmidCorpus(200, 11));
+  const models = { Titer_gL: PL.trainTarget(prof, 'Titer_gL', PL_FEATS, { seed: 7 }) };
+  const env = PL.summarise(prof, PL_FEATS);
+  assert.ok(env.numeric.CAI_Score.min < env.numeric.CAI_Score.max, 'the envelope must be measured');
+  assert.ok(env.categorical.Promoter_Type.levels.length >= 3);
+
+  const base = { Promoter_Type: 'CMV', Enhancer_Present: 'Yes', CAI_Score: 0.85, Plasmid_Size_kb: 7, Selection_Marker: 'GS', Expression_Mode: 'Stable', Seed_Density_10e5: 4 };
+  const ok = PL.predict(models, env, base, { confidence: 0.9 });
+  assert.ok(ok.ok && ok.trust === 'inside', JSON.stringify({ ok: ok.ok, trust: ok.trust }));
+  assert.ok(ok.results.Titer_gL.low < ok.results.Titer_gL.value && ok.results.Titer_gL.value < ok.results.Titer_gL.high);
+  assert.strictEqual(ok.substitutions.length, 0);
+  assert.strictEqual(ok.outside.length, 0);
+
+  // A level that cannot be placed stops the prediction.
+  const blocked = PL.predict(models, env, Object.assign({}, base, { Promoter_Type: 'Zorb9000' }), {});
+  assert.strictEqual(blocked.ok, false);
+  assert.ok(blocked.blocking[0].field === 'Promoter_Type');
+
+  // A level that can be placed is substituted, and the substitution is reported.
+  const sub = PL.predict(models, env, Object.assign({}, base, { Promoter_Type: 'CMV-intron' }), {});
+  assert.ok(sub.ok);
+  assert.strictEqual(sub.substitutions.length, 1);
+  assert.strictEqual(sub.substitutions[0].used, 'CMV');
+
+  // Out of range is detected, named, and widens the band.
+  const far = PL.predict(models, env, Object.assign({}, base, { Plasmid_Size_kb: 19, CAI_Score: 0.35 }), { confidence: 0.9 });
+  assert.ok(far.ok);
+  assert.strictEqual(far.outside.length, 2);
+  assert.ok(far.outside.every(o => o.by > 0 && o.field));
+  assert.ok(far.distance > ok.distance, 'distance must grow with extrapolation');
+  assert.ok(far.results.Titer_gL.halfWidth > ok.results.Titer_gL.halfWidth * 1.1, 'the interval must widen');
+  assert.strictEqual(far.trust, 'outside');
+
+  // The cap is an assumption, so it is reported when it binds rather than applied silently.
+  const capped = PL.predict(models, env, base, { caps: { Titer_gL: 0.5 } });
+  assert.strictEqual(capped.results.Titer_gL.capped, true);
+  assert.strictEqual(capped.results.Titer_gL.value, 0.5);
+  assert.ok(capped.results.Titer_gL.uncapped > 0.5, 'the uncapped figure must still be reported');
+
+  // And the four-run screen is built over what is actually outside.
+  const doe = PL.suggestDOE(env, Object.assign({}, base, { Plasmid_Size_kb: 19, CAI_Score: 0.35 }), far.outside, { seed: 3 });
+  assert.strictEqual(doe.runs.length, 4);
+  assert.strictEqual(doe.factors.length, 2);
+  assert.deepStrictEqual(doe.factors.map(f => f.name).sort(), ['CAI_Score', 'Plasmid_Size_kb']);
+  assert.deepStrictEqual(doe.runs.map(r => r.run).sort(), [1, 2, 3, 4]);
+  assert.deepStrictEqual(doe.runs.map(r => r.std).sort(), [1, 2, 3, 4]);
+  // Corners, so each factor takes each level twice.
+  for (let j = 0; j < 2; j++) {
+    const vals = doe.runs.map(r => r.values[j]);
+    assert.strictEqual(new Set(vals).size, 2, 'factor ' + j + ' must be run at two levels');
+  }
+  assert.ok(PL.trainTarget.length >= 3);
+  assert.throws(() => PL.trainTarget(E.profile(plasmidCorpus(8, 1)), 'Titer_gL', PL_FEATS, {}), /at least 12/);
+});

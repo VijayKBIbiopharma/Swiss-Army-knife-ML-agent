@@ -556,6 +556,25 @@ details.advanced > summary { cursor: pointer; font-size: .88rem; font-weight: 60
 .chart .simplex { fill: none; stroke: var(--line); stroke-width: 1.5; }
 
 /* The protein drawn as a chain of residues, with the codons underneath */
+.chart .band-naive { fill: var(--bad); fill-opacity: .12; stroke: var(--bad); stroke-opacity: .5; stroke-dasharray: 4 3; }
+.chart .band-conformal { fill: var(--s1); fill-opacity: .16; stroke: var(--s1); stroke-opacity: .6; }
+/* Vector selection sandbox */
+.desk { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(300px, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 860px) { .desk { grid-template-columns: 1fr; } }
+.desk-row { display: grid; grid-template-columns: 1fr; gap: 3px; margin-bottom: 12px; }
+.desk-name { font-weight: 600; font-size: 14px; }
+.desk-row output { font-variant-numeric: tabular-nums; font-weight: 600; }
+.desk-range { font-size: 12px; color: var(--muted); }
+.desk-free { font-size: 13px; padding: 5px 8px; }
+.pred { margin: 10px 0 14px; }
+.pred-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.pred-val { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pred-ci { color: var(--muted); font-variant-numeric: tabular-nums; }
+.pred-bar { display: block; width: 100%; height: 12px; margin: 4px 0 2px; }
+.pred-bar .pb-seen { fill: var(--line); }
+.pred-bar .pb-ci { fill: var(--s1); fill-opacity: .3; }
+.pred-bar .pb-ci.marginal { fill: var(--warn); } .pred-bar .pb-ci.not { fill: var(--bad); }
+.pred-bar .pb-point { fill: var(--ink); }
 .compare-table th .chip { margin-left: 6px; }
 .compare-table .share-cell { position: relative; white-space: nowrap; }
 .share-bar { display: block; width: 100%; height: 5px; margin-top: 3px; }
