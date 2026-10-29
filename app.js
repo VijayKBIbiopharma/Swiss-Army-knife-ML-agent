@@ -1510,7 +1510,7 @@
   const TOOLS_SHORT = {
     analyze: 'the ML agent', stability: 'shelf life', golden: 'batch monitoring',
     equivalence: 'method transfer', variance: 'variance & Gage R&R', limits: 'limits & study size',
-    plasmid: 'the vector sandbox', sequence: 'the sequence optimizer', privacy: 'privacy & data handling'
+    plasmid: 'vector selection', sequence: 'the sequence optimizer', privacy: 'privacy & data handling'
   };
   const TOOLS = {
     analyze: 'Regression, classification, clustering and neural networks on a table of data, with the drivers named in plain English and the next experiment designed for you.',
@@ -1519,7 +1519,7 @@
     equivalence: 'Two one-sided tests: show that a new lab, instrument or supplier agrees with the old one, within a margin you declare first.',
     variance: 'Split a spread into named sources and see what share each owns, or point the same arithmetic at your own instrument and find out whether the method can see what you are chasing.',
     limits: 'Work out which specification limits your data can actually defend, and how many results a study needs before it is worth running.',
-    plasmid: 'Predict titer and specific productivity for a construct, with an interval that widens honestly as you leave the runs the model learned from.',
+    plasmid: 'Pick the vector for an incoming programme: historical runs, the parts you can order and the protein\u2019s attributes in, a balanced run sheet with predicted titer out.',
     sequence: 'A genetic algorithm searching several competing objectives at once, pointed here at codon optimization.',
     privacy: 'How the tool keeps your data on your own device, and how to check that for yourself.'
   };

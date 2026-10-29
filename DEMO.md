@@ -176,6 +176,17 @@ Every step below was run end to end. The times are from a laptop browser; your n
 - Click any job's button and it drops you on the right tool with practice data loaded. *"Four clicks from 'my purity moves between resin lots' to the answer, without anyone having to know the method is called a variance component."*
 - If somebody asks whether the honesty is enforced or just written down: *"Tested. Every job has to route to a tool that exists and a dataset that exists, every job has to carry a 'will not', and no text anywhere may promise to draft or write a report. The guard is tested in both directions, because the first version of it let 'it drafts your technical development report' through."*
 
+## 4p. Picking the vector for next quarter's intake (4 minutes — the one upstream asks for by name)
+- Open **Plasmid & vector selection** and click **Load a worked example (all three files)**. *"Three files. What we have screened before, what we can actually order, and the molecule coming in. No sliders anywhere — nobody planning a programme wants to wiggle a slider, they want a run sheet."*
+- Note the step 1 line: *"240 runs, 7 columns read — nothing was uploaded."* If somebody asks about Excel: *"It reads .xlsx right here. An xlsx is a zip of XML and the browser can unzip and read it on its own, so the workbook never leaves the tab. That is the only reason we support Excel at all."*
+- Step 2 shows the catalogue with each factor marked **in the history**. *"If you list a terminator you have never recorded, it says so and leaves it out of the choice rather than picking one blind."*
+- Step 4 is the point. Lead with the verdict panel, not the numbers: *"Four distinct proteins appear in the history. That sentence is the most important thing on this screen."*
+- Then the refusal. **PRG-24-003** is a nanobody, and nothing like it has ever been run: the card reads **untested for this protein** and **Refused**. *"It will not score it. Not a wide interval — nothing. Because the dangerous version of this tool is the one that maps a nanobody onto the nearest antibody and hands you 4.8 g/L with a tight band, and the band is tight precisely because nothing in the residuals knows the question changed."*
+- If asked what would fix it: *"Runs on a second protein. Even a handful turns this from an extrapolation into a comparison. Screen it the old way, and those runs become the history that answers the next one like it."*
+- Now the two answerable programmes. Point at the pair of tiles: *"Highest predicted, and least likely to disappoint. They often disagree — the second has a tighter band, so a lower central estimate with a better floor. If you get one shot at a build, the floor is what matters."*
+- Finally the sheet, and why it is a sheet and not a shortlist: *"Every promoter appears exactly three times. The twelve highest predictions would have been your strongest promoter over and over, and that sheet could not have told you anything about the others. Balanced, run order randomised, last column for the number you measure."*
+- Download the CSV and show the footer: the distinct-protein count, which attributes vary, which are frozen, and the standing of every row.
+
 ## 5. Finding groups with no target: penguins (1 minute)
 - Drag `penguins.csv`, choose **Nothing: find groups and patterns**, run.
 - Show the groups chart and profiles: one group is entirely Gentoo penguins on Biscoe island. The agent found the species without being told.

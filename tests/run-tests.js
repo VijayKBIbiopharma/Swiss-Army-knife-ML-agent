@@ -2843,3 +2843,343 @@ test('every department states what it will not do, and none claims to write docu
   assert.ok(byId.qa.jobs.some(j => j.tool === 'variance'), 'QA must reach Gage R&R: is it the process or the assay');
   assert.ok(byId.bd.jobs.some(j => j.tool === 'limits'), 'business development must reach defensible limits');
 });
+
+const XL = require(path.join(ROOT, 'xlsx.js'));
+const PG = require(path.join(ROOT, 'program.js'));
+
+test('an Excel workbook is read offline, with gaps and dates handled', async () => {
+  const buf = fs.readFileSync(path.join(ROOT, 'tests', 'fixtures', 'workbook.xlsx'));
+  const wb = await XL.read(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+  assert.deepStrictEqual(wb.sheets.map(s => s.name), ['Runs', 'Factors'],
+    'both sheets must come back, named, in workbook order');
+  const runs = wb.sheets[0];
+  assert.deepStrictEqual(runs.columns, ['Construct_ID', 'Protein_Class', 'Protein_kDa', 'Promoter_Type', 'Titer_gL', 'Run_Date']);
+  assert.strictEqual(runs.rows.length, 4);
+
+  /* The failure that would be hardest to notice. Row 5 of the fixture has no promoter, so a
+     reader that pushes values in the order it meets them puts the titer in the promoter
+     column and every number after it is one place to the left - plausible-looking data,
+     completely wrong. Cells are placed by their column letter, so the gap stays a gap. */
+  const gapped = runs.rows.find(r => r[0] === 'C-004');
+  assert.strictEqual(gapped[3], '', 'the missing promoter must stay missing');
+  assert.strictEqual(gapped[4], '3.4', 'and the titer must stay in the titer column');
+  assert.strictEqual(gapped[2], '147.2');
+
+  // Dates are numbers with a format in Excel; unconverted they come back as 45730.
+  assert.strictEqual(runs.rows[0][5], '2025-03-14');
+  assert.strictEqual(runs.rows[1][5], '2025-04-02');
+  assert.ok(!/^\d{5}$/.test(runs.rows[0][5]), 'a date must not come back as a serial number');
+
+  /* Excel writes a double's full expansion: this cell holds 99.1 and the XML says
+     99.09999999999999. Both are the same double, and the shorter form is the one that
+     round-trips, so printing the long one into a run sheet is a presentation defect. */
+  assert.strictEqual(runs.rows[1][2], '99.1');
+  assert.strictEqual(XL.shortestNumber('99.09999999999999'), '99.1');
+  assert.strictEqual(Number(XL.shortestNumber('99.09999999999999')), Number('99.09999999999999'),
+    'shortening must never change the value');
+  assert.strictEqual(XL.shortestNumber('abc'), 'abc', 'a non-number is left alone');
+
+  // The second sheet is a factor catalogue, which the programme flow reads directly.
+  assert.deepStrictEqual(wb.sheets[1].rows, [['Promoter_Type', 'CMV; EF1a; CAG']]);
+
+  // And something that is not a workbook fails with a sentence a user can act on.
+  await assert.rejects(() => XL.read(new TextEncoder().encode('Construct_ID,Titer\nC-1,5').buffer),
+    /does not look like an .xlsx/);
+});
+
+test('Excel date serials, including the day that never existed', () => {
+  /* Excel's calendar contains 1900-02-29, kept for bug-compatibility with Lotus 1-2-3.
+     That day did not happen, so serials at or below 60 sit on a different epoch from
+     everything above them, and a reader implementing one branch is wrong for exactly the
+     dates nobody checks. */
+  assert.strictEqual(XL.serialToDate(59), '1900-02-28');
+  assert.strictEqual(XL.serialToDate(61), '1900-03-01');
+  /* Serial 60 is Excel's phantom 1900-02-29. This returns 1900-03-01 rather than inventing
+     a date that does not exist - a deliberate choice, asserted so it cannot drift. */
+  assert.strictEqual(XL.serialToDate(60), '1900-03-01');
+  // A modern date, and the time fraction when there is one.
+  assert.strictEqual(XL.serialToDate(45730), '2025-03-14');
+  assert.strictEqual(XL.serialToDate(45730.5).slice(0, 13), '2025-03-14 12');
+  // Monotonic, which a reader that mixes up its epochs is not.
+  for (let s = 1; s < 500; s++) assert.ok(XL.serialToDate(s) <= XL.serialToDate(s + 1), 'not monotonic at ' + s);
+
+  // Column letters to indices, including past Z where an off-by-one hides.
+  assert.strictEqual(XL.colOf('A1'), 0);
+  assert.strictEqual(XL.colOf('Z9'), 25);
+  assert.strictEqual(XL.colOf('AA1'), 26);
+  assert.strictEqual(XL.colOf('AB12'), 27);
+  assert.strictEqual(XL.colOf('BA1'), 52);
+
+  // A shared string split into runs must be joined, not truncated at the first piece.
+  assert.deepStrictEqual(XL.sharedStrings('<sst><si><t>plain</t></si><si><r><t>Anti-</t></r><r><t>CD20</t></r></si></sst>'),
+    ['plain', 'Anti-CD20']);
+  // Entities decoded, so a factor called "A &amp; B" does not arrive with the markup in it.
+  assert.deepStrictEqual(XL.sharedStrings('<sst><si><t>A &amp; B &#65;</t></si></sst>'), ['A & B A']);
+
+  // Which styles count as dates: the built-in ids, plus a custom code with y/m/d in it.
+  const xfs = XL.dateStyles('<styleSheet><numFmts><numFmt numFmtId="164" formatCode="yyyy\\-mm\\-dd"/>' +
+    '<numFmt numFmtId="165" formatCode="0.00&quot;kg&quot;"/></numFmts>' +
+    '<cellXfs><xf numFmtId="0"/><xf numFmtId="14"/><xf numFmtId="164"/><xf numFmtId="165"/></cellXfs></styleSheet>');
+  assert.deepStrictEqual(xfs, [false, true, true, false],
+    'general and a units format are not dates; built-in 14 and a custom y-m-d code are');
+});
+
+test('the factor catalogue is read in both the shapes people actually have', () => {
+  // Levels in one cell, separated however the author felt like separating them.
+  const a = PG.parseCatalogue({
+    columns: ['Factor', 'Levels', 'Min', 'Max', 'Step'],
+    rows: [['Promoter_Type', 'CMV; EF1a | SV40, CAG', '', '', ''],
+      ['Plasmid_Size_kb', '', '6', '11', '2.5'],
+      ['Host', 'CHO-K1', '', '', ''],
+      ['Nonsense', '', '', '', '']]
+  });
+  const byName = Object.fromEntries(a.factors.map(f => [f.name, f]));
+  assert.deepStrictEqual(byName.Promoter_Type.levels, ['CMV', 'EF1a', 'SV40', 'CAG']);
+  assert.strictEqual(byName.Promoter_Type.kind, 'categorical');
+  assert.strictEqual(byName.Plasmid_Size_kb.kind, 'numeric');
+  assert.strictEqual(byName.Plasmid_Size_kb.step, 2.5);
+  // One level is not a choice, so it is held fixed and said so rather than offered.
+  assert.strictEqual(byName.Host.kind, 'fixed');
+  assert.ok(a.problems.some(x => /Host/.test(x) && /one level/.test(x)));
+  // And a row with neither levels nor a range is skipped with a reason, not silently.
+  assert.ok(!byName.Nonsense, 'an unusable factor must not become a factor');
+  assert.ok(a.problems.some(x => /Nonsense/.test(x)));
+
+  // One row per factor-level pair, which is how a database export arrives.
+  const b = PG.parseCatalogue({
+    columns: ['Factor', 'Level'],
+    rows: [['Promoter_Type', 'CMV'], ['Promoter_Type', 'EF1a'], ['Selection_Marker', 'GS'], ['Selection_Marker', 'DHFR']]
+  });
+  assert.strictEqual(b.factors.length, 2);
+  assert.deepStrictEqual(b.factors.find(f => f.name === 'Promoter_Type').levels, ['CMV', 'EF1a']);
+
+  // No Factor column at all is an error with a sentence that says what was expected.
+  const c = PG.parseCatalogue({ columns: ['Thing', 'Other'], rows: [['a', 'b']] });
+  assert.strictEqual(c.factors.length, 0);
+  assert.ok(/Factor/.test(c.problems[0]), c.problems[0]);
+});
+
+test('the programme sheet keeps protein attributes and drops vector choices', () => {
+  const res = PG.parseProgram({
+    columns: ['Program_ID', 'Protein_Class', 'Protein_kDa', 'Promoter_Type', 'Notes'],
+    rows: [['PRG-1', 'bispecific', '101', 'CMV', 'rush'], ['PRG-2', 'enzyme', '63', 'EF1a', '']]
+  }, ['Promoter_Type', 'Selection_Marker']);
+  assert.deepStrictEqual(res.programs.map(p => p.id), ['PRG-1', 'PRG-2']);
+  /* A vector column in the programme sheet is the one thing that would quietly defeat the
+     point of the tool: it would predict for the promoter somebody already guessed instead
+     of choosing one. Dropped, and named as dropped. */
+  assert.deepStrictEqual(res.ignored, ['Promoter_Type']);
+  assert.ok(!('Promoter_Type' in res.programs[0].attributes));
+  assert.strictEqual(res.programs[0].attributes.Protein_Class, 'bispecific');
+  /* Record-keeping columns are not protein attributes either, and this is not cosmetic. The
+     history has no Notes column, so keeping it would make the attribute read as "not in the
+     historical runs at all" and flip a well-supported programme to untested - a scheduling
+     note quietly discrediting the prediction. */
+  assert.ok(!('Notes' in res.programs[0].attributes), 'a notes column is not an attribute');
+  assert.deepStrictEqual(res.skipped, ['Notes'], 'and it is reported as skipped rather than vanishing');
+  const noisy = PG.parseProgram({
+    columns: ['Program_ID', 'Protein_Class', 'Owner', 'Target_Date', 'Priority', 'Client'],
+    rows: [['PRG-1', 'mAb', 'VK', '2026-01-04', 'high', 'Acme']]
+  }, []);
+  assert.deepStrictEqual(Object.keys(noisy.programs[0].attributes), ['Protein_Class'],
+    'only the protein attribute survives: ' + JSON.stringify(noisy.programs[0].attributes));
+  // With no id column, programmes are still distinguishable.
+  const noId = PG.parseProgram({ columns: ['Protein_Class'], rows: [['mAb'], ['enzyme']] }, []);
+  assert.strictEqual(new Set(noId.programs.map(p => p.id)).size, 2);
+});
+
+test('every buildable vector is enumerated, and a big catalogue is sampled not truncated', () => {
+  const factors = [
+    { name: 'Promoter_Type', kind: 'categorical', levels: ['CMV', 'EF1a', 'SV40', 'CAG'] },
+    { name: 'Selection_Marker', kind: 'categorical', levels: ['GS', 'DHFR', 'Puromycin'] },
+    { name: 'Plasmid_Size_kb', kind: 'numeric', min: 6, max: 11, step: 2.5 },
+    { name: 'Host', kind: 'fixed', levels: ['CHO-K1'] }
+  ];
+  const all = PG.candidates(factors, {});
+  assert.strictEqual(all.total, 4 * 3 * 3, 'three steps of 2.5 across 6 to 11 is three settings');
+  assert.strictEqual(all.list.length, 36);
+  assert.strictEqual(all.sampled, false);
+  // Every combination exactly once.
+  const sigs = all.list.map(c => [c.Promoter_Type, c.Selection_Marker, c.Plasmid_Size_kb].join('|'));
+  assert.strictEqual(new Set(sigs).size, 36, 'no combination may repeat or be missed');
+  // A fixed factor rides along on every candidate rather than becoming a choice.
+  assert.ok(all.list.every(c => c.Host === 'CHO-K1'));
+  assert.ok(all.axes.every(a => a.name !== 'Host'), 'a fixed factor is not an axis');
+  // Without a step, a numeric factor contributes low, middle and high - no more.
+  const noStep = PG.candidates([{ name: 'kb', kind: 'numeric', min: 6, max: 12 }], {});
+  assert.deepStrictEqual(noStep.axes[0].values, [6, 9, 12]);
+
+  /* Over the cap it samples. Truncating would hand back the alphabetically first corner of
+     the catalogue, so the sheet would never see half the levels that exist. */
+  const big = [0, 1, 2, 3, 4, 5].map(i => ({ name: 'F' + i, kind: 'categorical', levels: ['a', 'b', 'c', 'd'] }));
+  const capped = PG.candidates(big, { cap: 60, seed: 5 });
+  assert.strictEqual(capped.total, Math.pow(4, 6));
+  assert.strictEqual(capped.list.length, 60);
+  assert.strictEqual(capped.sampled, true);
+  assert.strictEqual(new Set(capped.list.map(c => big.map(f => c[f.name]).join('|'))).size, 60, 'samples must be distinct');
+  for (const f of big) {
+    assert.strictEqual(new Set(capped.list.map(c => c[f.name])).size, 4,
+      'the sample must still reach every level of ' + f.name + ', which truncation would not');
+  }
+});
+
+test('the run sheet is balanced across levels, not just the top predictions', () => {
+  const axes = [{ name: 'P', values: ['a', 'b', 'c', 'd'] }, { name: 'M', values: ['x', 'y'] }];
+  // Scored best-first, with one level deliberately carrying all the best predictions.
+  const scored = [];
+  let v = 100;
+  for (const pv of ['a', 'b', 'c', 'd']) for (const mv of ['x', 'y']) scored.push({ config: { P: pv, M: mv }, value: (pv === 'a' ? 1000 : 1) + (v--) });
+  scored.sort((a, b) => b.value - a.value);
+
+  const r8 = PG.runSheet(scored, axes, { runs: 8, seed: 3 });
+  assert.strictEqual(r8.sheet.length, 8);
+  /* The point of balancing. Taking the eight highest predictions would have run level "a"
+     repeatedly and barely touched the others, and a sheet like that cannot say anything
+     about the levels it skipped however good its numbers look. */
+  assert.strictEqual(r8.balance.P.spread, 0, 'four levels over eight runs must come out even: ' + JSON.stringify(r8.balance.P.counts));
+  assert.strictEqual(r8.balance.M.spread, 0);
+  assert.deepStrictEqual(r8.balance.P.counts, [2, 2, 2, 2]);
+
+  // Where the runs do not divide evenly, the gap must be at most one run.
+  const r6 = PG.runSheet(scored, axes, { runs: 6, seed: 3 });
+  assert.ok(r6.balance.P.spread <= 1, 'six runs over four levels: ' + JSON.stringify(r6.balance.P.counts));
+
+  // Run order is a randomised permutation, and every std order appears exactly once.
+  assert.deepStrictEqual(r8.sheet.map(s => s.run).sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepStrictEqual(r8.sheet.map(s => s.std).sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8]);
+
+  // An empty input must not report itself as perfectly balanced.
+  assert.strictEqual(PG.runSheet([], axes, { runs: 8 }).balance, null);
+});
+
+/* A screening corpus across several protein classes, where protein complexity genuinely
+   interacts with promoter strength - so a cross-protein question has a real answer to find,
+   and a one-protein corpus can be shown to have none. */
+function vectorCorpus(n, seed, opt) {
+  opt = opt || {};
+  const CL = { 'mAb': [148, 1.0], 'Fc-fusion': [106, 0.8], 'bispecific': [99, 0.62], 'enzyme': [62, 0.9] };
+  const names = opt.oneProtein ? ['mAb'] : Object.keys(CL);
+  const prom = ['CMV', 'EF1a', 'SV40', 'CAG'], mark = ['GS', 'DHFR', 'Puromycin'];
+  const r = E.rng(seed), rows = [];
+  const nz = () => { const u = Math.max(1e-9, r()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+  for (let i = 0; i < n; i++) {
+    const cl = names[Math.floor(r() * names.length)], kda = CL[cl][0], comp = CL[cl][1];
+    const pr = prom[Math.floor(r() * prom.length)], mk = mark[Math.floor(r() * mark.length)];
+    const kb = 5 + r() * 7;
+    const titer = 0.8 + 4.2 * PL.PROMOTERS[pr].strength * comp + 1.1 * PL.MARKERS[mk].stringency - 0.09 * kb + nz() * (0.12 + 0.04 * (kb - 5));
+    rows.push(['C-' + i, cl, kda, pr, mk, kb.toFixed(2), Math.max(0.05, titer).toFixed(3)]);
+  }
+  return { columns: ['Construct_ID', 'Protein_Class', 'Protein_kDa', 'Promoter_Type', 'Selection_Marker', 'Plasmid_Size_kb', 'Titer_gL'], rows };
+}
+const VEC_FACTORS = [
+  { name: 'Promoter_Type', kind: 'categorical', levels: ['CMV', 'EF1a', 'SV40', 'CAG'] },
+  { name: 'Selection_Marker', kind: 'categorical', levels: ['GS', 'DHFR', 'Puromycin'] },
+  { name: 'Plasmid_Size_kb', kind: 'numeric', min: 6, max: 11, step: 2.5 }
+];
+
+test('a history of one protein cannot speak for another, and says so', () => {
+  /* The most damaging thing this tool could do is answer this question confidently. A model
+     fitted where every run is a monoclonal antibody holds no information about how a
+     bispecific responds to a promoter choice - but the arithmetic does not complain, and the
+     conformal interval stays narrow, because nothing in the residuals knows the question
+     changed. So it is measured before anything is predicted. */
+  const one = E.profile(vectorCorpus(240, 11, { oneProtein: true }));
+  const programs = [{ id: 'PRG-1', attributes: { Protein_Class: 'bispecific', Protein_kDa: '101' } }];
+  const t1 = PG.transferability(one, ['Protein_Class', 'Protein_kDa'], programs);
+  assert.strictEqual(t1.canTransfer, false, 'one protein must not support a cross-protein claim');
+  assert.strictEqual(t1.nProteins, 1, 'one protein must count as one, not zero');
+  assert.deepStrictEqual(t1.constant.slice().sort(), ['Protein_Class', 'Protein_kDa'],
+    'and the frozen attributes must be named, since those are what the user has to fix');
+  assert.deepStrictEqual(t1.varying, []);
+  assert.ok(/same protein/i.test(t1.why), t1.why);
+  // Per programme: an attribute held constant in history is untested, not merely thin.
+  assert.strictEqual(t1.perProgram[0].standing, 'untested');
+  assert.deepStrictEqual(t1.perProgram[0].noEvidence.map(x => x.field).sort(), ['Protein_Class', 'Protein_kDa']);
+
+  // With several proteins the same question is answerable, and says that instead.
+  const many = E.profile(vectorCorpus(240, 11));
+  const t2 = PG.transferability(many, ['Protein_Class', 'Protein_kDa'], programs);
+  assert.strictEqual(t2.canTransfer, true);
+  assert.strictEqual(t2.nProteins, 4);
+  assert.deepStrictEqual(t2.varying.slice().sort(), ['Protein_Class', 'Protein_kDa']);
+  assert.strictEqual(t2.perProgram[0].standing, 'supported');
+  assert.strictEqual(t2.perProgram[0].noEvidence.length, 0);
+
+  /* Two proteins is thin rather than supported: a protein effect fitted on two molecules is
+     a line through two points, and calling that "supported" would be the flattering read. */
+  const twoRows = vectorCorpus(240, 11).rows.filter(r => r[1] === 'mAb' || r[1] === 'enzyme');
+  const two = E.profile({ columns: vectorCorpus(1, 1).columns, rows: twoRows });
+  /* Asked about a protein the two-molecule history DOES contain. Asked about one it does
+     not, the honest answer is "untested" rather than "thin", which is what it gives - so
+     the thin state has to be probed with a protein that is actually in there. */
+  const t3 = PG.transferability(two, ['Protein_Class', 'Protein_kDa'],
+    [{ id: 'PRG-mAb', attributes: { Protein_Class: 'mAb', Protein_kDa: '148' } }]);
+  assert.strictEqual(t3.nProteins, 2);
+  assert.strictEqual(t3.canTransfer, true);
+  assert.strictEqual(t3.perProgram[0].standing, 'thin', 'two molecules is thin evidence, not support');
+  assert.ok(/two points/i.test(t3.why), t3.why);
+  // And a protein outside those two is untested even though the history has two molecules.
+  assert.strictEqual(PG.transferability(two, ['Protein_Class', 'Protein_kDa'], programs).perProgram[0].standing,
+    'untested', 'a molecule absent from a two-molecule history is untested, not thin');
+
+  // A class never run before, and a weight outside the historical range, are each named.
+  const t4 = PG.transferability(many, ['Protein_Class', 'Protein_kDa'], [
+    { id: 'novel-class', attributes: { Protein_Class: 'nanobody', Protein_kDa: '14' } },
+    { id: 'in-range', attributes: { Protein_Class: 'mAb', Protein_kDa: '148' } }
+  ]);
+  const novel = t4.perProgram.find(x => x.id === 'novel-class');
+  assert.strictEqual(novel.standing, 'untested');
+  assert.deepStrictEqual(novel.unseen.map(u => u.field).sort(), ['Protein_Class', 'Protein_kDa']);
+  assert.strictEqual(t4.perProgram.find(x => x.id === 'in-range').standing, 'supported');
+});
+
+test('the plan refuses a protein it cannot place, and offers a floor as well as a best bet', () => {
+  const prof = E.profile(vectorCorpus(240, 11));
+  const programs = [
+    { id: 'PRG-ok', attributes: { Protein_Class: 'bispecific', Protein_kDa: '101' } },
+    { id: 'PRG-novel', attributes: { Protein_Class: 'nanobody', Protein_kDa: '14' } }
+  ];
+  const plan = PG.plan({ profile: prof, factors: VEC_FACTORS, programs, targets: ['Titer_gL'] },
+    { seed: 42, runs: 12, confidence: 0.9 });
+
+  assert.strictEqual(plan.candidateCount, 36, 'the whole catalogue is buildable here');
+  assert.deepStrictEqual(plan.proteinCols.slice().sort(), ['Protein_Class', 'Protein_kDa']);
+  assert.strictEqual(plan.transfer.canTransfer, true);
+
+  const ok = plan.perProgram.find(p => p.id === 'PRG-ok');
+  assert.strictEqual(ok.standing, 'supported');
+  assert.strictEqual(ok.candidates, 36);
+  assert.strictEqual(ok.sheet.length, 12);
+  assert.ok(ok.bestPredicted && ok.safestChoice);
+  // The floor is never above the central estimate, and the band brackets it.
+  assert.ok(ok.bestPredicted.low < ok.bestPredicted.value && ok.bestPredicted.value < ok.bestPredicted.high);
+  assert.ok(ok.safestChoice.low >= ok.bestPredicted.low - 1e-9,
+    'the safest choice must have the best floor of any candidate');
+  assert.ok(ok.bestPredicted.value >= ok.safestChoice.value - 1e-9,
+    'and the best bet must have the best central estimate');
+  // The corpus was built so a strong promoter wins; the recommendation must reflect that.
+  assert.ok(['CMV', 'CAG'].indexOf(ok.bestPredicted.config.Promoter_Type) >= 0,
+    'a strong promoter should win here, got ' + ok.bestPredicted.config.Promoter_Type);
+  // Balance holds on the real sheet, not only on the synthetic one.
+  Object.keys(ok.balance).forEach(k => assert.ok(ok.balance[k].spread <= 1,
+    k + ' is unbalanced on the sheet: ' + JSON.stringify(ok.balance[k].counts)));
+
+  /* The refusal. A protein class nothing in the history contains cannot be mapped to the
+     nearest molecule and scored - that is precisely the move that would produce a confident
+     number with no evidence under it. */
+  const novel = plan.perProgram.find(p => p.id === 'PRG-novel');
+  assert.strictEqual(novel.standing, 'untested');
+  assert.strictEqual(novel.candidates, 0, 'nothing may be scored for an unplaceable protein');
+  assert.strictEqual(novel.bestPredicted, null);
+  assert.strictEqual(novel.balance, null, 'and an empty sheet must not report itself as balanced');
+  assert.ok(novel.unseen.length >= 1);
+
+  // A factor the history never recorded is reported rather than chosen blind.
+  const extra = PG.plan({
+    profile: prof,
+    factors: VEC_FACTORS.concat([{ name: 'Terminator', kind: 'categorical', levels: ['BGH', 'SV40pA'] }]),
+    programs: [programs[0]], targets: ['Titer_gL']
+  }, { seed: 42, runs: 8 });
+  assert.deepStrictEqual(extra.missing, ['Terminator'],
+    'a catalogue factor absent from the history must be named, not silently picked');
+});

@@ -757,3 +757,11 @@ ol.ops li span { grid-column: 2; grid-row: 2; font-size: .83rem; line-height: 1.
 .dept-job dt.wont, .dept-job dd.wont { color: var(--bad); }
 .dept-job dd.wont { opacity: .95; }
 .dept-honest { margin: 10px 0; }
+
+/* The original slider desk, kept but folded away: the four-step flow above is the path,
+   and the levers were the thing that made it the wrong shape for planning a programme. */
+.legacy-tool { max-width: 1060px; margin: 8px auto 0; padding: 0 20px; }
+.legacy-tool > summary { cursor: pointer; padding: 10px 0; color: var(--muted); font-size: .92rem; }
+.legacy-tool > summary b { color: var(--ink); margin-right: 8px; }
+.legacy-tool > summary .hint { display: block; margin-top: 2px; }
+.legacy-tool[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 8px; }

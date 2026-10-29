@@ -32,11 +32,11 @@
       blurb: 'Constructs, clones, feeds and bioreactor runs: what to build, what to run, and what the run is telling you.',
       jobs: [
         {
-          title: 'Choose a vector or construct before committing to build it',
+          title: 'Pick the vector for a programme that has not started yet',
           tool: 'plasmid',
-          data: 'One row per construct already screened: promoter, enhancer, codon adaptation index, plasmid size, selection marker, expression mode, seed density, and the titer or specific productivity it gave. Twelve complete runs is the minimum.',
-          out: 'Predicted titer and specific productivity with an interval that widens honestly as the construct moves away from what you have screened. A promoter nobody here has used is mapped to the nearest one that has been, and the substitution is named.',
-          not: 'It does not design the plasmid, pick restriction sites, or predict whether the protein will fold. A construct using a level nobody can place is refused rather than quietly scored as the commonest one.'
+          data: 'Three files, Excel or CSV: the runs you have already screened (with the protein each was for), the factors and levels you can actually order, and the incoming programme\u2019s protein attributes. Twelve complete runs is the minimum.',
+          out: 'A balanced run sheet per programme: which vector to build, its predicted titer with a calibrated interval, and which rows reach past your evidence. Two recommendations where they differ \u2014 the best central estimate and the best worst case.',
+          not: 'It does not design the plasmid, pick restriction sites, or predict folding. And if every historical run is the same molecule, it will not pretend to know how a different one behaves \u2014 it says the history cannot answer that, rather than returning a confident number with a narrow band.'
         },
         {
           title: 'Forecast a screening programme before the reagents are ordered',
