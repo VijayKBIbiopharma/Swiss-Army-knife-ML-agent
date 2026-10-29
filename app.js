@@ -1504,6 +1504,14 @@
   /* One tool on screen at a time. A selector rather than a row of tabs, because the list
      keeps growing and tabs stop fitting; each panel wraps whole sections, so the sections
      keep their own hidden logic (step 2 appears once data is loaded, and so on) untouched. */
+  /* Short names for the button that routes a department job to its tool. The selector's
+     own labels name the technique; these name the destination the way somebody arriving
+     from a job would recognise it. */
+  const TOOLS_SHORT = {
+    analyze: 'the ML agent', stability: 'shelf life', golden: 'batch monitoring',
+    equivalence: 'method transfer', variance: 'variance & Gage R&R', limits: 'limits & study size',
+    plasmid: 'the vector sandbox', sequence: 'the sequence optimizer', privacy: 'privacy & data handling'
+  };
   const TOOLS = {
     analyze: 'Regression, classification, clustering and neural networks on a table of data, with the drivers named in plain English and the next experiment designed for you.',
     stability: 'Fit a trend against time, test whether batches may be pooled, and take the date off the confidence limit rather than the fitted line.',
@@ -1515,6 +1523,72 @@
     sequence: 'A genetic algorithm searching several competing objectives at once, pointed here at codon optimization.',
     privacy: 'How the tool keeps your data on your own device, and how to check that for yourself.'
   };
+
+  /* The department workbench: the same nine tools entered from the job rather than the
+     method. The selector above names techniques, which is right for someone who already
+     knows which one they want and wrong for everyone else - nobody arrives looking for
+     "variance components", they arrive because purity moves between resin lots and nobody
+     can say whether it is the resin or the assay.
+
+     Every job carries what it will NOT do, and that field is rendered, not tucked into a
+     tooltip. Two of these departments want documents written and this page cannot write a
+     document; a regulatory writer told otherwise finds out at the worst moment and is then
+     right to distrust everything else here. */
+  let myDept = '';
+  function renderDepartments(tool) {
+    const DL = window.MLDepartments || [];
+    const el = $('tool-depts');
+    if (!DL.length) { el.innerHTML = ''; el.hidden = true; return; }
+    el.hidden = false;
+    const d = DL.find(x => x.id === myDept);
+    const picker = '<label>My department <select id="dept-pick"><option value="">Choose one\u2026</option>' +
+      DL.map(x => '<option value="' + x.id + '"' + (x.id === myDept ? ' selected' : '') + '>' + h(x.name) + '</option>').join('') +
+      '</select></label>';
+    let body = '';
+    if (d) {
+      body = '<p class="apps-scope">' + h(d.blurb) + '</p>' +
+        (d.honesty ? '<div class="plain marginal dept-honest"><h4>What this will not do for you</h4><p>' + h(d.honesty) + '</p></div>' : '') +
+        '<div class="dept-jobs">' + d.jobs.map((j, i) => {
+          const here = j.tool === tool;
+          return '<div class="dept-job' + (here ? ' here' : '') + '">' +
+            '<h4>' + h(j.title) + '</h4>' +
+            '<dl><dt>Bring</dt><dd>' + h(j.data) + '</dd>' +
+            '<dt>Get back</dt><dd>' + h(j.out) + '</dd>' +
+            '<dt class="wont">Will not</dt><dd class="wont">' + h(j.not) + '</dd></dl>' +
+            '<div class="row-actions"><button class="btn ' + (here ? '' : 'primary') + '" type="button" data-dept-go="' + i + '">' +
+            (here ? 'You are on this tool' : 'Open ' + h(TOOLS_SHORT[j.tool] || j.tool)) + '</button>' +
+            (j.sample ? '<button class="btn ghost small" type="button" data-dept-sample="' + i + '">Open with practice data</button>' : '') +
+            '</div></div>';
+        }).join('') + '</div>' +
+        '<p class="apps-note"><b>Across this department.</b> ' + h(d.cannot) + '</p>';
+    }
+    el.innerHTML = '<details class="applications" id="dept-details"' + (deptOpen ? ' open' : '') + '>' +
+      '<summary><b>Start from my job, not the method</b><span class="hint">' +
+      (d ? h(d.name) : 'Upstream, regulatory writing, QA, business development') + '</span></summary>' +
+      '<div class="apps-body"><div class="apps-pick">' + picker + '</div>' + body + '</div></details>';
+    $('dept-details').addEventListener('toggle', e => { deptOpen = e.target.open; });
+    $('dept-pick').addEventListener('change', e => { myDept = e.target.value; renderDepartments(tool); });
+    el.querySelectorAll('[data-dept-go]').forEach(b => b.addEventListener('click', () => {
+      const j = d.jobs[Number(b.getAttribute('data-dept-go'))];
+      showTool(j.tool, true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }));
+    el.querySelectorAll('[data-dept-sample]').forEach(b => b.addEventListener('click', () => {
+      const j = d.jobs[Number(b.getAttribute('data-dept-sample'))];
+      showTool(j.tool, true);
+      loadNamedSample(j.sample);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }));
+  }
+  let deptOpen = false;
+  /* Loads a practice dataset by id, the same way the sample buttons do, so a department
+     job can land somebody on the right tool with something already in it. */
+  function loadNamedSample(id) {
+    const s = (window.MLSamples || []).find(x => x.id === id);
+    if (!s) return;
+    if (s.files) { loadText(s.files[0].make(), s.files[0].name, s.target); stageSecond(s.files[1].make(), s.files[1].name); return; }
+    loadText(s.make(), s.title + ' (practice data)', s.target);
+  }
 
   /* Under the selector: what the chosen technique is used for across industries, so the
      page can be shown to people who know the problem but not the method. The write-ups are
@@ -1567,6 +1641,7 @@
     if (!TOOL_NAMES.includes(name)) name = 'analyze';
     if ($('tool').value !== name) $('tool').value = name;
     $('tool-desc').textContent = TOOLS[name];
+    renderDepartments(name);
     renderApplications(name);
     TOOL_NAMES.forEach(n => { $('tab-' + n).hidden = n !== name; });
     // A link can be shared or bookmarked straight to one tool.

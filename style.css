@@ -744,3 +744,16 @@ ol.ops li span { grid-column: 2; grid-row: 2; font-size: .83rem; line-height: 1.
 .chart .bar-ok { fill: var(--s3); } .chart .bar-bad { fill: var(--bad); }
 .demo-read b.warn { color: var(--warn); }
 
+
+/* Department workbench: job cards that route to a tool. The "will not" row is styled to
+   be read, not skimmed past - it is the row that keeps the rest of the page honest. */
+.dept-jobs { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); margin: 12px 0; }
+.dept-job { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--surface-2); }
+.dept-job.here { border-color: var(--accent); }
+.dept-job h4 { margin: 0 0 8px; font-size: .97rem; }
+.dept-job dl { margin: 0 0 10px; }
+.dept-job dt { font-size: .74rem; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-top: 7px; }
+.dept-job dd { margin: 2px 0 0; font-size: .88rem; }
+.dept-job dt.wont, .dept-job dd.wont { color: var(--bad); }
+.dept-job dd.wont { opacity: .95; }
+.dept-honest { margin: 10px 0; }

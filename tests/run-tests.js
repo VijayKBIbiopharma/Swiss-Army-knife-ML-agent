@@ -2734,3 +2734,112 @@ test('permutation standard error understates the real spread, by a measured amou
   assert.ok(worst.ratio > 2, 'at least one driver must understate badly enough to be worth the warning: ' +
     ratios.map(x => x.name + ' ' + x.ratio.toFixed(2) + 'x').join(', '));
 });
+
+const DEPTS = require(path.join(ROOT, 'departments.js'));
+const APPS = require(path.join(ROOT, 'applications.js'));
+
+/* A workbench that routes somewhere no longer there is worse than no workbench: it fails
+   in front of whoever trusted it. These are referential-integrity checks against the real
+   tool selector and the real practice datasets, read out of index.html and samples.js
+   rather than restated here, so renaming a tool breaks the build instead of the page. */
+test('every department job routes to a tool and a dataset that exist', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  // The tool ids the selector actually offers.
+  const sel = html.slice(html.indexOf('<select id="tool">'), html.indexOf('</select>', html.indexOf('<select id="tool">')));
+  const tools = Array.from(sel.matchAll(/<option value="([a-z]+)"/g)).map(m => m[1]);
+  assert.ok(tools.length >= 8, 'the tool selector should have been found: ' + tools.join(','));
+  // And the panels those ids need, since showTool unhides #tab-<id>.
+  for (const t of tools) assert.ok(html.indexOf('id="tab-' + t + '"') >= 0, 'no panel for tool ' + t);
+
+  const samples = require(path.join(ROOT, 'samples.js')).map(s => s.id);
+  assert.ok(samples.length >= 5);
+
+  assert.ok(DEPTS.length >= 4, 'the four requested departments must be present');
+  const ids = DEPTS.map(d => d.id);
+  assert.strictEqual(new Set(ids).size, ids.length, 'department ids must be unique');
+  // The functions these benches claim to serve must exist in the function list already
+  // shipped, so the two structures cannot drift apart.
+  const fns = APPS.FUNCTIONS.map(f => f[0]);
+  for (const d of DEPTS) {
+    if (d.fn) assert.ok(fns.indexOf(d.fn) >= 0, d.id + ' claims function "' + d.fn + '" which is not in FUNCTIONS');
+    assert.ok(d.name && d.blurb, d.id + ' needs a name and a blurb');
+    assert.ok(d.jobs.length >= 3, d.id + ' needs at least three jobs');
+    for (const j of d.jobs) {
+      assert.ok(tools.indexOf(j.tool) >= 0, d.id + ': job "' + j.title + '" routes to "' + j.tool + '", which the selector does not offer');
+      if (j.sample) assert.ok(samples.indexOf(j.sample) >= 0, d.id + ': job "' + j.title + '" wants sample "' + j.sample + '", which does not exist');
+    }
+  }
+  // Every tool a job routes to must have a short label, or the button reads as a raw id.
+  const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  const shortBlock = app.slice(app.indexOf('const TOOLS_SHORT = {'), app.indexOf('};', app.indexOf('const TOOLS_SHORT = {')));
+  for (const d of DEPTS) for (const j of d.jobs) {
+    assert.ok(shortBlock.indexOf(j.tool + ':') >= 0, 'no short label for tool ' + j.tool);
+  }
+});
+
+test('every department states what it will not do, and none claims to write documents', () => {
+  for (const d of DEPTS) {
+    /* The field this file mostly exists for. A job that lists only what you get is an
+       advertisement; the refusal is what makes the rest of it trustworthy. */
+    assert.ok(d.cannot && d.cannot.length > 40, d.id + ' must say what it cannot do across the department');
+    for (const j of d.jobs) {
+      assert.ok(j.not && j.not.length > 40, d.id + ': job "' + j.title + '" must carry a substantive "will not"');
+      assert.ok(j.data && j.data.length > 20, d.id + ': job "' + j.title + '" must say what data to bring');
+      assert.ok(j.out && j.out.length > 20, d.id + ': job "' + j.title + '" must say what comes back');
+    }
+  }
+
+  /* The two benches whose users want prose must say, in their own text, that they do not
+     get prose here. This tool has no language model by deliberate choice, and a regulatory
+     writer who discovers that late is then right to distrust everything else. */
+  const text = d => [d.blurb, d.honesty || '', d.cannot].concat(d.jobs.map(j => j.title + ' ' + j.data + ' ' + j.out + ' ' + j.not)).join(' ');
+  for (const id of ['regwriting', 'bd']) {
+    const d = DEPTS.find(x => x.id === id);
+    assert.ok(d, id + ' must exist');
+    assert.ok(d.honesty && d.honesty.length > 60, id + ' must carry an up-front honesty statement');
+    assert.ok(/will not (write|build)|not write|no language model/i.test(d.honesty),
+      id + ' must say plainly that it does not author the document: ' + d.honesty);
+  }
+
+  /* And nowhere may any bench promise authoring, drafting or slide-making. Checked across
+     every field so a later edit cannot slip one in through a job description.
+
+     The intervening-words allowance matters: an earlier version of this guard required the
+     noun to sit directly after "your", so "it drafts your technical development report"
+     walked straight through it. A guard that cannot fail is not a guard, so the violations
+     it has to catch are asserted below alongside the content itself. */
+  const FORBIDDEN = /\b(drafts?|writes?|authors?|generates?|assembles?|formats?)\s+(your|the|a|an)\s+((?:\w+[ -]){0,4})(report|protocol|document|deck|slides?|narrative|proposal|summary|section|memo)\b/i;
+  const promisesAuthoring = t => {
+    const hit = t.match(FORBIDDEN);
+    if (!hit) return false;
+    const before = t.slice(Math.max(0, hit.index - 45), hit.index);
+    // "will not write your document" is a sentence we require, so a negated claim is fine.
+    return !/\b(not|never|cannot|without|no)\b[\w\s,'-]{0,45}$/i.test(before);
+  };
+  // The guard must actually bite. These are the phrasings a later edit would plausibly add.
+  for (const bad of [
+    'It drafts your technical development report automatically.',
+    'This generates the deck for your client meeting.',
+    'The tool writes the protocol section for you.',
+    'It assembles the filing document for you.',
+    'It formats your stability summary to template.'
+  ]) assert.strictEqual(promisesAuthoring(bad), true, 'the authoring guard failed to catch: ' + bad);
+  // And must not fire on the refusals the benches are required to carry.
+  for (const good of [
+    'It will not write your document.',
+    'This page cannot write the narrative.',
+    'It does not write the narrative, format to your template, or cite the guideline text.',
+    'No slides, no proposal text, no formatting to your brand.'
+  ]) assert.strictEqual(promisesAuthoring(good), false, 'the authoring guard fired on honest text: ' + good);
+
+  for (const d of DEPTS) {
+    assert.strictEqual(promisesAuthoring(text(d)), false, d.id + ' appears to promise document authoring');
+  }
+  // Each of the four requested departments is present, by the job they were asked for.
+  const byId = Object.fromEntries(DEPTS.map(d => [d.id, d]));
+  assert.ok(byId.upstream.jobs.some(j => j.tool === 'plasmid'), 'upstream must reach the vector sandbox');
+  assert.ok(byId.regwriting.jobs.some(j => j.tool === 'stability'), 'regulatory writing must reach shelf life');
+  assert.ok(byId.qa.jobs.some(j => j.tool === 'golden'), 'QA must reach batch monitoring for deviations');
+  assert.ok(byId.qa.jobs.some(j => j.tool === 'variance'), 'QA must reach Gage R&R: is it the process or the assay');
+  assert.ok(byId.bd.jobs.some(j => j.tool === 'limits'), 'business development must reach defensible limits');
+});
