@@ -258,6 +258,9 @@ progress { flex: 1; height: 10px; accent-color: var(--steel); }
 .chart .bar.hi { fill: var(--steel); }
 .chart .bar.accent { fill: var(--accent); }
 .chart .ref { stroke: var(--bad); stroke-dasharray: 4 3; stroke-width: 1.5; }
+/* Whiskers on a bar chart: the spread behind a bar, so an order nobody can support does
+   not read as one. Stroke only, so it stays legible over the bar beneath it. */
+.chart .errbar { stroke: var(--ink); stroke-width: 1.4; fill: none; opacity: .7; }
 .chart .diag { stroke: var(--muted); stroke-dasharray: 4 4; }
 .chart .dot { fill: var(--steel); fill-opacity: .75; stroke: var(--surface); stroke-width: 1.5; }
 .chart .line { fill: none; stroke: var(--steel); stroke-width: 2; }
@@ -740,3 +743,4 @@ ol.ops li span { grid-column: 2; grid-row: 2; font-size: .83rem; line-height: 1.
 .plain .hint { margin-top: 6px; }
 .chart .bar-ok { fill: var(--s3); } .chart .bar-bad { fill: var(--bad); }
 .demo-read b.warn { color: var(--warn); }
+

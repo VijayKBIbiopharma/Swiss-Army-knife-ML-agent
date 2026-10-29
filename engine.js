@@ -1009,22 +1009,30 @@
   }
 
   // How much the score drops when one original column is scrambled.
-  function permutationImportance(full, data, task, seed) {
+  function permutationImportance(full, data, task, seed, opt) {
+    opt = opt || {};
     const { enc, X, fitted } = full;
     const K = data.classes ? data.classes.length : 0;
     const score = pred => task === 'regression' ? regressionMetrics(data.y, pred).r2 : classificationMetrics(data.y, pred, K).balancedAccuracy;
     const base = score(fitted.predict(X));
     const rand = rng(seed);
+    const reps = Math.max(2, opt.reps || 3);
     return enc.parts.map((part, gi) => {
       const cols = []; enc.groups.forEach((g, j) => { if (g === gi) cols.push(j); });
-      let drop = 0;
-      const reps = 3;
+      /* Each shuffle gives its own reading. The mean was always what got reported; keeping
+         the individual readings costs nothing and is the only thing that says whether the
+         ranking would survive the dice being thrown again. */
+      const drops = [];
       for (let rep = 0; rep < reps; rep++) {
         const perm = shuffle(range(X.length), rand);
         const Xp = X.map((r, i) => { const o = r.slice(); for (const j of cols) o[j] = X[perm[i]][j]; return o; });
-        drop += (base - score(fitted.predict(Xp))) / reps;
+        drops.push(base - score(fitted.predict(Xp)));
       }
-      return { name: part.col.name, importance: Math.max(0, drop) };
+      const m = mean(drops);
+      // The standard error of the mean across shuffles. It covers the permutation noise
+      // only - the data and the fit are held fixed - and callers are told as much.
+      const se = reps > 1 ? sd(drops) / Math.sqrt(reps) : 0;
+      return { name: part.col.name, importance: Math.max(0, m), raw: m, se, reps };
     }).sort((a, b) => b.importance - a.importance);
   }
 

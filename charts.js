@@ -47,7 +47,17 @@
       b += '<rect class="hit" x="0" y="' + y + '" width="' + W + '" height="' + rowH + '"/>';
       b += '<text x="' + (left - 8) + '" y="' + (y + rowH / 2 + 4) + '" text-anchor="end"' + (it.cls && it.cls.indexOf('hi') >= 0 ? ' class="lbl-strong"' : '') + '>' + esc(trunc(it.label, labelChars)) + '</text>';
       b += '<rect class="bar ' + (it.cls || '') + '" x="' + bx + '" y="' + (y + 6) + '" width="' + bw + '" height="' + (rowH - 12) + '" rx="3"/>';
-      b += '<text x="' + (Math.max(x0, x1) + 6) + '" y="' + (y + rowH / 2 + 4) + '"' + (it.cls && it.cls.indexOf('hi') >= 0 ? ' class="lbl-strong"' : '') + '>' + esc(it.text || fmt(it.value)) + '</text>';
+      /* An optional whisker. A bar with no sense of its own noise invites a reader to rank
+         things the data cannot order, so where a caller can supply a spread it is drawn. */
+      let endX = Math.max(x0, x1);
+      if (isFinite(it.err) && it.err > 0) {
+        const e0 = x(it.value - it.err), e1 = x(it.value + it.err), ym = y + rowH / 2;
+        b += '<line class="errbar" x1="' + e0 + '" x2="' + e1 + '" y1="' + ym + '" y2="' + ym + '"/>';
+        b += '<line class="errbar" x1="' + e0 + '" x2="' + e0 + '" y1="' + (ym - 4) + '" y2="' + (ym + 4) + '"/>';
+        b += '<line class="errbar" x1="' + e1 + '" x2="' + e1 + '" y1="' + (ym - 4) + '" y2="' + (ym + 4) + '"/>';
+        endX = Math.max(endX, e1);
+      }
+      b += '<text x="' + (endX + 6) + '" y="' + (y + rowH / 2 + 4) + '"' + (it.cls && it.cls.indexOf('hi') >= 0 ? ' class="lbl-strong"' : '') + '>' + esc(it.text || fmt(it.value)) + '</text>';
       b += '</g>';
     });
     b += '<line class="axis" x1="' + x(Math.max(lo, 0)) + '" x2="' + x(Math.max(lo, 0)) + '" y1="' + top + '" y2="' + (H - bottom) + '"/>';

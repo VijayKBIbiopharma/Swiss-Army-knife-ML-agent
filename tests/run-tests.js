@@ -2481,3 +2481,256 @@ test('a fixed multiple of sigma collapses outside the data where the conformal b
   const widening = co.width / ci.width;
   assert.ok(widening > 1.4 && widening < 2.0, 'README quotes a 1.66x widening; measured ' + widening.toFixed(3));
 });
+
+const UNC = require(path.join(ROOT, 'uncertainty.js'));
+
+/* A regression whose noise grows with x1, which is the shape where one number for the whole
+   dataset - an RMSE, a residual sigma - misleads worst. */
+function uncCorpus(n, seed, opt) {
+  opt = opt || {};
+  const r = E.rng(seed), rows = [];
+  const nz = () => { const u = Math.max(1e-9, r()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+  for (let i = 0; i < n; i++) {
+    const x1 = (opt.lo1 || 0) + r() * ((opt.hi1 || 10) - (opt.lo1 || 0));
+    const x2 = (opt.lo2 || 0) + r() * ((opt.hi2 || 5) - (opt.lo2 || 0));
+    const g = ['A', 'B', 'C'][Math.floor(r() * 3)];
+    const noise = 0.4 + 0.25 * x1;
+    const y = 3 + 1.8 * x1 - 0.9 * x2 + (g === 'A' ? 2 : g === 'B' ? 0 : -1.5) + 0.05 * x1 * x1 + nz() * noise;
+    rows.push([x1.toFixed(4), x2.toFixed(4), g, y.toFixed(4)]);
+  }
+  return { columns: ['x1', 'x2', 'grp', 'y'], rows };
+}
+const UNC_FEATS = ['x1', 'x2', 'grp'];
+
+/* Picks a winner by cross-validation the way the agent does, then holds a slice back from a
+   second fit to calibrate the band - which is the arrangement the agent actually ships. */
+function uncFit(table, seed) {
+  const prof = E.profile(table);
+  const tcol = prof.columns.find(c => c.name === 'y');
+  const fcols = UNC_FEATS.map(nm => prof.columns.find(c => c.name === nm));
+  const data = E.supervisedData(prof, tcol, fcols, 'regression');
+  const n = data.rows.length, k = 5;
+  const folds = E.makeFolds(n, k, E.rng(seed));
+  const cands = E.MODELS.filter(m => m.task !== 'classification' && m.id !== 'baseline' && (!m.applicable || m.applicable(n, fcols.length)));
+  let best = null;
+  for (const m of cands) {
+    try {
+      const oof = E.crossValidate(m, data, 'regression', folds, k, seed);
+      const r2 = E.regressionMetrics(data.y, oof).r2;
+      if (!isFinite(r2)) continue;
+      if (!best || r2 > best.r2 + 0.01 || (Math.abs(r2 - best.r2) <= 0.01 && m.complexity < best.m.complexity)) best = { m, r2, oof };
+    } catch (err) { /* a model that cannot fit this shape does not compete */ }
+  }
+  const full = E.fitFull(best.m, data, 'regression', seed);
+  const order = E.shuffle(E.range(n), E.rng(seed + 5));
+  const nCal = Math.max(8, Math.round(n * 0.3));
+  const sub = idx => ({ rows: idx.map(i => data.rows[i]), y: idx.map(i => data.y[i]), classes: null, featureCols: data.featureCols });
+  const fitPart = sub(order.slice(nCal)), calPart = sub(order.slice(0, nCal));
+  const partial = E.fitFull(best.m, fitPart, 'regression', seed);
+  const calX = partial.enc.transform(calPart.rows);
+  const cal = UNC.calibrate({ trainX: partial.X, calX, calY: calPart.y, calPred: partial.fitted.predict(calX) }, {});
+  return { data, full, best, cal };
+}
+
+test('the prediction band widens away from the data, where a fixed sigma cannot', () => {
+  const F = uncFit(uncCorpus(300, 11), 7);
+  assert.ok(F.cal, 'a calibrator must be built');
+  assert.ok(F.cal.nCal >= 8);
+  // The ceiling the calibration slice implies, which is what stops a 99% band being offered
+  // off 90 rows as though the arithmetic could back it.
+  assert.ok(Math.abs(F.cal.maxConf - F.cal.nCal / (F.cal.nCal + 1)) < 1e-12);
+  assert.strictEqual(F.cal.supports(0.95), true);
+  assert.strictEqual(F.cal.supports(0.999), false);
+
+  // The residual spread a fixed band would use, measured on the rows it was fitted on.
+  const trainPred = F.full.fitted.predict(F.full.X);
+  let se = 0;
+  for (let i = 0; i < F.data.y.length; i++) { const d = F.data.y[i] - trainPred[i]; se += d * d; }
+  const sigma = Math.sqrt(se / Math.max(1, F.data.y.length - 1));
+
+  const cover = (table, mode, conf) => {
+    const tp = E.profile(table), tc = tp.columns.find(c => c.name === 'y');
+    let ins = 0, w = 0, n = 0;
+    for (let i = 0; i < tp.nRows; i++) {
+      const o = {}; tp.columns.forEach(c => { o[c.name] = c.values[i]; });
+      const x = F.full.enc.encodeValues(o);
+      const yh = F.full.fitted.predict([x])[0];
+      const half = mode === 'fixed' ? 1.959964 * sigma : F.cal.halfWidth(x, conf);
+      if (Math.abs(tc.values[i] - yh) <= half) ins++;
+      w += 2 * half; n++;
+    }
+    return { cov: ins / n, width: w / n };
+  };
+  const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+  const insides = [77, 78, 79, 80].map(s => uncCorpus(900, s));
+  const outsides = [81, 82, 83, 84].map(s => uncCorpus(900, s, { lo1: 12, hi1: 18, lo2: 6, hi2: 9 }));
+
+  const fi = avg(insides.map(t => cover(t, 'fixed', 0.95).cov));
+  const fo = avg(outsides.map(t => cover(t, 'fixed', 0.95).cov));
+  const ci = avg(insides.map(t => cover(t, 'conf', 0.95).cov));
+  const co = avg(outsides.map(t => cover(t, 'conf', 0.95).cov));
+  const wi = avg(insides.map(t => cover(t, 'conf', 0.95).width));
+  const wo = avg(outsides.map(t => cover(t, 'conf', 0.95).width));
+  const wf = avg(insides.map(t => cover(t, 'fixed', 0.95).width));
+  const wfo = avg(outsides.map(t => cover(t, 'fixed', 0.95).width));
+
+  /* The claim the UI makes, pinned. A fixed 1.96-sigma band is fine inside the data and
+     collapses outside it, because its width cannot depend on where the question is asked. */
+  assert.ok(fi > 0.90, 'the fixed band should look fine inside the data: ' + fi.toFixed(3));
+  assert.ok(fo < 0.55, 'and must be shown to collapse outside it: ' + fo.toFixed(3));
+  assert.ok(Math.abs(wf - wfo) < 1e-6, 'a fixed band cannot widen; that is the whole point');
+  assert.ok(fi - fo > 0.35, 'coverage it loses on leaving the data: ' + (fi - fo).toFixed(3));
+
+  /* The conformal band is approximately calibrated inside the data - approximately, because
+     the model is refit on every row while the band comes from a model fitted on part of
+     them, so the two are not perfectly exchangeable. The tolerance is stated rather than
+     hidden, and README quotes the measured figure. */
+  assert.ok(ci >= 0.95 - 0.03, 'inside the data the band must hold near its nominal 0.95: ' + ci.toFixed(3));
+  assert.ok(ci <= 0.95 + 0.04, 'and must not be uselessly wide inside either: ' + ci.toFixed(3));
+  // Outside, it must keep far more coverage than the fixed band, and widen to do it.
+  assert.ok(co > 0.90, 'outside the data the band must hold up: ' + co.toFixed(3));
+  assert.ok(co > fo + 0.3, 'and must beat the fixed band where it matters: ' + fo.toFixed(3) + ' vs ' + co.toFixed(3));
+  assert.ok(wo / wi > 2, 'it can only do that by widening: ' + (wo / wi).toFixed(2) + 'x');
+
+  // Asking for more confidence must widen the band, never narrow it.
+  assert.ok(avg(insides.map(t => cover(t, 'conf', 0.95).width)) > avg(insides.map(t => cover(t, 'conf', 0.8).width)));
+  // And a point sitting on the data is nearer than one well outside it.
+  const near = {}, far = {};
+  E.profile(uncCorpus(1, 5)).columns.forEach(c => { near[c.name] = c.values[0]; });
+  Object.assign(far, near, { x1: 40, x2: 25 });
+  assert.ok(F.cal.distance(F.full.enc.encodeValues(far)) > F.cal.distance(F.full.enc.encodeValues(near)),
+    'distance must grow as the question leaves the data');
+
+  // Too few rows and no band is offered at all, rather than one built on four residuals.
+  assert.strictEqual(UNC.calibrate({ trainX: [[0], [1]], calX: [[0]], calY: [1], calPred: [1] }, {}), null);
+});
+
+test('the model score is reported as a range, and small samples widen it', () => {
+  const widths = [];
+  for (const n of [30, 60, 150, 600]) {
+    const F = uncFit(uncCorpus(n, 31), 7);
+    const su = UNC.scoreUncertainty(F.data.y, F.best.oof, 'regression', { p: 3, seed: 5 });
+    assert.ok(su, 'a score range must be produced at n=' + n);
+    // The point estimate must be the score itself, not a resampled average.
+    assert.ok(Math.abs(su.metric - E.regressionMetrics(F.data.y, F.best.oof).r2) < 1e-9);
+    assert.ok(su.lo < su.metric && su.metric < su.hi, 'the range must bracket the score at n=' + n);
+    assert.ok(su.se > 0);
+    assert.strictEqual(su.n, n);
+    assert.ok(Math.abs(su.rowsPerFeature - n / 3) < 1e-9);
+    widths.push({ n, w: su.hi - su.lo });
+  }
+  /* The point of reporting it. Thirty rows cannot pin a score to three decimals, and the
+     range has to shrink as rows arrive or it is not measuring anything. */
+  assert.ok(widths[0].w > 0.06, 'at n=30 the score range must be visibly wide: ' + widths[0].w.toFixed(3));
+  assert.ok(widths[3].w < widths[0].w / 2, 'and must tighten with rows: ' +
+    widths.map(x => x.n + ':' + x.w.toFixed(3)).join(' '));
+  for (let i = 1; i < widths.length; i++) {
+    assert.ok(widths[i].w <= widths[i - 1].w + 0.02, 'the range must not grow with more rows: ' +
+      widths.map(x => x.n + ':' + x.w.toFixed(3)).join(' '));
+  }
+  // Below the floor it refuses rather than quoting a range off a handful of rows.
+  assert.strictEqual(UNC.scoreUncertainty([1, 2, 3], [1, 2, 3], 'regression', {}), null);
+});
+
+test('the driver ranking reports whether it is an order or a coin toss', () => {
+  const F = uncFit(uncCorpus(300, 11), 7);
+  const imp = E.permutationImportance(F.full, F.data, 'regression', 7, { reps: 10 });
+  // The spread across shuffles is kept now, not averaged away.
+  assert.ok(imp.every(v => isFinite(v.se) && v.se >= 0), 'every driver needs a standard error');
+  assert.ok(imp.every(v => v.reps === 10));
+  assert.ok(imp.some(v => v.se > 0), 'and at least one must actually vary between shuffles');
+  // x1 carries the signal here by construction, so it must lead and lead clearly.
+  const rk = UNC.rankReliability(imp);
+  assert.strictEqual(rk.top, 'x1');
+  assert.strictEqual(rk.topClear, true, 'x1 is the dominant driver and must separate from the second');
+  assert.deepStrictEqual(rk.tiedWithTop, []);
+
+  /* Three columns that carry nothing must NOT come back as an order - and the obvious test
+     for that does not work, which is the point of this block. Permutation importance is
+     read off the rows the model was fitted on, so a model leans on any column it is handed:
+     these three pure-noise columns come back at 0.005 to 0.007 with standard errors near
+     0.002, "significant" by their own spread and completely meaningless. So the reference
+     has to be measured, by shuffling the target and asking the same model again. */
+  const r = E.rng(3);
+  const noise = { columns: ['a', 'b', 'c', 'y'], rows: E.range(200).map(() => [r().toFixed(4), r().toFixed(4), r().toFixed(4), (r() * 10).toFixed(4)]) };
+  const np = E.profile(noise);
+  const ncols = ['a', 'b', 'c'].map(nm => np.columns.find(c => c.name === nm));
+  const nd = E.supervisedData(np, np.columns.find(c => c.name === 'y'), ncols, 'regression');
+  const lin = E.MODELS.find(m => m.id === 'linear');
+  const nfull = E.fitFull(lin, nd, 'regression', 7);
+  const nimp = E.permutationImportance(nfull, nd, 'regression', 7, { reps: 10 });
+  // First, the trap itself, asserted so nobody reinstates the wrong test.
+  assert.ok(nimp.every(v => v.importance > 0), 'pure noise still scores positive importance, which is the trap');
+  assert.ok(nimp.some(v => v.importance > 1.959964 * v.se),
+    'and at least one looks "significant" against its own permutation spread, which is why that test is wrong');
+
+  const floorOf = (data, model, seed) => {
+    let w = 0; const S = 2;
+    for (let t = 0; t < S; t++) {
+      const ys = E.shuffle(data.y.slice(), E.rng(seed + 400 + t));
+      const ndata = { rows: data.rows, y: ys, classes: data.classes, featureCols: data.featureCols };
+      const nf = E.fitFull(model, ndata, 'regression', seed);
+      w += E.permutationImportance(nf, ndata, 'regression', seed, { reps: 4 }).reduce((mx, v) => Math.max(mx, v.importance), 0) / S;
+    }
+    return w;
+  };
+  const nFloor = floorOf(nd, lin, 7);
+  const nrk = UNC.rankReliability(nimp, { floor: nFloor });
+  assert.strictEqual(nrk.topClear, false, 'pure noise must not produce a defensible top driver');
+  assert.strictEqual(nrk.topAboveFloor, false, 'and not one of them may clear the shuffled-target floor');
+  assert.strictEqual(nrk.belowFloor.length, 3, 'all three must read as carrying no evidence');
+  assert.ok(nFloor > nimp[0].importance, 'the floor must sit above every noise importance: ' +
+    nFloor.toFixed(5) + ' vs ' + nimp[0].importance.toFixed(5));
+
+  /* And the floor must not swallow a real driver. One genuine input beside one junk column:
+     the real one clears the floor by orders of magnitude, the junk one does not. */
+  const r2 = E.rng(9);
+  const mix = { columns: ['x1', 'junk', 'y'], rows: E.range(200).map(() => { const x = r2() * 10, j = r2(); return [x.toFixed(4), j.toFixed(4), (3 + 1.8 * x + (r2() - 0.5)).toFixed(4)]; }) };
+  const mp = E.profile(mix);
+  const mcols = ['x1', 'junk'].map(nm => mp.columns.find(c => c.name === nm));
+  const md = E.supervisedData(mp, mp.columns.find(c => c.name === 'y'), mcols, 'regression');
+  const mfull = E.fitFull(lin, md, 'regression', 7);
+  const mimp = E.permutationImportance(mfull, md, 'regression', 7, { reps: 10 });
+  const mrk = UNC.rankReliability(mimp, { floor: floorOf(md, lin, 7) });
+  assert.strictEqual(mrk.top, 'x1');
+  assert.strictEqual(mrk.topAboveFloor, true, 'a real driver must clear the floor');
+  assert.deepStrictEqual(mrk.belowFloor, ['junk'], 'and only the junk column must fall below it');
+
+  // What the standard error covers is stated, because presenting it as the whole
+  // uncertainty is the flattering reading and the tool must not take it.
+  assert.ok(/permutation|shuffl/i.test(rk.seCovers), rk.seCovers);
+  assert.ok(/sampl/i.test(rk.seOmits), rk.seOmits);
+  assert.strictEqual(UNC.rankReliability([{ name: 'only', importance: 1, se: 0 }]), null);
+  // With no floor measured, nothing is claimed about the floor rather than a default assumed.
+  const noFloor = UNC.rankReliability(imp);
+  assert.strictEqual(noFloor.floor, null);
+  assert.strictEqual(noFloor.topAboveFloor, null);
+  assert.deepStrictEqual(noFloor.belowFloor, []);
+});
+
+test('permutation standard error understates the real spread, by a measured amount', () => {
+  /* The caveat the UI prints, measured rather than hand-waved. The permutation standard
+     error holds the data and the fit fixed, so it cannot see the variability that comes from
+     having sampled these rows rather than others. Refitting on fresh samples measures that
+     second source directly, and it is several times larger - which is why the tool labels
+     the bars as the most favourable reading rather than the whole story. */
+  const perSample = {}, permSE = {};
+  for (const s of E.range(12).map(i => 100 + i)) {
+    const F = uncFit(uncCorpus(200, s), 7);
+    for (const v of E.permutationImportance(F.full, F.data, 'regression', 7, { reps: 8 })) {
+      (perSample[v.name] = perSample[v.name] || []).push(v.importance);
+      (permSE[v.name] = permSE[v.name] || []).push(v.se);
+    }
+  }
+  const ratios = Object.keys(perSample).map(nm => ({
+    name: nm, ratio: E.sd(perSample[nm]) / Math.max(1e-9, E.mean(permSE[nm]))
+  }));
+  assert.strictEqual(ratios.length, 3);
+  // Every driver's across-sample spread must exceed its permutation standard error.
+  for (const r2 of ratios) {
+    assert.ok(r2.ratio > 1, r2.name + ': across-sample spread must exceed the permutation SE, got ' + r2.ratio.toFixed(2) + 'x');
+  }
+  const worst = ratios.reduce((a, b) => (b.ratio > a.ratio ? b : a));
+  assert.ok(worst.ratio > 2, 'at least one driver must understate badly enough to be worth the warning: ' +
+    ratios.map(x => x.name + ' ' + x.ratio.toFixed(2) + 'x').join(', '));
+});

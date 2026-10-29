@@ -513,7 +513,7 @@
     const reg = rep.task === 'regression', key = rep.metricKey;
     const lb = rep.leaderboard.filter(m => m.metrics);
     append(blocks,
-      card('Model leaderboard', (reg ? 'R²: share of variation explained' : 'Balanced accuracy') + ' on rows each model never saw. Yellow = chosen.', '<div id="lb-chart"></div>' +
+      card('Model leaderboard', (reg ? 'R²: share of variation explained' : 'Balanced accuracy') + ' on rows each model never saw. Yellow = chosen.', scoreRangeNote(rep, reg) + '<div id="lb-chart"></div>' +
         '<div class="models"><details><summary>Scores table</summary><div class="table-scroll"><table><thead><tr><th>Model</th>' +
         (reg ? '<th class="num-cell">R²</th><th class="num-cell">RMSE</th><th class="num-cell">MAE</th>' : '<th class="num-cell">Accuracy</th><th class="num-cell">Balanced</th><th class="num-cell">Macro F1</th>') +
         '</tr></thead><tbody>' + lb.map(m => '<tr' + (m === rep.best ? ' class="best"' : '') + '><td>' + h(m.name) + '</td>' +
@@ -535,8 +535,46 @@
     } else C.confusion($('fit-chart'), rep.best.metrics.confusion, rep.classes);
 
     const imp = (rep.importance || []).slice(0, 12);
-    append(blocks, card('What drives ' + rep.target, 'How much the best model\'s score drops when each column is scrambled. Bigger = more important.', imp.length ? '<div id="imp-chart"></div>' : '<p>No drivers to show.</p>', 'drivers'));
-    if (imp.length) C.hbar($('imp-chart'), imp.map((v, i) => ({ label: v.name, value: v.share, text: pct(v.share), cls: i < 3 ? 'hi' : '' })), { min: 0, tickFmt: t => pct(t), label: 'Driver importance' });
+    /* A ranking with no sense of its own noise invites a reader to act on an order that a
+       second roll of the dice would reverse. Each importance is a mean over repeated
+       shuffles, so the spread across them is available and is reported. */
+    let impNote = '';
+    const rk = rep.rank;
+    if (rk) {
+      if (rk.topClear) {
+        impNote += '<p class="hint"><b>' + h(rk.top) + ' is genuinely ahead of ' + h(rk.second) +
+          '</b> &mdash; the gap between them is larger than the noise in both, so the top of this order can be read as an order.</p>';
+      } else if (rk.tiedWithTop.length) {
+        impNote += '<p class="hint"><b>' + h(rk.top) + ' cannot be separated from ' + h(rk.tiedWithTop.join(', ')) +
+          '.</b> Treat them as joint leaders rather than a ranking: the order between them is within the noise, and a second run could reverse it.</p>';
+      }
+      /* The negative control, and the only honest way to say a bar means nothing. A short
+         bar is not evidence of no influence - it is an absence of evidence - and the
+         reference it has to clear is not zero but what this model scores on a shuffled
+         target. On the bench it is the blank well: if the blank reads as high as the
+         sample, the sample has told you nothing. */
+      if (rk.topAboveFloor === false) {
+        impNote += '<p class="hint"><b>No input here beats the blank.</b> Shuffle the ' + h(rep.target) +
+          ' column so there is nothing left to find, refit, and the same model still hands out importances up to ' +
+          pct(rep.importanceFloorShare) + '. Every bar above is at or below that, so this chart should not be read as a ranking at all.</p>';
+      } else if (rk.belowFloor.length) {
+        impNote += '<p class="hint">At or below the blank: <b>' + h(rk.belowFloor.join(', ')) +
+          '</b>. With ' + h(rep.target) + ' shuffled into nonsense this model still scores up to ' + pct(rep.importanceFloorShare) +
+          ', so those bars carry no evidence. That is not the same as no influence &mdash; it means this data cannot see one.</p>';
+      }
+      impNote += '<p class="hint">The whiskers cover ' + h(rk.seCovers) + '. They do <b>not</b> cover ' + h(rk.seOmits) +
+          ' &mdash; measured on this tool, that second source runs 1.5 to 5.7 times larger. Nor does a whisker clear of zero mean a driver is real: ' +
+          'importance is read off the rows the model was fitted on, so a model leans on any column it is given. Three columns of pure random numbers measured 0.005 to 0.007 against ' +
+          'standard errors near 0.002 &mdash; "significant" by their own spread and worthless. That is what the blank above is for.</p>';
+    }
+    append(blocks, card('What drives ' + rep.target, 'How much the best model\'s score drops when each column is scrambled. Bigger = more important.', imp.length ? '<div id="imp-chart"></div>' + impNote : '<p>No drivers to show.</p>', 'drivers'));
+    if (imp.length) C.hbar($('imp-chart'), imp.map((v, i) => ({
+      label: v.name, value: v.share, text: pct(v.share), cls: i < 3 ? 'hi' : '',
+      // 95% on the permutation noise alone, which is what the note beneath the chart says.
+      err: isFinite(v.shareSE) ? 1.959964 * v.shareSE : 0,
+      tip: v.name + '\n' + pct(v.share) + ' of what the model relies on' +
+        (isFinite(v.shareSE) && v.shareSE > 0 ? '\nShuffling noise: \u00b1' + pct(1.959964 * v.shareSE) + ' (95%, over ' + (v.reps || 0) + ' shuffles)' : '')
+    })), { min: 0, tickFmt: t => pct(t), label: 'Driver importance' });
     renderNN(rep, blocks);
     renderPD(rep, blocks);
     renderPeek(rep, blocks);
@@ -708,6 +746,31 @@
     return '<div class="knob">' + head + ctl + '<div class="knob-curve" id="knob-curve-' + i + '" aria-hidden="true"></div></div>';
   }
 
+  /* A score is an estimate of a score. Quoting R2 to three decimals off forty rows reads
+     as precision the arithmetic cannot support, and the range below is usually the single
+     most decision-relevant number on the page: it is what says whether a model is worth
+     acting on. Computed by resampling the out-of-fold predictions, so nothing is refitted. */
+  function scoreRangeNote(rep, reg) {
+    const su = rep.scoreUncertainty;
+    if (!su) return '';
+    const label = reg ? 'R²' : 'balanced accuracy';
+    const width = su.hi - su.lo;
+    const cls = width > 0.25 ? 'not' : width > 0.12 ? 'marginal' : 'capable';
+    let txt = '<p class="hint"><span class="verdict ' + cls + '">' + label + ' ' + su.metric.toFixed(3) +
+      ', and the data cannot separate that from anything between ' + su.lo.toFixed(3) + ' and ' + su.hi.toFixed(3) +
+      '</span> (95%, from resampling the held-out predictions of these ' + su.n + ' rows).</p>';
+    if (width > 0.25) {
+      txt += '<p class="hint">That range is wide enough that the leaderboard order is largely noise. ' +
+        'Comparing models on these rows will not reliably tell you which is better &mdash; more rows will.</p>';
+    }
+    if (su.rowsPerFeature !== null && su.rowsPerFeature < 10) {
+      txt += '<p class="hint"><b>' + su.rowsPerFeature.toFixed(1) + ' rows per input.</b> Below about 10 a model has enough freedom to ' +
+        'fit the rows it was given rather than the process behind them, and every number here inherits that. ' +
+        'Cutting inputs is usually a faster fix than collecting rows.</p>';
+    }
+    return txt;
+  }
+
   function renderSimulator(rep) {
     const el = $('sim');
     const drivers = rep.predictMany && rep.task !== 'clustering' ? simDrivers(rep) : [];
@@ -792,7 +855,27 @@
     if (cls) {
       extra = '<div class="proba">' + A.classOrder(rep.classes).map(c => '<div' + ((rep.favorableSet || [rep.favorable]).includes(c) ? ' class="tgt"' : '') + '><span>' + h(rep.classes[c]) + '</span><progress max="1" value="' + nowOut.proba[c] + '"></progress><span>' + pct(nowOut.proba[c]) + '</span></div>').join('') + '</div><p class="hint">Most likely: <b>' + h(nowOut.label) + '</b></p>';
     } else {
-      extra = '<p class="hint">Typical error ±' + fmt(rep.best.metrics.rmse) + '</p>';
+      /* This used to read "typical error +/- RMSE", which is the most confident thing the
+         page could have said and the least defensible. RMSE is one number for the whole
+         dataset: it cannot widen when the desk is wound out past the data, so it was at its
+         most reassuring exactly where it was least justified. Measured on this tool, a
+         fixed 1.96-sigma band covered 93.2% of rows inside the data and 35.0% outside it.
+         The conformal band is calibrated on rows held back from a second fit and widens
+         with distance from the data: 95.1% and 100% at the same nominal 95%. */
+      if (nowOut && isFinite(nowOut.low) && isFinite(nowOut.high)) {
+        const pcConf = Math.round((nowOut.confidence || 0.9) * 100);
+        const far = nowOut.distance > 2 ? 'not' : nowOut.distance > 1.2 ? 'marginal' : 'capable';
+        extra = '<p class="hint"><b>' + simFmt(rep, nowOut.low) + ' to ' + simFmt(rep, nowOut.high) + '</b> &middot; ' +
+          pcConf + '% of runs at these settings should land in that range' +
+          (nowOut.supported === false ? ' (a floor, not a guarantee: the calibration slice cannot resolve this tail)' : '') + '.</p>' +
+          (far !== 'capable'
+            ? '<span class="verdict ' + far + '">' + (far === 'not' ? 'outside the data' : 'edge of the data') + '</span>' +
+              '<p class="hint">These settings sit ' + (far === 'not' ? 'well ' : '') + 'away from the rows the model learned from, so the band has widened to match. That widening is calibrated, but a wide band on an extrapolation is still an extrapolation.</p>'
+            : '');
+      } else {
+        extra = '<p class="hint">Typical error &plusmn;' + fmt(rep.best.metrics.rmse) +
+          '. <i>No calibrated interval here: that needs at least 24 rows, so this is the dataset-wide error and it does not widen away from the data.</i></p>';
+      }
       const c = rep.spc && rep.spc.capability;
       if (c) {
         const out = c.lsl !== null && now < c.lsl ? 'below LSL ' + fmt(c.lsl) : c.usl !== null && now > c.usl ? 'above USL ' + fmt(c.usl) : null;

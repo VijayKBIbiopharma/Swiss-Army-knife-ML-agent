@@ -6,6 +6,7 @@
   const E = root.MLEngine || require('./engine.js');
   const D = root.MLDoe || require('./doe.js');
   const S = root.MLSpc || require('./spc.js');
+  const UNC = root.MLUncertainty || require('./uncertainty.js');
   const { range, mean, rng, shuffle, pearson } = E;
 
   const MAX_ROWS = 3000;
@@ -275,9 +276,84 @@
     const full = nnFull || E.fitFull(model, data, task, seed);
     const trainPred = full.fitted.predict(full.X);
     report.trainMetrics = task === 'regression' ? E.regressionMetrics(data.y, trainPred) : E.classificationMetrics(data.y, trainPred, K);
-    report.importance = best.id === 'baseline' ? [] : E.permutationImportance(full, data, task, seed);
+    /* More permutation repeats than the three the ranking used to be built from. Each
+       shuffle is one reading, and the spread across them is the only thing that says
+       whether the order would survive the dice being thrown again. Small data gets more
+       repeats because they are cheap there and the ranking is shakiest. */
+    const impReps = n <= 400 ? 10 : n <= 1500 ? 6 : 4;
+    report.importance = best.id === 'baseline' ? [] : E.permutationImportance(full, data, task, seed, { reps: impReps });
     const totalImp = report.importance.reduce((s, v) => s + v.importance, 0) || 1;
-    report.importance.forEach(v => { v.share = v.importance / totalImp; });
+    report.importance.forEach(v => { v.share = v.importance / totalImp; v.shareSE = (v.se || 0) / totalImp; });
+    /* The noise floor for an importance, measured rather than assumed to be zero.
+       Permutation importance is read off the rows the model was fitted on, so a model leans
+       on whatever column it was handed and the reading is positive whether or not there is
+       anything there - three columns of pure random numbers measured 0.005 to 0.007 against
+       standard errors near 0.002, which is "significant" by its own spread and worthless.
+       The honest reference is what this model gives these same columns once the target is
+       shuffled: the relationship is destroyed, the structure of the inputs is kept, and
+       anything at or below that is not distinguishable from an irrelevant column. Two
+       shuffles, because the floor only has to be about right to be useful. */
+    report.importanceFloor = null;
+    if (report.importance.length && best.id !== 'baseline' && n <= 2000) {
+      try {
+        let worst = 0;
+        const shuffles = 2;
+        for (let t = 0; t < shuffles; t++) {
+          const yShuf = shuffle(data.y.slice(), rng(seed + 400 + t));
+          const nullData = { rows: data.rows, y: yShuf, classes: data.classes, featureCols: data.featureCols };
+          const nullFull = E.fitFull(model, nullData, task, seed);
+          const nullImp = E.permutationImportance(nullFull, nullData, task, seed, { reps: 4 });
+          worst += nullImp.reduce((mx, v) => Math.max(mx, v.importance), 0) / shuffles;
+        }
+        report.importanceFloor = worst;
+        report.importanceFloorShare = worst / totalImp;
+      } catch (err) { /* no floor is better than a floor nobody can stand behind */ }
+    }
+    /* Whether that ranking can be read as an order at all. Two importances are told apart
+       only if the gap clears the noise in both, and neither is worth reading if it cannot
+       clear the floor. */
+    report.rank = UNC.rankReliability(report.importance,
+      report.importanceFloor === null ? {} : { floor: report.importanceFloor });
+    if (report.rank && report.rank.topAboveFloor === false) {
+      say('No input here beats what the same model scores on a shuffled target, so this driver chart should not be read as a ranking.', 'warn');
+    }
+
+    /* How firm the headline score is. The out-of-fold predictions are resampled - nothing
+       is refitted - so this costs almost nothing and turns a three-decimal R2 off forty
+       rows into the range the data can actually support. */
+    report.scoreUncertainty = UNC.scoreUncertainty(data.y, best.oof, task,
+      { classes: data.classes, p: features.length, seed: seed + 3 });
+    if (report.scoreUncertainty) {
+      const su = report.scoreUncertainty;
+      const label = task === 'regression' ? 'R\u00b2' : 'balanced accuracy';
+      say('That ' + label + ' of ' + su.metric.toFixed(3) + ' is itself an estimate: on these ' +
+        su.n + ' rows the data cannot separate it from anything between ' + su.lo.toFixed(3) +
+        ' and ' + su.hi.toFixed(3) + '.', (su.hi - su.lo) > 0.25 ? 'warn' : 'result');
+    }
+
+    /* Prediction intervals, for a regression. Split conformal on a slice held back from a
+       second fit: calibrating on the out-of-fold predictions would have been free, but it
+       was measured and it undercovered, because out-of-fold residuals come from the fold
+       models rather than from the model whose prediction is being qualified. */
+    report.interval = null;
+    if (task === 'regression' && best.id !== 'baseline' && n >= 24) {
+      try {
+        const order = E.shuffle(E.range(n), rng(seed + 5));
+        const nCal = Math.max(8, Math.round(n * 0.3));
+        const calIdx = order.slice(0, nCal), fitIdx = order.slice(nCal);
+        const sub = idx => ({ rows: idx.map(i => data.rows[i]), y: idx.map(i => data.y[i]), classes: null, featureCols: data.featureCols });
+        const fitPart = sub(fitIdx), calPart = sub(calIdx);
+        const partial = E.fitFull(model, fitPart, task, seed);
+        const calX = partial.enc.transform(calPart.rows);
+        report.interval = UNC.calibrate({
+          trainX: partial.X, calX, calY: calPart.y, calPred: partial.fitted.predict(calX)
+        }, {});
+        if (report.interval) {
+          say('Prediction intervals calibrated on ' + report.interval.nCal + ' rows held back from a second fit. ' +
+            'They widen as a question moves away from the data, which a fixed multiple of the residual spread cannot do.');
+        }
+      } catch (err) { report.intervalError = String(err && err.message || err); }
+    }
     /* ---------- What the runners-up say ----------
        One model's ranking of the drivers is one model's opinion. Three model families that
        work in completely different ways, agreeing on what matters, is a far stronger
@@ -360,16 +436,32 @@
     };
     report.actual = data.y;
     report.targetSD = E.sd(task === 'regression' ? data.y : []);
+    /* The confidence an interval is quoted at. A number nobody set is a number nobody
+       owns, so it is a field on the report rather than a constant buried in here. */
+    report.intervalConfidence = 0.9;
+    const withBand = (x, value) => {
+      const o = { value };
+      const cal = report.interval;
+      if (!cal) return o;
+      const conf = report.intervalConfidence;
+      const half = cal.halfWidth(x, conf);
+      o.low = value - half; o.high = value + half;
+      o.halfWidth = half; o.distance = cal.distance(x);
+      o.confidence = conf;
+      // Past this the band is a floor rather than a guarantee, and it says so.
+      o.supported = cal.supports(conf);
+      return o;
+    };
     report.predict = values => {
       const x = full.enc.encodeValues(values);
       if (full.fitted.predictProba) { const pr = full.fitted.predictProba([x])[0]; return { proba: pr, label: data.classes[pr.indexOf(Math.max.apply(null, pr))] }; }
-      return { value: full.fitted.predict([x])[0] };
+      return withBand(x, full.fitted.predict([x])[0]);
     };
     // Scores many hand-entered rows in one call (the what-if desk asks for ~100 per move).
     report.predictMany = list => {
       const X = list.map(v => full.enc.encodeValues(v));
       if (full.fitted.predictProba) return full.fitted.predictProba(X).map(pr => ({ proba: pr, label: data.classes[pr.indexOf(Math.max.apply(null, pr))] }));
-      return full.fitted.predict(X).map(v => ({ value: v }));
+      return full.fitted.predict(X).map((v, i) => withBand(X[i], v));
     };
   }
 
