@@ -294,6 +294,40 @@
     return { list, axes, fixed, total, sampled: true };
   }
 
+  /* Which catalogue levels the model can actually tell apart.
+
+     A text factor can fail in two quiet ways, and a catalogue of helper plasmids hits both.
+     A level the historical runs never used cannot be placed at all, so every combination
+     containing it is refused - on a catalogue offering six helpers where only three have
+     ever been run, that is half the catalogue gone, and the only sign of it was a smaller
+     number of scored candidates than the arithmetic implied. And the encoder keeps the
+     twelve commonest levels of a factor and pools the rest into one "other" column, so a
+     thirteenth helper is not modelled as itself: it is modelled as "one of the rare ones",
+     indistinguishable from the others down there.
+
+     Neither is wrong as a decision. Both are indefensible as silent ones, because the
+     reader has no way to tell a helper that scored badly from a helper the model could not
+     see. So every catalogue level is classified against what the model actually holds. */
+  function levelCoverage(prof, factors, enc) {
+    const out = [];
+    for (const f of factors) {
+      if (f.kind !== 'categorical' && f.kind !== 'fixed') continue;
+      const col = prof.columns.find(c => c.name === f.name);
+      const part = enc && enc.parts ? enc.parts.find(x => x.col && x.col.name === f.name) : null;
+      const seen = col ? new Set((col.values || []).filter(v => v !== null && norm(v) !== '').map(norm)) : new Set();
+      const kept = part && part.kept ? new Set(part.kept.map(norm)) : null;
+      const modelled = [], merged = [], unseen = [];
+      for (const lv of f.levels) {
+        const v = norm(lv);
+        if (!seen.has(v)) unseen.push(lv);
+        else if (kept && !kept.has(v)) merged.push(lv);
+        else modelled.push(lv);
+      }
+      if (merged.length || unseen.length) out.push({ factor: f.name, modelled, merged, unseen, total: f.levels.length });
+    }
+    return out;
+  }
+
   /* How to spend the wells: on more vectors, or on more repeats of fewer.
 
      The first version spread them - every buildable vector once, then repeats - which is
@@ -449,6 +483,8 @@
     const env = plasmid().summarise(prof, feats);
 
     const cand = candidates(factors, { cap: opt.cap, seed: opt.seed });
+    // What the model can and cannot distinguish among the levels offered.
+    const coverage = levelCoverage(prof, factors, models[targets[0]] ? models[targets[0]].enc : null);
     const transfer = transferability(prof, proteinCols, input.programs || []);
 
     const perProgram = (input.programs || []).map(pg => {
@@ -496,11 +532,11 @@
     return {
       targets, models, env, factors, proteinCols, modelCols, missing,
       candidateCount: cand.list.length, candidateTotal: cand.total, sampled: cand.sampled,
-      requestedRuns: opt.runs || 12,
+      requestedRuns: opt.runs || 12, coverage,
       axes: cand.axes, transfer, confidence: conf, perProgram
     };
   }
 
-  root.MLProgram = { parseCatalogue, parseProgram, proteinColumns, attributeChoices, transferability, candidates, runSheet, replicatesFor, plan };
+  root.MLProgram = { parseCatalogue, parseProgram, proteinColumns, attributeChoices, transferability, candidates, runSheet, replicatesFor, levelCoverage, plan };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLProgram;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

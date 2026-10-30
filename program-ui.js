@@ -330,8 +330,32 @@
     if (tr.varying.length) html += '<p>Protein attributes that do vary, and so can inform a choice: <b>' + tr.varying.map(h).join(', ') + '</b>.</p>';
     html += '</div>';
 
+    /* Levels the model cannot tell apart, named rather than left to show up as a smaller
+       candidate count than the catalogue implies. Without this a helper that was never run
+       here is indistinguishable, in the output, from a helper that scored badly. */
+    if (plan.coverage && plan.coverage.length) {
+      const anyUnseen = plan.coverage.some(c => c.unseen.length);
+      html += '<div class="plain ' + (anyUnseen ? 'not' : 'marginal') + '"><h4>Levels this history cannot speak for</h4>';
+      for (const c of plan.coverage) {
+        if (c.unseen.length) {
+          html += '<p><b>' + h(c.factor) + ':</b> ' + c.unseen.map(h).join(', ') +
+            ' ' + (c.unseen.length === 1 ? 'has' : 'have') + ' never been run here, so every combination using ' +
+            (c.unseen.length === 1 ? 'it' : 'them') + ' is refused rather than guessed. ' +
+            c.modelled.length + ' of ' + c.total + ' levels can be scored.</p>';
+        }
+        if (c.merged.length) {
+          html += '<p><b>' + h(c.factor) + ':</b> ' + c.merged.map(h).join(', ') +
+            ' appear too rarely in the history to be modelled individually, so they are pooled with each other as &ldquo;one of the rare ones&rdquo;. ' +
+            'A prediction for any of them is really a prediction for that pool, and they cannot be told apart.</p>';
+        }
+      }
+      html += '<p class="hint">Both are fixable the same way: run them. A handful of runs on a level turns it from something the model refuses or pools into something it can rank.</p></div>';
+    }
     html += '<p class="sub-head">' + plan.candidateCount.toLocaleString() + ' buildable vectors from your catalogue' +
       (plan.sampled ? ' (sampled from ' + plan.candidateTotal.toLocaleString() + ', spread across the catalogue rather than the first chunk of it)' : '') +
+      (plan.perProgram[0] && plan.perProgram[0].refused
+        ? ' &middot; ' + plan.perProgram[0].refused.toLocaleString() + ' of them refused for a level the history has never run'
+        : '') +
       ' &middot; ' + Math.round(plan.confidence * 100) + '% intervals &middot; predicting ' + h(plan.targets.join(' and ')) + '</p>';
 
     for (const r of plan.perProgram) {

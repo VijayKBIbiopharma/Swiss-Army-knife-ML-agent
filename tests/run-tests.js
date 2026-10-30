@@ -3690,3 +3690,77 @@ test('the adjusted p-values are a correct Benjamini-Hochberg, and everything rea
   const raw = agentSrc.match(/a\.terms\.filter\(t => t\.p < 0\.05\)/g);
   assert.strictEqual(raw, null, 'no path may still filter on the raw p: found ' + (raw || []).length);
 });
+
+test('levels the model cannot tell apart are named, not left to show as a smaller count', () => {
+  /* A text factor fails in two quiet ways and a helper catalogue hits both. A level the
+     history never used cannot be placed, so every combination containing it is refused -
+     on a catalogue of six helpers where three have ever been run, that is half the
+     catalogue, and the only sign used to be a candidate count smaller than the arithmetic
+     implied. And the encoder keeps the twelve commonest levels and pools the rest, so a
+     thirteenth helper is modelled as "one of the rare ones" rather than as itself.
+
+     Neither is a wrong decision. Both are indefensible as silent ones, because a helper
+     the model could not see then looks exactly like a helper that scored badly. */
+  const r = E.rng(7);
+  const nz = () => { const u = Math.max(1e-9, r()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+  const SEEN = ['pCap-A', 'pCap-B', 'pCap-C'];
+  const rows = [];
+  for (let i = 0; i < 300; i++) {
+    const cl = ['mAb', 'enzyme', 'bispecific'][Math.floor(r() * 3)];
+    const h = SEEN[Math.floor(r() * 3)];
+    rows.push(['C' + i, cl, [148, 62, 99][['mAb', 'enzyme', 'bispecific'].indexOf(cl)],
+      ['CMV', 'EF1a'][Math.floor(r() * 2)], h, (3 + (h === 'pCap-C' ? 0.8 : 0) + nz() * 0.2).toFixed(3)]);
+  }
+  const prof = E.profile({ columns: ['ID', 'Protein_Class', 'Protein_kDa', 'Promoter_Type', 'Helper_Cap', 'Titer_gL'], rows });
+
+  /* A catalogue written the way one actually arrives: text factors, several levels, and no
+     Min or Max column anywhere. That shape has to parse on its own. */
+  const cat = PG.parseCatalogue({
+    columns: ['Factor', 'Levels'],
+    rows: [['Promoter_Type', 'CMV; EF1a'], ['Helper_Cap', 'pCap-A; pCap-B; pCap-C; pCap-D; pCap-E; pCap-F']]
+  });
+  assert.strictEqual(cat.problems.length, 0, 'a text-only catalogue needs no Min and Max: ' + cat.problems.join('; '));
+  assert.ok(cat.factors.every(f => f.kind === 'categorical'));
+  assert.strictEqual(cat.factors.find(f => f.name === 'Helper_Cap').levels.length, 6);
+
+  const plan = PG.plan({ profile: prof, factors: cat.factors,
+    programs: [{ id: 'P1', attributes: { Protein_Class: 'mAb', Protein_kDa: '148' } }], targets: ['Titer_gL'] },
+    { seed: 42, runs: 48 });
+
+  const cov = plan.coverage.find(c => c.factor === 'Helper_Cap');
+  assert.ok(cov, 'the factor with unusable levels must be reported');
+  assert.deepStrictEqual(cov.unseen.slice().sort(), ['pCap-D', 'pCap-E', 'pCap-F'],
+    'the three never run here must be named individually');
+  assert.deepStrictEqual(cov.modelled.slice().sort(), ['pCap-A', 'pCap-B', 'pCap-C']);
+  assert.strictEqual(cov.total, 6);
+  // And the consequence is real: half the catalogue cannot be scored.
+  assert.strictEqual(plan.perProgram[0].refused, plan.candidateCount - plan.perProgram[0].candidates);
+  assert.ok(plan.perProgram[0].refused > 0, 'combinations using an unrunnable level must be refused, not guessed');
+  // A factor whose levels are all runnable must not be reported at all, or the panel is noise.
+  assert.ok(!plan.coverage.some(c => c.factor === 'Promoter_Type'));
+
+  /* The other failure: more levels than the encoder models individually. Fifteen helpers,
+     all genuinely run, and the three rarest are pooled - a prediction for any of them is a
+     prediction for the pool. */
+  const LV = E.range(15).map(i => 'pHelp-' + String(i + 1).padStart(2, '0'));
+  const r2 = E.rng(3);
+  const nz2 = () => { const u = Math.max(1e-9, r2()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r2()); };
+  const rows2 = [];
+  const CLS = ['mAb', 'enzyme', 'bispecific'];
+  for (let i = 0; i < 600; i++) {
+    // The last three are made deliberately rare, so they fall outside the kept twelve.
+    const h = r2() < 0.04 ? LV[12 + Math.floor(r2() * 3)] : LV[Math.floor(r2() * 12)];
+    const cl = CLS[Math.floor(r2() * 3)];
+    rows2.push(['C' + i, cl, [148, 62, 99][CLS.indexOf(cl)], h, ['CMV', 'EF1a'][Math.floor(r2() * 2)], (3 + nz2() * 0.2).toFixed(3)]);
+  }
+  const prof2 = E.profile({ columns: ['ID', 'Protein_Class', 'Protein_kDa', 'Helper', 'Promoter_Type', 'Titer_gL'], rows: rows2 });
+  const cat2 = PG.parseCatalogue({ columns: ['Factor', 'Levels'], rows: [['Helper', LV.join('; ')], ['Promoter_Type', 'CMV; EF1a']] });
+  const plan2 = PG.plan({ profile: prof2, factors: cat2.factors,
+    programs: [{ id: 'P1', attributes: { Protein_Class: 'mAb', Protein_kDa: '148' } }], targets: ['Titer_gL'] },
+    { seed: 42, runs: 24 });
+  const cov2 = plan2.coverage.find(c => c.factor === 'Helper');
+  assert.ok(cov2, 'pooling must be reported too');
+  assert.ok(cov2.merged.length >= 1, 'the rare levels are pooled and must be named: ' + JSON.stringify(cov2));
+  assert.ok(cov2.modelled.length <= 12, 'the encoder models at most twelve levels individually');
+  assert.strictEqual(cov2.modelled.length + cov2.merged.length + cov2.unseen.length, 15, 'every level accounted for');
+});
