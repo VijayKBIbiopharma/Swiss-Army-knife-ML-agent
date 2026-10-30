@@ -3389,7 +3389,9 @@ test('the tool page carries the tool and nothing else', () => {
 
   /* Three pages, and each block has exactly one home. Choosing a technique lives with the
      guidance, the datasets get a page of their own, and the tool page keeps neither. */
-  const home = { ask: apps, 'tool-depts': apps, 'tool-apps': apps, samples: data };
+  /* One panel now carries both the jobs and the reference material: choosing your group
+     twice, in two selects, to read two halves of the same answer was the thing to fix. */
+  const home = { ask: apps, 'tool-apps': apps, samples: data };
   for (const id of Object.keys(home)) {
     assert.ok(home[id].indexOf('id="' + id + '"') >= 0, id + ' is not on the page it belongs to');
     assert.ok(tools.indexOf('id="' + id + '"') < 0, id + ' must NOT be on the tool page');
@@ -4566,4 +4568,57 @@ test('a distribution-free tolerance bound assumes nothing, and says what that co
 
   // Nothing can be bounded from one result, and it says so rather than returning it.
   assert.strictEqual(TOL.nonParametric([1], 0.99, 0.95, 1).achievable, false);
+});
+
+/* One panel, not two. "Start from my job, not the method" and "Where this is used" asked
+   the same question - which group are you in - in two different selects, and then answered
+   two halves of it in two places, with the method you had just read about reachable only by
+   going back to the technique selector and hunting for its name. Merged, the choice is made
+   once and every method is a button. */
+test('the applications panel is one panel, and every method in it opens from the application', () => {
+  const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const apps = require(path.join(ROOT, 'applications.js'));
+  const depts = require(path.join(ROOT, 'departments.js'));
+
+  // The old second section is gone, from the page and from the code.
+  assert.ok(html.indexOf('id="tool-depts"') < 0, 'the separate department section must be removed from the page');
+  assert.ok(!/renderDepartments/.test(app), 'and its renderer with it, or it is dead code waiting to be called');
+  assert.ok(/id="tool-apps"/.test(html), 'the surviving panel must still be on the page');
+  assert.ok((html.match(/id="tool-apps"/g) || []).length === 1, 'and on the page exactly once');
+
+  // One heading, and it is the one that was asked for.
+  assert.ok(/Where this can be used/.test(app), 'the merged panel must carry the combined heading');
+  assert.ok(!/Start from my job, not the method/.test(app), 'the old heading must not survive in the renderer');
+
+  /* Nothing is orphaned by the merge. Every bench either hangs off a function, or appears
+     in the same picker under its own heading - otherwise a department quietly disappears. */
+  const fns = apps.FUNCTIONS.map(f => f[0]);
+  for (const b of depts) {
+    const reachable = (b.fn && fns.includes(b.fn));
+    assert.ok(reachable || !b.fn, b.name + ' points at function "' + b.fn + '", which is not in the list');
+  }
+  assert.ok(/Other ways in/.test(app), 'benches with no function of their own need their own group in the picker');
+  assert.ok(/bench:/.test(app), 'and a value the picker can route on');
+
+  /* The point of the merge: having said which group you are in, every method is listed with
+     what it does for that group and a button that opens it. */
+  assert.ok(/function methodsHtml/.test(app), 'the per-group method list must exist');
+  assert.ok(/data-open-tool/.test(app), 'each method needs a button that opens it');
+  assert.ok(/BYFUNCTION/.test(app), 'and the line it shows must be the per-function one, not the generic blurb');
+  // Both other routes out still work: a job card, and a playbook step.
+  assert.ok(/data-dept-go/.test(app) && /data-dept-sample/.test(app), 'job cards must still route, with practice data where it exists');
+  assert.ok(/\.pb-go/.test(app), 'playbook steps must still route');
+
+  /* Every function must have a line for at least most of the methods, or the list renders
+     nearly empty for that group and the panel looks broken rather than honest. */
+  const tools = Object.keys(apps).filter(k => /^[a-z]+$/.test(k) && apps[k] && apps[k].groups);
+  for (const f of fns) {
+    const have = tools.filter(t => apps.BYFUNCTION[t] && apps.BYFUNCTION[t][f]);
+    assert.ok(have.length >= tools.length - 1, f + ' has lines for only ' + have.length + ' of ' + tools.length + ' methods');
+  }
+
+  // The scope caveat has to survive the rewrite: it is what stops a reader assuming the
+  // page reads images or audio.
+  assert.ok(/not a claim about what this page reads/.test(app), 'the scope caveat must still be printed');
 });

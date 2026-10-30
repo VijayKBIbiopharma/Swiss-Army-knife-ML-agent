@@ -1594,54 +1594,34 @@
      document; a regulatory writer told otherwise finds out at the worst moment and is then
      right to distrust everything else here. */
   let myDept = '';
-  function renderDepartments(tool) {
-    const DL = window.MLDepartments || [];
-    const el = $('tool-depts');
-    if (!DL.length) { el.innerHTML = ''; el.hidden = true; return; }
-    el.hidden = false;
-    const d = DL.find(x => x.id === myDept);
-    const picker = '<label>My department <select id="dept-pick"><option value="">Choose one\u2026</option>' +
-      DL.map(x => '<option value="' + x.id + '"' + (x.id === myDept ? ' selected' : '') + '>' + h(x.name) + '</option>').join('') +
-      '</select></label>';
-    let body = '';
-    if (d) {
-      body = '<p class="apps-scope">' + h(d.blurb) + '</p>' +
-        (d.honesty ? '<div class="plain marginal dept-honest"><h4>What this will not do for you</h4><p>' + h(d.honesty) + '</p></div>' : '') +
-        '<div class="dept-jobs">' + d.jobs.map((j, i) => {
-          const here = j.tool === tool;
-          return '<div class="dept-job' + (here ? ' here' : '') + '">' +
-            '<h4>' + h(j.title) + '</h4>' +
-            '<dl><dt>Bring</dt><dd>' + h(j.data) + '</dd>' +
-            '<dt>Get back</dt><dd>' + h(j.out) + '</dd>' +
-            '<dt class="wont">Will not</dt><dd class="wont">' + h(j.not) + '</dd></dl>' +
-            '<div class="row-actions"><button class="btn ' + (here ? '' : 'primary') + '" type="button" data-dept-go="' + i + '">' +
-            (here ? 'You are on this tool' : 'Open ' + h(TOOLS_SHORT[j.tool] || j.tool)) + '</button>' +
-            (j.sample ? '<button class="btn ghost small" type="button" data-dept-sample="' + i + '">Open with practice data</button>' : '') +
-            '</div></div>';
-        }).join('') + '</div>' +
-        '<p class="apps-note"><b>Across this department.</b> ' + h(d.cannot) + '</p>';
-    }
-    el.innerHTML = '<details class="applications" id="dept-details"' + (deptOpen ? ' open' : '') + '>' +
-      '<summary><b>Start from my job, not the method</b><span class="hint">' +
-      (d ? h(d.name) : 'Upstream, regulatory writing, QA, business development') + '</span></summary>' +
-      '<div class="apps-body"><div class="apps-pick">' + picker + '</div>' + body + '</div></details>';
-    $('dept-details').addEventListener('toggle', e => { deptOpen = e.target.open; });
-    $('dept-pick').addEventListener('change', e => { myDept = e.target.value; renderDepartments(tool); });
-    el.querySelectorAll('[data-dept-go]').forEach(b => b.addEventListener('click', () => {
-      const j = d.jobs[Number(b.getAttribute('data-dept-go'))];
-      showTool(j.tool, true);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }));
-    el.querySelectorAll('[data-dept-sample]').forEach(b => b.addEventListener('click', () => {
-      const j = d.jobs[Number(b.getAttribute('data-dept-sample'))];
-      showTool(j.tool, true);
-      loadNamedSample(j.sample);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }));
+
+  /* The jobs for one department bench, rendered as cards that route straight to the tool.
+     This used to be its own panel ("start from my job, not the method") sitting above the
+     reference panel, and the split was wrong: somebody who has just chosen their group is
+     then asked to choose it again in a different select to see the jobs that belong to it.
+     One panel, one choice, and the jobs and the reference material both hang off it. */
+  function jobsHtml(bench, tool) {
+    if (!bench) return '';
+    return (bench.honesty ? '<div class="plain marginal dept-honest"><h4>What this will not do for you</h4><p>' + h(bench.honesty) + '</p></div>' : '') +
+      '<div class="dept-jobs">' + bench.jobs.map((j, i) => {
+        const here = j.tool === tool;
+        return '<div class="dept-job' + (here ? ' here' : '') + '">' +
+          '<h4>' + h(j.title) + '</h4>' +
+          '<dl><dt>Bring</dt><dd>' + h(j.data) + '</dd>' +
+          '<dt>Get back</dt><dd>' + h(j.out) + '</dd>' +
+          '<dt class="wont">Will not</dt><dd class="wont">' + h(j.not) + '</dd></dl>' +
+          '<div class="row-actions"><button class="btn ' + (here ? '' : 'primary') + '" type="button" data-dept-go="' + h(bench.id) + ':' + i + '">' +
+          (here ? 'You are on this tool' : 'Open ' + h(TOOLS_SHORT[j.tool] || j.tool)) + '</button>' +
+          (j.sample ? '<button class="btn ghost small" type="button" data-dept-sample="' + h(bench.id) + ':' + i + '">Open with practice data</button>' : '') +
+          '</div></div>';
+      }).join('') + '</div>' +
+      '<p class="apps-note"><b>Across this department.</b> ' + h(bench.cannot) + '</p>';
   }
-  /* Open by default now that it has a page of its own. On a page called "where to start",
-     the panel that routes you to a tool is the point; the reference panel below it is not. */
-  let deptOpen = true;
+  const benchesFor = key => (window.MLDepartments || []).filter(b => b.fn && b.fn === key);
+  // Benches with no function of their own still need a way in, so they join the same picker.
+  const looseBenches = () => (window.MLDepartments || []).filter(b => !b.fn);
+  const benchById = id => (window.MLDepartments || []).find(b => b.id === id);
+
   /* Loads a practice dataset by id, the same way the sample buttons do, so a department
      job can land somebody on the right tool with something already in it. */
   function loadNamedSample(id) {
@@ -1695,29 +1675,103 @@
     el.hidden = false;
     const uses = a.groups.filter(g => !g.note), notes = a.groups.filter(g => g.note);
     const A = window.MLApplications;
-    const pickers = '<div class="apps-pick"><label>Modality <select id="apps-modality">' + optionsFor(A.MODALITIES, myModality) + '</select></label>' +
-      '<label>My function or group <select id="apps-function">' + optionsFor(A.FUNCTIONS, myFunction, 'Choose one\u2026') + '</select></label></div>';
+    const loose = looseBenches();
+    /* One select, carrying the functions and then any bench that has no function of its own,
+       so nothing is orphaned by the merge and there is still only one choice to make. */
+    const picker = '<div class="apps-pick"><label>Modality <select id="apps-modality">' + optionsFor(A.MODALITIES, myModality) + '</select></label>' +
+      '<label>My function or group <select id="apps-function"><option value="">Choose one\u2026</option>' +
+      '<optgroup label="Development and manufacturing">' +
+      A.FUNCTIONS.map(([k, label]) => '<option value="' + k + '"' + (k === myFunction ? ' selected' : '') + '>' + h(label) + '</option>').join('') +
+      '</optgroup>' +
+      (loose.length ? '<optgroup label="Other ways in">' + loose.map(b => '<option value="bench:' + h(b.id) + '"' + ('bench:' + b.id === myFunction ? ' selected' : '') + '>' + h(b.name) + '</option>').join('') + '</optgroup>' : '') +
+      '</select></label></div>';
+
+    let chosen = '';
+    if (myFunction.indexOf('bench:') === 0) {
+      const b = benchById(myFunction.slice(6));
+      if (b) chosen = '<div class="apps-mine"><div class="mine"><h4>' + h(b.name) + '</h4><p>' + h(b.blurb) + '</p></div></div>' + jobsHtml(b, name);
+    } else if (myFunction) {
+      const fn = labelOf(A.FUNCTIONS, myFunction);
+      const benches = benchesFor(myFunction);
+      chosen = (benches.length
+        ? '<h4 class="ops-head">Jobs in ' + h(fn) + '<span class="hint">each one opens the tool it needs</span></h4>' +
+          benches.map(b => jobsHtml(b, name)).join('')
+        : '') +
+        methodsHtml(myFunction, fn, name) +
+        playbookHtml(myFunction, fn) +
+        unitOpsHtml(myFunction, fn);
+    }
+
     el.innerHTML = '<details class="applications" id="apps-details"' + (appsOpen ? ' open' : '') + '>' +
-      '<summary><b>Where this is used</b><span class="hint">' + h(a.tech) + '</span></summary>' +
-      '<div class="apps-body">' + pickers + tailoredHtml(name) +
+      '<summary><b>Where this can be used</b><span class="hint">' +
+      (myFunction ? h(myFunction.indexOf('bench:') === 0 ? (benchById(myFunction.slice(6)) || {}).name || '' : labelOf(A.FUNCTIONS, myFunction)) : 'pick your group and every method is one click away') +
+      '</span></summary>' +
+      '<div class="apps-body">' + picker + chosen +
+      '<h4 class="ops-head">What ' + h(TOOLS_SHORT[name] || name) + ' is used for<span class="hint">' + h(a.tech) + '</span></h4>' +
       '<p class="apps-scope">' + h(a.scope) + ' The uses below are the technique as biologics development and manufacturing applies it, not a claim about what this page reads.</p>' +
       '<div class="apps-grid">' + uses.map(g => '<div class="use"><h4>' + h(g.name) + '</h4><p>' + h(g.text) + '</p></div>').join('') + '</div>' +
       notes.map(g => '<p class="apps-note"><b>' + h(g.name) + '.</b> ' + h(g.text) + '</p>').join('') +
       '</div></details>';
+
     $('apps-details').addEventListener('toggle', e => { appsOpen = e.target.open; });
     $('apps-modality').addEventListener('change', e => { myModality = e.target.value; renderApplications(name); });
-    Array.prototype.forEach.call(el.querySelectorAll('.pb-go'), b => {
-      b.addEventListener('click', () => showTool(b.getAttribute('data-tool')));
-    });
     $('apps-function').addEventListener('change', e => {
       myFunction = e.target.value;
       renderApplications(name);
       // The practice datasets are grouped by function, so they reorder with this choice.
       if ($('samples')) renderSamples();
     });
+    // Every route out of this panel, whether it came from a job, a method or a playbook step.
+    Array.prototype.forEach.call(el.querySelectorAll('.pb-go, [data-open-tool]'), b => {
+      b.addEventListener('click', () => { showTool(b.getAttribute('data-tool') || b.getAttribute('data-open-tool'), true); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+    });
+    Array.prototype.forEach.call(el.querySelectorAll('[data-dept-go]'), b => b.addEventListener('click', () => {
+      const [id, i] = b.getAttribute('data-dept-go').split(':');
+      const bench = benchById(id); if (!bench) return;
+      showTool(bench.jobs[Number(i)].tool, true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }));
+    Array.prototype.forEach.call(el.querySelectorAll('[data-dept-sample]'), b => b.addEventListener('click', () => {
+      const [id, i] = b.getAttribute('data-dept-sample').split(':');
+      const bench = benchById(id); if (!bench) return;
+      const j = bench.jobs[Number(i)];
+      showTool(j.tool, true);
+      loadNamedSample(j.sample);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }));
   }
-  // Folded by default: it is reference material about the chosen technique, read once.
-  let appsOpen = false;
+
+  /* The part the merge exists for: having said which group you are in, every method is
+     listed with what it does for THAT group and a button that opens it. Before this you
+     chose your function in one panel to read about it, and then went hunting in the
+     technique selector for the name you had just read. */
+  function methodsHtml(key, fnLabel, current) {
+    const A = window.MLApplications;
+    const BF = A.BYFUNCTION || {};
+    const rows = Object.keys(TOOLS_SHORT).filter(t => t !== 'privacy' && BF[t] && BF[t][key]);
+    if (!rows.length) return '';
+    return '<h4 class="ops-head">Every method, for ' + h(fnLabel) + '<span class="hint">what each one does for your group &middot; click to open it</span></h4>' +
+      '<ul class="method-list">' + rows.map(t => {
+        const here = t === current;
+        return '<li class="method' + (here ? ' here' : '') + '"><div class="method-head"><b>' + h(TOOLS_SHORT[t]) + '</b>' +
+          (here ? '<span class="pb-tool">open now</span>' : '') + '</div>' +
+          '<p>' + h(BF[t][key]) + '</p>' +
+          '<div class="row-actions"><button class="btn ' + (here ? 'ghost small' : 'ghost small') + '" type="button" data-open-tool="' + h(t) + '">' +
+          (here ? 'Back to it' : 'Open ' + h(TOOLS_SHORT[t])) + '</button></div></li>';
+      }).join('') + '</ul>';
+  }
+
+  function unitOpsHtml(key, fnLabel) {
+    const A = window.MLApplications;
+    const ops = (A.UNITOPS[myModality] || {})[key] || [];
+    if (!ops.length) return '';
+    return '<h4 class="ops-head">Unit operations in ' + h(fnLabel) + '<span class="hint">' + h(labelOf(A.MODALITIES, myModality)) + ' &middot; what machine learning is used for at each step</span></h4>' +
+      '<ol class="ops">' + ops.map(([op, ml]) => '<li><b>' + h(op) + '</b><span>' + h(ml) + '</span></li>').join('') + '</ol>';
+  }
+
+  /* Open by default. It is now the panel that routes you to a tool rather than reference
+     material read once, and on a page called "where to start" that is the point. */
+  let appsOpen = true;
   /* Held for the session only. Nothing is stored, so this resets on reload like the data
      does. Modality has no "any": there are two, and every unit operation differs between
      them, so a default of mammalian is more useful than a blank. */
@@ -1726,20 +1780,6 @@
     list.map(([k, label]) => '<option value="' + k + '"' + (k === chosen ? ' selected' : '') + '>' + h(label) + '</option>').join('');
   const labelOf = (list, k) => (list.find(x => x[0] === k) || [, ''])[1];
 
-  /* Zoomed in twice: what the technique does for this function, then the unit operations
-     inside that function with what machine learning is used for at each step. */
-  function tailoredHtml(tool) {
-    const A = window.MLApplications;
-    if (!myFunction) return '';
-    const line = A.BYFUNCTION && A.BYFUNCTION[tool] && A.BYFUNCTION[tool][myFunction];
-    const ops = (A.UNITOPS[myModality] || {})[myFunction] || [];
-    if (!line && !ops.length) return '';
-    const fn = labelOf(A.FUNCTIONS, myFunction);
-    return (line ? '<div class="apps-mine"><div class="mine"><h4>' + h(fn) + ' with this technique</h4><p>' + h(line) + '</p></div></div>' : '') +
-      playbookHtml(myFunction, fn) +
-      (ops.length ? '<h4 class="ops-head">Unit operations in ' + h(fn) + '<span class="hint">' + h(labelOf(A.MODALITIES, myModality)) + ' &middot; what machine learning is used for at each step</span></h4>' +
-        '<ol class="ops">' + ops.map(([op, ml]) => '<li><b>' + h(op) + '</b><span>' + h(ml) + '</span></li>').join('') + '</ol>' : '');
-  }
   /* The depth a group actually arrives wanting: what to do first and why, then the order,
      each step with the measured cost of skipping it, and the gaps named out loud. Folded,
      because it is a page of reading and the tool is what people came for - but folded shut
@@ -1808,7 +1848,6 @@
     showPage('tools', false);
     if ($('tool').value !== name) $('tool').value = name;
     $('tool-desc').textContent = TOOLS[name];
-    renderDepartments(name);
     renderApplications(name);
     TOOL_NAMES.forEach(n => { $('tab-' + n).hidden = n !== name; });
     // A link can be shared or bookmarked straight to one tool.

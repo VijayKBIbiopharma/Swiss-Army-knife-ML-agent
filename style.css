@@ -875,3 +875,11 @@ ol.ops li span { grid-column: 2; grid-row: 2; font-size: .83rem; line-height: 1.
 .pb-gaps { margin: 0; padding-left: 1.1rem; display: grid; gap: 5px; }
 .pb-gaps li { line-height: 1.45; }
 @media (max-width: 620px) { .pb-body { padding: 0 10px 12px; } .pb-step { padding: 9px 10px; } }
+
+/* ---------- Every method, for your group ---------- */
+.method-list { list-style: none; margin: 0 0 4px; padding: 0; display: grid; gap: 8px; }
+.method { border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; }
+.method.here { border-color: var(--accent); }
+.method p { margin: 5px 0 0; font-size: 0.92rem; line-height: 1.45; }
+.method-head { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+@media (max-width: 620px) { .method { padding: 8px 10px; } }
