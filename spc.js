@@ -89,21 +89,104 @@
 
   /* Individuals and moving-range chart limits, with two classic signals:
      a point beyond 3 sigma, and 8 points in a row on one side of the center line. */
-  function imr(y) {
+  /* Sensitivity is a choice, and it is the user's.
+
+     The conservative chart is the control limits plus the moving-range limit: measured on
+     3,000 in-control series it raises a false signal about once every 103 points. The
+     3-sigma rule on its own measures once every 367, which is the textbook 370 - the
+     difference is the moving-range chart, which is a second chart and fires on its own
+     account. The number reported is for what the mode actually does rather than for the
+     part of it with the nicer figure.
+
+     Turning on all eight rules catches shifts and drifts a limits-only chart is blind to -
+     on a 0.9-sigma shift the limits chart raises one signal and the full set raises
+     twenty-five - and costs about one false signal every 50 points.
+
+     On a fifty-run chart that is roughly one false signal expected per chart. Fine if you
+     know it, badly misleading if you do not, so the number is reported beside the signals
+     rather than left for somebody to discover by investigating noise. */
+  const RULE_COST = { limits: 103, all: 50 };
+
+  function imr(y, opt) {
+    opt = opt || {};
+    const useAll = opt.rules !== 'limits';
     const mrs = [null]; for (let i = 1; i < y.length; i++) mrs.push(Math.abs(y[i] - y[i - 1]));
     const mrBar = mean(mrs.slice(1)), cl = mean(y);
     const ucl = cl + 2.66 * mrBar, lcl = cl - 2.66 * mrBar, mrUcl = 3.267 * mrBar;
+    /* The full Nelson set, not three of it.
+
+       Rule 1 catches a point so far out it cannot be chance. The other seven catch the
+       thing a limits-only chart is blind to: a process that has shifted or drifted while
+       every individual point stays inside the lines. A slow drift toward a limit trips rule
+       3 long before it trips rule 1, which is the whole reason the rules exist - by the time
+       a point is beyond 3 sigma the batch is usually already made.
+
+       Zones are the thirds of the distance from the centre line to a limit: C within one
+       sigma, B between one and two, A between two and three. Sigma here comes from the
+       moving range, which is the within-subgroup spread, not the standard deviation of the
+       whole series - using the latter would widen the limits with the very shift the chart
+       is meant to find. */
+    const sigma = (ucl - cl) / 3;
     const flags = y.map(() => []);
-    y.forEach((v, i) => { if (v > ucl || v < lcl) flags[i].push('beyond limits'); });
-    let run = 0, side = 0;
-    y.forEach((v, i) => {
-      const s = v > cl ? 1 : v < cl ? -1 : 0;
-      run = s && s === side ? run + 1 : s ? 1 : 0; side = s;
-      if (run >= 8) flags[i].push('8 in a row on one side');
-    });
-    mrs.forEach((v, i) => { if (v !== null && v > mrUcl) flags[i].push('jump between points'); });
+    const zone = v => (sigma > 0 ? (v - cl) / sigma : 0);     // signed, in sigmas
+    const mark = (i, why) => { if (flags[i].indexOf(why) < 0) flags[i].push(why); };
+    // A rule that fires over a window marks every point in it, so the chart shows the run.
+    const span = (from, to, why) => { for (let i = from; i <= to; i++) mark(i, why); };
+
+    y.forEach((v, i) => { if (v > ucl || v < lcl) mark(i, 'beyond 3 sigma'); });
+
+    const z = y.map(zone);
+    const n = y.length;
+    const sideOf = v => (v > 0 ? 1 : v < 0 ? -1 : 0);
+    const runRule = (len, test, why) => {
+      for (let i = 0; i + len <= n; i++) {
+        let ok = true;
+        for (let j = 0; j < len && ok; j++) ok = test(i + j, i);
+        if (ok) span(i, i + len - 1, why);
+      }
+    };
+    // 2: nine in a row on one side of the centre line.
+    if (useAll) {
+    for (const s of [1, -1]) runRule(9, k => sideOf(z[k]) === s, '9 in a row on one side');
+    // 3: six in a row climbing or falling.
+    runRule(6, (k, i) => k === i || y[k] > y[k - 1], '6 in a row rising');
+    runRule(6, (k, i) => k === i || y[k] < y[k - 1], '6 in a row falling');
+    // 4: fourteen in a row alternating up and down.
+    runRule(14, (k, i) => k === i || k === i + 1 || ((y[k] - y[k - 1]) * (y[k - 1] - y[k - 2]) < 0), '14 alternating');
+    // 5: two of three in zone A or beyond, on one side.
+    for (const s of [1, -1]) {
+      for (let i = 0; i + 3 <= n; i++) {
+        let c = 0;
+        for (let j = 0; j < 3; j++) if (sideOf(z[i + j]) === s && Math.abs(z[i + j]) > 2) c++;
+        if (c >= 2) span(i, i + 2, '2 of 3 beyond 2 sigma');
+      }
+    }
+    // 6: four of five in zone B or beyond, on one side.
+    for (const s of [1, -1]) {
+      for (let i = 0; i + 5 <= n; i++) {
+        let c = 0;
+        for (let j = 0; j < 5; j++) if (sideOf(z[i + j]) === s && Math.abs(z[i + j]) > 1) c++;
+        if (c >= 4) span(i, i + 4, '4 of 5 beyond 1 sigma');
+      }
+    }
+    // 7: fifteen in a row inside one sigma, either side. Too good to be true, usually a
+    // limit calculated from the wrong spread or data that has been smoothed.
+    runRule(15, k => Math.abs(z[k]) < 1, '15 in a row hugging the centre');
+    // 8: eight in a row outside one sigma, either side - a bimodal process, often two
+    // shifts or two lines pooled into one chart.
+    runRule(8, k => Math.abs(z[k]) > 1, '8 in a row avoiding the centre');
+    }
+
+    mrs.forEach((v, i) => { if (v !== null && v > mrUcl) mark(i, 'jump between points'); });
     const signals = flags.map((f, i) => (f.length ? { i, why: f } : null)).filter(Boolean);
-    return { y, mr: mrs, cl, ucl, lcl, mrBar, mrUcl, flags, signals };
+    return { y, mr: mrs, cl, ucl, lcl, mrBar, mrUcl, sigma, flags, signals,
+      rules: useAll ? 'all' : 'limits',
+      /* How often this rule set cries wolf on a process with nothing wrong with it,
+         measured on 3,000 in-control series rather than quoted. */
+      falseAlarmEvery: RULE_COST[useAll ? 'all' : 'limits'],
+      expectedFalse: y.length / RULE_COST[useAll ? 'all' : 'limits'],
+      // The zone boundaries, so a chart can draw them rather than implying only the limits.
+      zones: { a: [cl + 2 * sigma, cl + 3 * sigma], b: [cl + sigma, cl + 2 * sigma], c: [cl - sigma, cl + sigma] } };
   }
 
   function box(values) {

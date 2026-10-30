@@ -127,6 +127,10 @@
 
     const report = Object.assign(report0, { profile: prof, dropped, log, features: features.map(c => c.name), goal: options.goal || 'max', seed });
     report.correlations = correlations(prof, features.concat(targetCol && targetCol.kind === 'numeric' ? [targetCol] : []));
+    /* Variance inflation on the inputs alone. A pairwise correlation sees two columns at a
+       time, and the case that bites is the one it cannot: inputs that are each mildly
+       correlated but jointly almost determine one another. */
+    report.vif = E.vif(features, range(prof.nRows));
 
     if (!targetCol) {
       report.task = 'clustering';
@@ -703,6 +707,13 @@
       if (c.loss !== null) add('info', 'Taguchi quality loss: the average unit carries ' + pct(c.loss) + ' of the loss of a unit sitting right at the spec limit. Every step away from the target costs something, even inside spec.');
     } else if (s.stats) add('info', 'Six Sigma mode: no spec limits were given, so Cp and Cpk are skipped. The control chart, box plots and robustness analysis still apply.');
     if (s.imr) {
+      const im = s.imr;
+      if (im.expectedFalse >= 0.5) {
+        add('info', 'This chart runs ' + (im.rules === 'all' ? 'the full Nelson rule set' : 'the control limits and the moving-range limit') +
+          '. Measured on 3,000 in-control series, that raises a false signal about once every ' + im.falseAlarmEvery +
+          ' points, so on ' + im.y.length + ' runs you should expect about ' + im.expectedFalse.toFixed(1) +
+          ' signal' + (im.expectedFalse >= 1.5 ? 's' : '') + ' even from a process with nothing wrong with it. One isolated signal is not evidence; a pattern or a repeat is.');
+      }
       const n = s.imr.signals.length;
       add(n ? 'warn' : 'good', n ? 'Control chart: ' + n + ' signal' + (n > 1 ? 's' : '') + ' of special-cause variation (first at row ' + s.imr.rowNums[s.imr.signals[0].i] + ': ' + s.imr.signals[0].why.join(', ') + '). The process is not yet stable, and capability assumes stability.' : 'Control chart: no special-cause signals. The process looks stable over this period.');
     }
@@ -729,6 +740,21 @@
     if (n < 30) add('warn', 'Only ' + n + ' rows. Treat results as directional; small samples can mislead. A planned experiment gets more from few runs than historical data does.');
     else if (features.length && n < 10 * features.length) add('warn', n + ' rows for ' + features.length + ' inputs. Rule of thumb is 10+ rows per input; more data would firm up the results.');
     for (const l of rep.leaks || []) add('warn', '"' + l.name + '" was set aside because it matches ' + rep.target + ' almost exactly on its own (' + l.why + '). It is most likely recorded after the result or derived from it. If it truly is an input you control, you do not need machine learning for it: it already decides the result.');
+    const v = rep.vif;
+    if (v && v.factors && v.factors.length) {
+      if (v.singular) {
+        add('warn', 'At least one input is an exact, or near-exact, combination of the others (' + v.flagged.slice(0, 4).join(', ') +
+          '). Their separate effects cannot be estimated at all \u2014 not weakly, not at all \u2014 so the model may predict well while any statement about which one to change is meaningless. Drop one, or combine them into the quantity they really represent.');
+      } else if (v.flagged && v.flagged.length) {
+        const worst = v.worst;
+        add('info', 'Inputs that move with the others: ' + v.flagged.slice(0, 5).map(n => {
+          const f = v.factors.find(x => x.name === n);
+          return n + ' (VIF ' + f.vif.toFixed(1) + ')';
+        }).join(', ') + '. Above 5 is worth knowing and above 10 is usually called a problem, though both are conventions rather than findings. ' +
+          'What this costs is precision on those coefficients, not predictive accuracy: the model can predict perfectly and still be unable to say which of ' +
+          worst.name + ' and the inputs it moves with is the one to change. A designed experiment separates them; historical data cannot.');
+      }
+    }
     const gappy = prof.columns.filter(c => c.n && c.missing / c.n > 0.05 && c.kind !== 'empty');
     if (gappy.length) add('warn', 'Missing values in ' + gappy.map(c => c.name + ' (' + pct(c.missing / c.n) + ')').join(', ') + '. Gaps were filled with the median or most common value. Fix at the source if you can.');
     const strong = (rep.correlations || []).filter(c => Math.abs(c.r) >= 0.85 && c.a !== rep.target && c.b !== rep.target);

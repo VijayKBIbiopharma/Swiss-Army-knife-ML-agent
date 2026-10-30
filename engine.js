@@ -1009,6 +1009,75 @@
   }
 
   // How much the score drops when one original column is scrambled.
+  /* Variance inflation factors: how much a coefficient's variance is inflated by the other
+     inputs moving with it.
+
+     A pairwise correlation only sees two columns at a time, and the case that bites is the
+     one it cannot see - three inputs that are each mildly correlated but jointly almost
+     determine one another, so no pair looks alarming and the coefficients are still
+     meaningless. VIF catches that, because it regresses each input on all the others at
+     once. It is the diagonal of the inverted correlation matrix, which is the same quantity
+     and far cheaper than fitting a regression per column.
+
+     The conventional readings: above 5 is worth knowing, above 10 is usually taken as a
+     problem. Both are conventions rather than findings, and are labelled as such, because
+     what VIF actually costs you is precision on that coefficient - it says nothing about
+     whether the model predicts well, and a model full of collinear inputs can predict
+     perfectly while being useless for saying which input to change. */
+  function vif(columns, rows) {
+    const cols = columns.filter(c => c.kind === 'numeric');
+    if (cols.length < 2) return { factors: [], note: 'Fewer than two numeric inputs, so there is nothing for them to be collinear with.' };
+    const use = (rows && rows.length ? rows : range(columns[0] && columns[0].values ? columns[0].values.length : 0))
+      .filter(r => cols.every(c => c.values[r] !== null && isFinite(c.values[r])));
+    const n = use.length;
+    if (n < cols.length + 2) return { factors: [], note: 'Too few complete rows (' + n + ') for ' + cols.length + ' inputs to separate them.' };
+    const k = cols.length;
+    const data = cols.map(c => use.map(r => Number(c.values[r])));
+    const means = data.map(v => mean(v)), sds = data.map(v => sd(v));
+    // A constant column has no variance to inflate and would make the matrix singular.
+    const flat = [];
+    for (let i = 0; i < k; i++) if (!(sds[i] > 0)) flat.push(cols[i].name);
+    if (flat.length) return { factors: [], note: 'These inputs do not vary, so collinearity is undefined for them: ' + flat.join(', ') + '.' };
+    const R = [];
+    for (let i = 0; i < k; i++) {
+      R.push([]);
+      for (let j = 0; j < k; j++) {
+        if (i === j) { R[i].push(1); continue; }
+        let acc = 0;
+        for (let t = 0; t < n; t++) acc += (data[i][t] - means[i]) * (data[j][t] - means[j]);
+        R[i].push(acc / ((n - 1) * sds[i] * sds[j]));
+      }
+    }
+    const inv = invert(R);
+    if (!inv) {
+      /* A singular correlation matrix means at least one input is an exact combination of
+         the others. There is no finite VIF for it, and saying "very high" would understate
+         it: the coefficients cannot be separated at all. */
+      return { factors: cols.map(c => ({ name: c.name, vif: Infinity, verdict: 'inseparable' })),
+        singular: true,
+        note: 'At least one of these inputs is an exact combination of the others, so their separate effects cannot be estimated at all.' };
+    }
+    const factors = cols.map((c, i) => {
+      const v = Math.max(1, inv[i][i]);
+      return { name: c.name, vif: v, verdict: v >= 10 ? 'severe' : v >= 5 ? 'high' : 'ok' };
+    }).sort((a, b) => b.vif - a.vif);
+    /* Inversion does not fail cleanly on an exactly collinear set - it returns a matrix of
+       enormous numbers rather than nothing - so a VIF in the billions has to be read as what
+       it is. Printing 621,657,757,936 would be technically the output of the arithmetic and
+       useless to everybody: the honest statement is that these inputs cannot be separated
+       at all, which is a different claim from "very collinear". */
+    if (factors.some(f => !isFinite(f.vif) || f.vif > 1e6)) {
+      return {
+        factors: factors.map(f => ({ name: f.name, vif: Infinity, verdict: 'inseparable' })),
+        n, singular: true,
+        note: 'At least one of these inputs is an exact, or near-exact, combination of the others, so their separate effects cannot be estimated at all. Drop one of them, or combine them into the quantity they really represent.',
+        flagged: factors.map(f => f.name)
+      };
+    }
+    return { factors, n, singular: false,
+      worst: factors[0], flagged: factors.filter(f => f.verdict !== 'ok').map(f => f.name) };
+  }
+
   function permutationImportance(full, data, task, seed, opt) {
     opt = opt || {};
     const { enc, X, fitted } = full;
@@ -1184,7 +1253,7 @@
     normCdf, normPdf, normInv, lgamma,
     parseCSV, profile, isUsableFeature, toNumber, fitEncoder, fitRidgeCore, fitLasso, buildTree, mlpTrainer,
     MODELS, makeFolds, crossValidate, fitFull, fitPLS, regressionMetrics, classificationMetrics,
-    supervisedData, permutationImportance, partialDependence, pickProb, treePredictRow, kmeans, silhouette, pca
+    supervisedData, vif, permutationImportance, partialDependence, pickProb, treePredictRow, kmeans, silhouette, pca
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLEngine;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

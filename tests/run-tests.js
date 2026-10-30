@@ -3881,3 +3881,127 @@ test('what another round would buy is projected from this dataset, and checked a
   const p2 = CM.project(mk(120, 11), 'Titer', 40, { seed: 42 });
   assert.ok(/assumes the next runs resemble/.test(p2.assumption), p2.assumption);
 });
+
+test('variance inflation catches what a pairwise correlation cannot', () => {
+  const mk = (n, r, seed) => {
+    const q = E.rng(seed);
+    const z = () => { const u = Math.max(1e-12, q()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * q()); };
+    const rows = [];
+    for (let i = 0; i < n; i++) { const a = z(), b = r * a + Math.sqrt(1 - r * r) * z(); rows.push([a.toFixed(5), b.toFixed(5)]); }
+    return { columns: ['A', 'B'], rows };
+  };
+  /* Two inputs correlated at r have a VIF of exactly 1/(1-r^2). Checked against that
+     identity rather than against the function's own output. */
+  for (const r of [0.5, 0.8, 0.9, 0.95]) {
+    const prof = E.profile(mk(4000, r, 7));
+    const got = E.vif(prof.columns, E.range(prof.nRows)).factors[0].vif;
+    const want = 1 / (1 - r * r);
+    assert.ok(Math.abs(got - want) / want < 0.05,
+      'at r=' + r + ' VIF should be ' + want.toFixed(2) + ', got ' + got.toFixed(2));
+  }
+
+  /* The case the brief's pairwise check misses, and the reason VIF is worth having: three
+     inputs that are each only mildly correlated but jointly almost determine one another.
+     No pair looks alarming and the coefficients are still meaningless. */
+  const q = E.rng(3);
+  const z = () => { const u = Math.max(1e-12, q()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * q()); };
+  const rows = [];
+  for (let i = 0; i < 2000; i++) { const a = z(), b = z(); rows.push([a.toFixed(5), b.toFixed(5), (a + b + z() * 0.25).toFixed(5)]); }
+  const prof = E.profile({ columns: ['A', 'B', 'C'], rows });
+  const pair = (x, y) => Math.abs(E.pearson(prof.columns.find(c => c.name === x).values, prof.columns.find(c => c.name === y).values));
+  const worstPair = Math.max(pair('A', 'B'), pair('A', 'C'), pair('B', 'C'));
+  assert.ok(worstPair < 0.9, 'no pair trips a 0.9 threshold: worst was ' + worstPair.toFixed(3));
+  const v = E.vif(prof.columns, E.range(prof.nRows));
+  assert.ok(v.factors.every(f => f.vif > 10), 'yet every one is severely inflated: ' +
+    v.factors.map(f => f.name + ' ' + f.vif.toFixed(1)).join(', '));
+  assert.strictEqual(v.factors[0].verdict, 'severe');
+
+  /* Exact collinearity does not make the inversion fail cleanly - it returns enormous
+     numbers - so a VIF in the billions has to be read as what it is. Reporting
+     621,657,757,936 would be the honest output of the arithmetic and useless to everybody. */
+  const q2 = E.rng(3), rows2 = [];
+  for (let i = 0; i < 200; i++) { const a = q2(), b = q2(); rows2.push([a.toFixed(6), b.toFixed(6), (a + b).toFixed(6)]); }
+  const sing = E.vif(E.profile({ columns: ['A', 'B', 'S'], rows: rows2 }).columns, E.range(200));
+  assert.strictEqual(sing.singular, true);
+  assert.ok(sing.factors.every(f => f.verdict === 'inseparable'), 'not "very collinear" but inseparable');
+  assert.ok(/cannot be estimated at all/.test(sing.note), sing.note);
+
+  /* Things it cannot answer are refused rather than guessed. Profiling normally keeps a
+     constant column away from here by tagging it constant, so the guard is exercised
+     directly - a column that reaches this function with no variance would otherwise make
+     the correlation matrix singular for a reason that has nothing to do with collinearity. */
+  assert.deepStrictEqual(E.vif([{ kind: 'numeric', name: 'only', values: [1, 2, 3] }], [0, 1, 2]).factors, [],
+    'one input cannot be collinear with anything');
+  const flatCols = [
+    { kind: 'numeric', name: 'Varies', values: E.range(40) },
+    { kind: 'numeric', name: 'Frozen', values: E.range(40).map(() => 7) }
+  ];
+  assert.ok(/do not vary/.test(E.vif(flatCols, E.range(40)).note || ''),
+    'a frozen input is named rather than producing an undefined factor');
+  // Too few rows to separate the inputs is said, not papered over.
+  assert.ok(/Too few complete rows/.test(E.vif([
+    { kind: 'numeric', name: 'A', values: [1, 2, 3] },
+    { kind: 'numeric', name: 'B', values: [2, 4, 7] }
+  ], [0, 1, 2]).note || ''));
+});
+
+test('the control chart runs the full Nelson set, and says what that costs', () => {
+  /* Rule 1 catches a point so far out it cannot be chance. The other seven catch what a
+     limits-only chart is blind to: a process that has shifted or drifted while every point
+     stays inside the lines. Each is checked on data built to trip exactly it, using the
+     sigma the chart itself computes rather than a guess at it. */
+  const probe = mut => {
+    const y = E.range(40).map(i => 10 + (i % 2 ? 0.1 : -0.1));
+    const sg = SPC.imr(y).sigma;
+    mut(y, sg);
+    return SPC.imr(y);
+  };
+  const fires = (im, why) => im.signals.some(s => s.why.includes(why));
+  assert.ok(fires(probe((y, sg) => { y[15] = 10 + 5 * sg; }), 'beyond 3 sigma'), 'rule 1');
+  assert.ok(fires(probe((y, sg) => { for (let i = 10; i < 19; i++) y[i] = 10 + 0.5 * sg; }), '9 in a row on one side'), 'rule 2');
+  assert.ok(fires(probe((y, sg) => { for (let i = 10; i < 16; i++) y[i] = 10 + (i - 9) * 0.3 * sg; }), '6 in a row rising'), 'rule 3');
+  assert.ok(fires(probe(() => {}), '14 alternating'), 'rule 4');
+  assert.ok(fires(probe((y, sg) => { y[10] = 10 + 2.5 * sg; y[12] = 10 + 2.4 * sg; }), '2 of 3 beyond 2 sigma'), 'rule 5');
+  assert.ok(fires(probe((y, sg) => { for (const i of [10, 11, 13, 14]) y[i] = 10 + 1.5 * sg; }), '4 of 5 beyond 1 sigma'), 'rule 6');
+  assert.ok(fires(probe((y, sg) => { for (let i = 5; i < 25; i++) y[i] = 10 + (i % 2 ? 0.05 : -0.05) * sg; }), '15 in a row hugging the centre'), 'rule 7');
+  assert.ok(fires(probe((y, sg) => { for (let i = 10; i < 18; i++) y[i] = 10 + (i % 2 ? 1.4 : -1.4) * sg; }), '8 in a row avoiding the centre'), 'rule 8');
+
+  const q = E.rng(5);
+  const nz = () => { const u = Math.max(1e-12, q()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * q()); };
+  // An alarm is a run, not a point: a nine-in-a-row marks nine points and is one alarm.
+  const events = im => {
+    let c = 0; const active = {};
+    im.flags.forEach(f => {
+      for (const w of f) if (!active[w]) { active[w] = true; c++; }
+      for (const w of Object.keys(active)) if (f.indexOf(w) < 0) delete active[w];
+    });
+    return c;
+  };
+  /* Rule 1 on its own is the one with a textbook figure to check against: a false signal
+     about once every 370 points on a process with nothing wrong with it. */
+  let only1 = 0, pts = 0, all = 0, lim = 0;
+  for (let t = 0; t < 1200; t++) {
+    const s = E.range(50).map(() => 10 + nz());
+    const im = SPC.imr(s), imLim = SPC.imr(s, { rules: 'limits' });
+    only1 += events({ flags: im.flags.map(f => f.filter(w => w === 'beyond 3 sigma')) });
+    all += events(im); lim += events(imLim); pts += 50;
+  }
+  const per = c => pts / Math.max(1, c);
+  assert.ok(per(only1) > 250 && per(only1) < 520,
+    'the 3-sigma rule alone should land near the textbook 370, got ' + Math.round(per(only1)));
+  /* The cost of the other seven, measured rather than asserted: about one false signal per
+     fifty points, so roughly one per chart. Fine if you know it; misleading if you do not. */
+  assert.ok(per(all) < per(lim), 'the full set must fire more often than limits alone');
+  assert.ok(per(all) > 25 && per(all) < 90, 'measured about 1 in 50, got 1 in ' + Math.round(per(all)));
+  const im = SPC.imr(E.range(50).map(() => 10 + nz()));
+  assert.ok(Math.abs(im.falseAlarmEvery - per(all)) < 30, 'the reported rate must match the measured one: reported ' +
+    im.falseAlarmEvery + ', measured ' + Math.round(per(all)));
+  assert.ok(Math.abs(im.expectedFalse - 50 / im.falseAlarmEvery) < 1e-9);
+
+  /* And the point of the extra rules: a shift that leaves every point inside the limits. A
+     limits-only chart barely sees it. */
+  const shift = E.range(40).map(i => 10 + (i < 25 ? 0 : 0.9) + nz() * 0.35);
+  assert.ok(SPC.imr(shift, { rules: 'all' }).signals.length > SPC.imr(shift, { rules: 'limits' }).signals.length * 3,
+    'the full set must catch a shift the limits miss');
+  assert.strictEqual(SPC.imr(shift, { rules: 'limits' }).rules, 'limits');
+});
