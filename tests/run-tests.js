@@ -4682,3 +4682,61 @@ test('the loop tab names the phase you are on, and its exit criteria read the li
   for (const t of pillarText) assert.ok(t.split(/\s+/).length <= 8, 'a pillar must stay a label, not a paragraph: "' + t + '"');
   assert.ok(/id="hero-how"/.test(html), 'and a way through to the loop from the tool page');
 });
+
+/* A particle characterization core's main judgement is not pass or fail, it is which of
+   several things this particle is - proteinaceous, silicone oil, fibre, glass. That is a
+   multi-category agreement problem, and the binary machinery does not all carry over. What
+   survives and what does not is asserted here, because the playbook quotes both. */
+test('agreement works on a multi-category call, and says which binary figures do not carry over', () => {
+  const types = ['protein', 'silicone', 'fibre', 'glass'];
+  const build = (disagree, seed) => {
+    const r = E.rng(seed), rows = [];
+    for (let i = 0; i < 40; i++) {
+      const truth = types[i % 4];
+      for (const who of ['A1', 'A2', 'A3']) for (const look of [0, 1]) {
+        rows.push({ part: 'P' + i, operator: who, rating: (r() < disagree ? types[Math.floor(r() * 4)] : truth), standard: truth });
+      }
+    }
+    return rows;
+  };
+  const a = VC.attributeAgreement(build(0.15, 11), { seed: 3, reps: 300 });
+  assert.deepStrictEqual(a.categories, ['fibre', 'glass', 'protein', 'silicone'], 'all four calls must be carried');
+  assert.strictEqual(a.binary, false, 'four categories is not a binary call');
+
+  // Fleiss' kappa across analysts, and Cohen's against the standard, both work for four categories.
+  assert.ok(a.betweenAppraisers.kappa > 0.6 && a.betweenAppraisers.kappa < 0.78,
+    'measured at about 0.69 for 15% disagreement, got ' + a.betweenAppraisers.kappa.toFixed(3));
+  /* And 0.69 is "inadequate" on the bands this tool uses, not "marginal" - the content first
+     claimed marginal, which is a kinder word than the arithmetic supports. */
+  assert.strictEqual(a.betweenAppraisers.verdict, 'inadequate', 'under 0.70 is inadequate on these bands');
+  for (const v of a.vsStandard) {
+    assert.ok(v.kappa > 0.6 && v.kappa < 0.95, v.operator + ' kappa ' + v.kappa);
+    /* The part that does NOT carry over, and the playbook says so: with four categories
+       there is no single thing being missed, so a miss rate and a false alarm rate are not
+       defined. Null here rather than a number that would read as "no misses". */
+    assert.strictEqual(v.miss, null, 'a miss rate is binary only');
+    assert.strictEqual(v.falseAlarm, null, 'and so is a false alarm rate');
+  }
+  /* Where the flattery actually is: each analyst's agreement with the standard reads about
+     84% while its kappa is lower, and the between-analyst kappa is lower again. The
+     between column's percentage is NOT the comparable figure - it is the share of samples
+     where every single rating agreed, a stricter quantity than kappa, and asserting it the
+     other way round was my own misreading of the column. */
+  for (const v of a.vsStandard) assert.ok(v.pct > v.kappa, v.operator + ': agreement ' + v.pct.toFixed(3) + ' must flatter kappa ' + v.kappa.toFixed(3));
+  // Measured at 83.8%, 90.0% and 90.0%: "about 84%" was true of one analyst, not three.
+  assert.ok(a.vsStandard.every(v => v.pct >= 0.83 && v.pct <= 0.91),
+    'agreement with the standard measures 84 to 90%: ' + a.vsStandard.map(v => (v.pct * 100).toFixed(1)).join(', '));
+  assert.ok(a.betweenAppraisers.pct < a.betweenAppraisers.kappa,
+    'the all-agreed share is stricter than kappa here (' + a.betweenAppraisers.pct.toFixed(3) + ' against ' + a.betweenAppraisers.kappa.toFixed(3) + ')');
+
+  // Perfect classification on four categories still reads as perfect.
+  const perfect = VC.attributeAgreement(build(0, 12), { seed: 3, reps: 100 });
+  assert.strictEqual(perfect.betweenAppraisers.kappa, 1);
+  assert.strictEqual(perfect.verdict, 'acceptable');
+
+  /* And the guard: nine categories is a measurement wearing a judgement's clothes, and the
+     method is refused with a reason rather than applied to it. */
+  const many = [];
+  for (let i = 0; i < 20; i++) for (const who of ['A1', 'A2']) many.push({ part: 'P' + i, operator: who, rating: 'type' + (i % 9) });
+  assert.throws(() => VC.attributeAgreement(many), /not a measurement/);
+});

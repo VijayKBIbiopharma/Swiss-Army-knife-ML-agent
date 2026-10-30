@@ -126,7 +126,7 @@
     ['msat', 'MSAT & technology transfer'],
     ['mfg', 'GMP manufacturing'],
     ['qc', 'Quality control'],
-    ['pcc', 'Particle Core (PCC)'],
+    ['pcc', 'Particle characterization core (PCC)'],
     ['micro', 'Microbiology & environmental monitoring'],
     ['fac', 'Facilities & engineering'],
     ['qa', 'Quality assurance & regulatory']
@@ -138,13 +138,14 @@
   const UNITOPS = {
     mammalian: {
       pcc: [
-        ['Visible particle inspection', 'Reject rates per lot and per inspector, with agreement between inspectors measured rather than assumed, so a rate change is attributed to the line or to the people.'],
-        ['Subvisible counts (light obscuration)', 'Counts per container by size bin against the limit, charted as counts and with the tail figures taken on a scale where the shape actually holds.'],
-        ['Flow imaging and morphology classes', 'Proteinaceous against silicone oil against fibre, tracked as shares per lot and modelled against the process step that moved them.'],
-        ['Particle identification (FTIR, Raman, SEM-EDX)', 'Material classes entered as labels and trended by lot, line and campaign, so a recurring source is separated from a one-off finding.'],
+        ['Subvisible counting (light obscuration)', 'Counts per container by size bin, charted as counts rather than measurements, with the shape tested before any tail figure or sigma level is quoted.'],
+        ['Flow imaging and particle type classification', 'Proteinaceous against silicone oil against extrinsic, with analyst-to-analyst agreement on the type call measured rather than assumed consistent.'],
+        ['Identification (FTIR, Raman, SEM-EDX)', 'Material classes entered as labels and trended by lot, line and campaign, so a recurring source is separated from a one-off finding.'],
+        ['Size distribution across the bins', 'Counts per bin modelled against process and formulation conditions, so a shift in the distribution is attributed rather than described.'],
         ['Container closure and glass delamination', 'Lamellae and delamination counts against vial lot, depyrogenation and fill conditions, with the container as a named variance source.'],
-        ['Aggregation on stability', 'Subvisible growth against time and condition, with shelf life read off the confidence limit rather than the fitted line.'],
-        ['Line and environmental contribution', 'Fibre and foreign-matter counts against gowning, line speed and room monitoring, with the clustering by shift measured instead of averaged away.'],
+        ['Aggregation on stability', 'Subvisible growth against time and condition, with the limit met at the confidence bound rather than at the fitted trend.'],
+        ['Counting method qualification', 'Repeatability and reproducibility of the counter itself, judged against the specification window rather than against the samples that happened to be run.'],
+        ['Counter and laboratory comparability', 'Light obscuration against flow imaging, or site against site, on a margin declared beforehand, with inconclusive available as a verdict.'],
       ],
       micro: [
         ['Environmental monitoring (viable)', 'Settle and active air counts charted as counts rather than measurements, with the clustering between rooms and shifts measured instead of assumed away.'],
@@ -226,13 +227,14 @@
     },
     microbial: {
       pcc: [
-        ['Visible particle inspection', 'Reject rates per lot and per inspector, with inspector-to-inspector agreement measured, so a change in rate is attributed to the product or to the judgement.'],
-        ['Subvisible counts (light obscuration)', 'Counts per container by size bin against the limit, treated as counts rather than measurements and with the shape tested before any tail figure is quoted.'],
-        ['Refold and aggregate-derived particles', 'Aggregate and precipitate counts against refold conditions, concentration and hold time, so the trade against correctly folded yield is explicit.'],
-        ['Host cell debris and lysis carryover', 'Particulate load against lysis and clarification settings, so a downstream particle problem is traced to the step that created it.'],
-        ['Particle identification (FTIR, Raman, SEM-EDX)', 'Material classes entered as labels and trended by lot and campaign, separating a recurring source from an isolated finding.'],
+        ['Subvisible counting (light obscuration)', 'Counts per container by size bin as counts, with the distribution tested rather than assumed before any tail figure is reported.'],
+        ['Flow imaging and particle type classification', 'Aggregate against host cell debris against extrinsic, with agreement between analysts on the type call measured instead of presumed.'],
+        ['Identification (FTIR, Raman, SEM-EDX)', 'Material classes entered as labels and trended by lot and campaign, separating a recurring source from an isolated finding.'],
+        ['Refold and aggregate characterization', 'Aggregate and precipitate counts against refold conditions, concentration and hold time, so the trade against correctly folded yield is explicit.'],
+        ['Host cell debris and lysis carryover', 'Particulate load against lysis and clarification settings, so a downstream particle finding is traced to the step that created it.'],
         ['Aggregation on stability', 'Subvisible growth against time and storage condition, with the limit met at the confidence bound rather than at the trend line.'],
-        ['Line and environmental contribution', 'Fibre and foreign-matter counts against gowning, line speed and room monitoring, with shift-to-shift clustering measured rather than averaged away.'],
+        ['Counting method qualification', 'Repeatability and reproducibility of the counter, judged against the specification window rather than against a convenient sample set.'],
+        ['Counter and laboratory comparability', 'One counting technique or laboratory against another on a declared margin, with an explicit inconclusive verdict when the study cannot settle it.'],
       ],
       micro: [
         ['Environmental monitoring (viable)', 'Air and surface counts charted as counts, with the clustering between rooms, shifts and campaigns measured rather than assumed to be absent.'],
@@ -316,7 +318,7 @@
   // What the selected technique specifically does for that function.
   const BYFUNCTION = {
     analyze: {
-      pcc: 'Counts charted as counts with their clustering measured, what moves particle load ranked with a noise floor beside it, and the designed study that separates stopper, siliconisation, agitation and hold time.',
+      pcc: 'The counts this group reports, charted as counts with their clustering measured, plus what moves particle load ranked with a noise floor and the designed study that separates it.',
       micro: 'Counts charted as counts with their clustering measured, and what moves bioburden or a monitoring excursion ranked with a noise floor beside it.',
       fac: 'Utility and equipment data turned into the few parameters that predict a failure or an excursion, with a drift caught by the rules a limits-only chart is blind to.',
       cld: 'Rank clones and strains on the screen reads that actually predict later performance, and design the confirmation study.',
@@ -355,7 +357,7 @@
       qa: 'Campaign review with every batch triaged in one table, and an investigation that starts from the hour and the sensor rather than from the whole record.'
     },
     equivalence: {
-      pcc: 'One particle counter against another, or lab against lab, on a margin fixed beforehand - with inconclusive reported as its own answer, which is where counter comparisons usually land.',
+      pcc: 'A core deliverable rather than an afterthought: one counting technique or laboratory against another on a margin fixed beforehand, with inconclusive reported as its own answer.',
       micro: 'A rapid micro method against compendial, or one incubator or reader against another, with the margin declared first.',
       fac: 'A replacement instrument, outlet or assembly against the qualified one, judged on a declared margin rather than on a passing glance.',
       cld: 'A new clone or strain shown comparable to the one it replaces, within a margin set in advance.',
@@ -368,7 +370,7 @@
       qa: 'Comparability evidence for change control, with the margin fixed before the data was seen.'
     },
     variance: {
-      pcc: 'The first thing to run here: attribute agreement for the visible inspection, which is a judgement, and Gage R&R for the counter, which is a measurement. They are different methods and only one of them fits each.',
+      pcc: 'Two different methods for the two things this group produces: attribute agreement for the particle type call, which is a judgement, and Gage R&R for the counter, which is a measurement. Most groups run neither on the classification.',
       micro: 'Plate reader against plate reader on the same plates, with agreement beyond chance measured, plus incubator and media lot as variance sources.',
       fac: 'Probe-to-probe, outlet-to-outlet and technician-to-technician differences separated from the instrument noise underneath them.',
       cld: 'Split clone screening spread into real clone differences and plate or assay noise, so a top performer is not simply a lucky well.',
@@ -381,7 +383,7 @@
       qa: 'Variation attributed to a named source in trend reports and investigations, with the measurement system qualified so capability is about product rather than assay.'
     },
     limits: {
-      pcc: 'Alert and action levels for counts that no bell curve fits, taken from the ranking of past results alone where the distribution will not support a factor, with the sample size that needs stated.',
+      pcc: 'Alert and action levels for counts no bell curve fits, taken from the ranking of past results where the distribution will not support a factor, with the sample size that needs stated up front.',
       micro: 'Alert and action levels for counts that no bell curve fits, taken from the ranking of past results when the distribution will not support a factor.',
       fac: 'Utility and environmental limits the data supports, with the honest answer when no sample size could support the limit being asked for.',
       cld: 'Size a clone screen so the winner is a real winner, and set generation-limit criteria from the data rather than from convention.',
@@ -622,40 +624,43 @@
       ]
     },
     pcc: {
-      headline: 'Particle data is counted, rare and judged by eye, which breaks the three defaults at once: the measurement chart, the bell curve, and percent agreement.',
-      first: { tool: 'variance', label: 'Qualify the judgement before chasing the process',
-        why: 'Visible inspection is a human pass or fail, so there is no variance to take and Gage R&R does not apply at all - attribute agreement does. Run it first, because every number downstream takes the inspection at face value: a reject rate, a trend, a line comparison. And the failure mode is not noise, it is bias. An inspector who passes everything looks excellent on agreement and catches nothing, and no amount of modelling downstream recovers from that.' },
+      headline: 'What this group produces is a classification and a count, so the first thing to qualify is the classification and the count - and they need two different methods, because one is a judgement and the other is a measurement.',
+      first: { tool: 'variance', label: 'Qualify the type call and the counter separately',
+        why: 'A particle type call - proteinaceous, silicone oil, fibre, glass - is a human judgement with no number in it, so there is no variance to take and Gage R&R does not apply; attribute agreement does. The counter is the opposite: a number from an instrument, where Gage R&R is exactly right and agreement means nothing. Running the wrong one of the two is the common failure, and running neither on the classification is more common still: every count and every identification this group issues rests on a judgement nobody has measured.' },
       steps: [
-        { tool: 'variance', label: 'Attribute agreement on the inspection',
-          does: 'Inspector against themselves, inspector against inspector, and each one against a known standard, with kappa beside every agreement percentage and the miss rate reported separately from the false alarm rate.',
-          measured: 'Why the percentage alone will not do: at a 10% defect rate an inspector who passes every vial scores 90% agreement, a kappa of exactly 0, and a 100% miss rate. One of those numbers reads as an excellent inspector.',
-          limit: 'Build the qualification set close to half defective, however unrepresentative that feels. A set matching real reject rates cannot measure a miss rate, because there is almost nothing to miss.' },
-        { tool: 'analyze', label: 'Count charts, with the clustering measured',
-          does: 'Counts per container or per lot charted as counts, with dispersion measured rather than assumed and the limits widened when particles cluster by vial lot, line or shift - which they almost always do.',
-          measured: 'At a dispersion of 3, ordinary for particle counts, the textbook chart flags one point in sixteen from a line behaving perfectly, about four false signals on a sixty-point chart, against one in ninety-four once widened. On genuinely Poisson counts the widening is x1.05, so it costs nothing when it is not needed.',
-          limit: 'Rare events remain badly served. At a reject rate in the tenths of a percent a proportion chart is mostly noise, and the chart that suits it - containers or days between events - is not built yet.' },
+        { tool: 'variance', label: 'Attribute agreement on the particle type call',
+          does: 'Analyst against themselves, analyst against analyst, and each one against a known standard, with Fleiss and Cohen kappa beside every agreement percentage and bootstrapped intervals over samples.',
+          measured: 'Why the percentage alone will not do: on a binary call with a 10% positive rate, an analyst who calls everything negative scores 90% agreement, a kappa of exactly 0 and a 100% miss rate. On a four-way type call with three analysts disagreeing 15% of the time, the between-analyst kappa measures 0.69, which these bands call inadequate, while each analyst\u2019s own agreement with the standard on that same study reads between 84 and 90%.',
+          limit: 'The miss and false alarm rates are binary only. For a four-way type call you get kappa, agreement and the per-analyst comparison against the standard, but not those two rates, because with four categories there is no single thing being missed.' },
+        { tool: 'variance', label: 'Gage R&R on the counter',
+          does: 'Repeatability, reproducibility and real container-to-container differences from a crossed study, judged against your specification window rather than against whichever containers happened to be run.',
+          limit: 'Under five distinct categories the counter cannot support a control chart on individual results: the chart would show the method moving, not the product. That is reported rather than left to be discovered on a trend report.' },
+        { tool: 'equivalence', label: 'Counter against counter, laboratory against laboratory',
+          does: 'Light obscuration against flow imaging, or site against site, by two one-sided tests on a margin declared beforehand, paired when the same containers went through both. Three answers rather than two, and the third is the one these studies usually deserve: inconclusive, rather than "no significant difference, therefore comparable" - with the number of containers per method that would settle it.',
+          limit: 'The margin is yours to justify, and a margin chosen after seeing the data is not a test. Recovery and detection limits are method validation questions this does not answer.' },
+        { tool: 'analyze', label: 'The counts, charted as counts',
+          does: 'Counts per container or per lot with dispersion measured rather than assumed, and the limits widened when particles cluster by vial lot, line or shift - which they almost always do.',
+          measured: 'At a dispersion of 3, ordinary for particle counts, the textbook chart flags one point in sixteen from a process behaving perfectly, about four false signals on a sixty-point chart, against one in ninety-four once widened. On genuinely Poisson counts the widening is x1.05, so it costs nothing when it is not needed.',
+          limit: 'Rare events remain badly served. At a finding rate in the tenths of a percent a proportion chart is mostly noise, and the chart that suits it - containers or days between findings - is not built yet.' },
         { tool: 'analyze', label: 'Capability without pretending the shape is normal',
-          does: 'Subvisible counts are bounded at zero with a long right tail, so Cp and Cpk are reported as the shape-free ratios they are, and the tail figures are recomputed on a Box-Cox transformed scale with normality re-tested on the transformed values.',
-          measured: 'On a right-skewed count whose limit sits at its true 99.9th percentile, so the real rate is 1,000 PPM by construction, the straight normal fit reports 0 PPM - no risk at all - and the transformed fit about 1,300. A transform that still fails its re-test leaves the figures withheld.',
-          limit: 'No power transform fixes a bimodal distribution, which is what two filling lines or two stopper lots alternating looks like. There the honest output stays Cp, Cpk and the observed count out of spec.' },
+          does: 'Counts are bounded at zero with a long right tail, so Cp and Cpk are reported as the shape-free ratios they are, and the tail figures are recomputed on a Box-Cox transformed scale with normality re-tested on the transformed values.',
+          measured: 'On a right-skewed count whose limit sits at its true 99.9th percentile, so the real rate is 1,000 PPM by construction, the straight normal fit reports 0 PPM - no risk at all - and the transformed fit about 1,300.',
+          limit: 'No power transform fixes a bimodal distribution, which is what two lines or two vial lots alternating looks like. There the honest output stays Cp, Cpk and the observed count out of spec.' },
         { tool: 'limits', label: 'Alert and action levels that assume no distribution',
-          does: 'A bound taken from the ranking of past results alone, which holds whatever the shape, reported beside the normal-theory factor so the trade between them is visible rather than decided by whichever test happened to pass.',
-          measured: 'The cost is sample size and it is steep: a one-sided 99% claim at 95% confidence needs 299 results from the ranking alone against about ten for the normal factor, and thirty results reach only 26% confidence, not 95%.',
-          limit: 'Below the required count it refuses and states what the data actually reaches, with the number of results that would change the answer attached, rather than producing a limit nobody can defend.' },
-        { tool: 'analyze', label: 'What is actually driving the load, and the study that proves it',
-          does: 'Stopper lot, siliconisation, line speed, filter lot, hold time and shift ranked with error bars and a shuffled-target noise floor, then a definitive screening design that separates the ones history confounded.',
+          does: 'A bound taken from the ranking of past results alone, which holds whatever the shape, reported beside the normal-theory factor so the trade is visible rather than settled by whichever test happened to pass.',
+          measured: 'The cost is sample size and it is steep: a one-sided 99% claim at 95% confidence needs 299 results from the ranking alone against about ten for the normal factor, and thirty results reach only 26% confidence.',
+          limit: 'Below the required count it refuses and states what the data actually reaches, with the number of results that would change the answer, rather than issuing a limit nobody can defend.' },
+        { tool: 'analyze', label: 'Supporting an investigation: what moved the load',
+          does: 'Vial lot, stopper lot, siliconisation, line speed, filter lot and hold time ranked with error bars and a shuffled-target noise floor, then the design that separates the ones history confounded.',
           measured: 'Effects are judged after correcting for how many were tested: over 500 analyses of a design with no real effect in it at all, 23.2% handed back at least one significant term, and the correction cuts that to 1.8% while still catching real effects every time.',
-          limit: 'An investigation log cannot separate parameters that always moved together, and the tool names the confounding rather than resolving it. Resolving it is what the design is for.' },
-        { tool: 'equivalence', label: 'One counter against another',
-          does: 'Light obscuration against flow imaging, or lab against lab, by two one-sided tests on a margin fixed beforehand, paired when the same containers went through both.',
-          limit: 'Inconclusive is a real answer and the usual one for counter comparisons; the tool reports how many containers per method would settle it rather than letting the study pass by default.' }
+          limit: 'An investigation log cannot separate parameters that always moved together; the tool names the confounding rather than resolving it, and resolving it is what the design is for.' }
       ],
       gaps: [
-        'No image or spectrum reading. FTIR, Raman and SEM-EDX identifications have to arrive as labels in a column; the page does not read a spectrum or a particle image.',
-        'No rare-event chart, which is the single biggest gap for this group: at a tenth of a percent reject rate the charts that exist here are mostly noise.',
-        'No USP two-tier decision logic. It will not tell you which tier a result falls in, whether it is an excursion, or whether it is reportable.',
-        'No particle size distribution modelling: counts per bin are handled as counts, with nothing fitted across the bins themselves.',
-        'It cannot write the investigation. There is no language model here, so what it produces is the evidence and the audit package, not the report.'
+        'No image or spectrum reading, which for this group is the biggest limitation: FTIR, Raman, SEM-EDX and flow imaging outputs have to arrive as labels and numbers in columns, because the page reads tables and nothing else.',
+        'No automated particle type classification. The type call stays a human judgement; what the tool does is measure how consistent and how correct that judgement is.',
+        'No rare-event chart, which is what a finding rate in the tenths of a percent actually needs.',
+        'No USP two-tier decision logic: it will not tell you which tier a result falls in, whether it is an excursion, or whether it is reportable.',
+        'No size distribution fitted across the bins - counts per bin are handled as counts, with nothing modelled over the bin structure itself.'
       ]
     },
     micro: {
