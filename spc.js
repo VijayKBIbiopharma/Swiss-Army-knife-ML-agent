@@ -550,6 +550,135 @@
   const fmtInt = v => (isFinite(v) ? Math.round(v).toLocaleString() : '–');
   const fmtSigned = v => (isFinite(v) ? (Math.round(v * 100) / 100).toLocaleString() : '–');
 
-  root.MLSpc = { normCdf, normInv, capability, imr, countChart, rareEvents, boxCoxLambda, nonNormalTail, box, snRatio, taguchi, attribute };
+
+  /* ---------- The small sustained shift, which a Shewhart chart is worst at ----------
+
+     The I-MR chart above looks at one point at a time, so it is excellent at a spike and
+     poor at a drift: a half-sigma shift leaves almost every point inside the limits, and
+     the Nelson run rules were added precisely to patch that. There are two charts built for
+     it from the start, and they work by remembering.
+
+       CUSUM  accumulates how far each point sits from target, minus a slack term, and
+              signals when the running total crosses a decision interval. Nothing is
+              forgotten, so a persistent small bias piles up.
+
+       EWMA   is a weighted average where the weight decays, so recent points matter most
+              and older ones fade. Its limits widen over the first few points as the average
+              fills up, which is the exact form rather than the asymptotic one.
+
+     Both are tuned to the same in-control false alarm rate as a three-sigma chart, so the
+     comparison between them is fair and the choice is about what you want to catch rather
+     than about how often you want to be interrupted. The parameters here - k = 0.5 with
+     h = 4.77, and lambda = 0.2 with L = 2.962 - are the standard pairings for an in-control
+     run length near 370, and the tests measure that rather than taking it on trust.
+
+     The trade, measured rather than assumed. Both beat the plain chart by a wide margin on
+     a small sustained shift: at one sigma the average wait is ten points against forty-five.
+     On a large sudden jump the plain chart does not win - EWMA matches it point for point -
+     but CUSUM costs one point above about three and a half sigma, because its slack term has
+     to be paid back before the running sum can cross. That is the whole price, and it is in
+     the output rather than left as a caveat somebody else discovers. */
+  const CUSUM_K = 0.5, CUSUM_H = 4.77, EWMA_LAMBDA = 0.2, EWMA_L = 2.962;
+
+  // Within-subgroup sigma, the same estimate the I-MR chart uses, so the charts agree.
+  function shortSigma(y) {
+    const mrs = [];
+    for (let i = 1; i < y.length; i++) mrs.push(Math.abs(y[i] - y[i - 1]));
+    const bar = mrs.length ? mean(mrs) : 0;
+    if (bar > 0) return bar / 1.128;
+    /* No movement between neighbours at all. Fall back to the overall spread, and return
+       zero honestly when there is none either - the first version returned 1 here, which
+       meant a chart on perfectly constant data drew limits around a sigma that did not
+       exist. The callers refuse on zero, which is the right answer for that data. */
+    return sd(y) || 0;
+  }
+
+  /* Where the centre comes from, which decides whether these charts work at all.
+
+     Taking it from the grand mean is the obvious thing and it is self-defeating: a drift
+     that moves the mean is partly absorbed into the centre it is being measured against,
+     so the chart goes quieter about the very thing it exists for. When no target is given,
+     the centre and the spread therefore come from an opening stretch - the standard
+     two-phase practice, where an early window establishes what normal was and everything
+     after it is judged against that. A target, where one exists, is better still: it is
+     the value the process is supposed to hold rather than the value it happened to hold. */
+  function baselineOf(y, opt) {
+    const n = y.length;
+    if (opt.mu0 !== undefined && opt.mu0 !== null) {
+      const sg = opt.sigma === undefined || opt.sigma === null ? shortSigma(y) : Number(opt.sigma);
+      return { mu0: Number(opt.mu0), sigma: sg, from: 'the target you gave', baseN: n };
+    }
+    const want = opt.baseline === undefined ? Math.max(8, Math.min(Math.round(n / 3), 50)) : Math.round(opt.baseline);
+    const baseN = Math.max(8, Math.min(want, n));
+    const head = y.slice(0, baseN);
+    const sg = opt.sigma === undefined || opt.sigma === null ? shortSigma(head) : Number(opt.sigma);
+    return { mu0: mean(head), sigma: sg, from: 'the first ' + baseN + ' points', baseN };
+  }
+
+  function cusum(y, opt) {
+    opt = opt || {};
+    const n = y.length;
+    if (n < 8) throw new Error('Need at least 8 points: a chart that remembers has nothing to remember yet.');
+    const base = baselineOf(y, opt);
+    const mu0 = base.mu0, sigma = base.sigma;
+    if (!(sigma > 0)) throw new Error('Every point is identical, so there is no spread to measure a shift against.');
+    const k = opt.k === undefined ? CUSUM_K : Number(opt.k);
+    const h = opt.h === undefined ? CUSUM_H : Number(opt.h);
+    const hi = [], lo = [], signals = [];
+    let cp = 0, cm = 0;
+    for (let i = 0; i < n; i++) {
+      const z = (y[i] - mu0) / sigma;
+      cp = Math.max(0, cp + z - k);
+      cm = Math.max(0, cm - z - k);
+      hi.push(cp); lo.push(cm);
+      if (cp > h) signals.push({ i, side: 'above', value: cp, meaning: 'the total drift above target has crossed the decision interval' });
+      else if (cm > h) signals.push({ i, side: 'below', value: cm, meaning: 'the total drift below target has crossed the decision interval' });
+    }
+    return {
+      kind: 'cusum', n, mu0, sigma, k, h, hi, lo, signals, baseline: base,
+      /* Once it signals, the count itself says how long the drift has been running: the
+         number of points since the sum last sat at zero. That is a starting date for an
+         investigation, which a Shewhart signal does not give you. */
+      shiftStarted: signals.length ? (() => {
+        const at = signals[0].i;
+        const series = signals[0].side === 'above' ? hi : lo;
+        let j = at;
+        while (j > 0 && series[j - 1] > 0) j--;
+        return j;
+      })() : null,
+      why: 'Slack k = ' + k + ' sigma and decision interval h = ' + h + ' sigma, the standard pairing for an in-control run length near 370 points - the same false alarm rate as a three-sigma chart, so the two are comparable. Centre and spread come from ' + base.from + ', because a centre taken from all the data absorbs the drift being looked for. The running sums reset to zero whenever the process is at target, so a crossing means a persistent bias rather than one odd point. Measured: at a one-sigma shift this signals after about 10 points against 45 for a three-sigma chart; on a jump above about three and a half sigma it takes 2 points where the plain chart takes 1, because the slack has to be paid back first.'
+    };
+  }
+
+  function ewma(y, opt) {
+    opt = opt || {};
+    const n = y.length;
+    if (n < 8) throw new Error('Need at least 8 points: a chart that remembers has nothing to remember yet.');
+    const base = baselineOf(y, opt);
+    const mu0 = base.mu0, sigma = base.sigma;
+    if (!(sigma > 0)) throw new Error('Every point is identical, so there is no spread to measure a shift against.');
+    const lam = opt.lambda === undefined ? EWMA_LAMBDA : Number(opt.lambda);
+    const L = opt.L === undefined ? EWMA_L : Number(opt.L);
+    if (!(lam > 0 && lam <= 1)) throw new Error('The weight lambda must be above 0 and at most 1. At 1 the chart forgets everything and becomes the plain individuals chart.');
+    const z = [], ucl = [], lcl = [], signals = [];
+    let prev = mu0;
+    for (let i = 0; i < n; i++) {
+      prev = lam * y[i] + (1 - lam) * prev;
+      z.push(prev);
+      /* The exact standard error, not the asymptotic one: the average is still filling up
+         over the first few points, so its limits are narrower there. Using the asymptotic
+         width throughout misses an early shift, which is when it is cheapest to fix. */
+      const se = sigma * Math.sqrt((lam / (2 - lam)) * (1 - Math.pow(1 - lam, 2 * (i + 1))));
+      ucl.push(mu0 + L * se); lcl.push(mu0 - L * se);
+      if (prev > ucl[i]) signals.push({ i, side: 'above', value: prev, meaning: 'the weighted average has risen above its limit' });
+      else if (prev < lcl[i]) signals.push({ i, side: 'below', value: prev, meaning: 'the weighted average has fallen below its limit' });
+    }
+    return {
+      kind: 'ewma', n, mu0, sigma, lambda: lam, L, z, ucl, lcl, signals, baseline: base,
+      why: 'Weight lambda = ' + lam + ' and limit factor L = ' + L + ', the standard pairing for an in-control run length near 370 - the same false alarm rate as a three-sigma chart. Centre and spread come from ' + base.from + '. Each point carries ' + Math.round(lam * 100) + '% of the new reading and ' + Math.round((1 - lam) * 100) + '% of the history, so a drift accumulates while a single spike is damped. The limits widen over the first few points because the average is still filling up, which is the exact form rather than the asymptotic one. Measured: at a one-sigma shift this signals after about 10 points against 45 for a three-sigma chart, and at large shifts it matches the plain chart point for point rather than lagging it.'
+    };
+  }
+
+  root.MLSpc = { normCdf, normInv, capability, imr, countChart, rareEvents, cusum, ewma, shortSigma, boxCoxLambda, nonNormalTail, box, snRatio, taguchi, attribute };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLSpc;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

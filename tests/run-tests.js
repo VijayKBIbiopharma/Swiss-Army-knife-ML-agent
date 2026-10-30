@@ -4966,3 +4966,111 @@ test('a rare-event chart uses probability limits, and a run rule carries the hal
   assert.throws(() => SPC.rareEvents([1.5, 2, 3, 4, 5, 6, 7, 8], { kind: 'g' }), /use the t-chart/);
   assert.throws(() => SPC.rareEvents(E.range(10).map(() => 5), { alpha: 0.9 }), /between 0 and 0.5/);
 });
+
+/* The I-MR chart is excellent at a spike and poor at a drift - the Nelson run rules exist
+   to patch exactly that. Two charts are built for it from the start, and both work by
+   remembering. The whole claim is about speed at a fixed false alarm rate, so both halves
+   are measured: the in-control run length, which makes the comparison fair, and the
+   out-of-control run length, which is the point. */
+test('CUSUM and EWMA are calibrated to the same false alarm rate, and are far faster on a drift', () => {
+  /* Run the three charts point by point down a stream and record when each first signals.
+     Written out rather than calling the module in a loop, so what is being measured is the
+     arithmetic itself and a bug in the module cannot quietly agree with a bug in the test. */
+  const arl = (shift, trials, cap) => {
+    const k = 0.5, h = 4.77, lam = 0.2, L = 2.962;
+    let sC = 0, sE = 0, sS = 0, nC = 0, nE = 0, nS = 0;
+    for (let t = 0; t < trials; t++) {
+      const r = E.rng(20000 + t);
+      const nz = () => { let u = 0, v = 0; while (!u) u = r(); while (!v) v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+      let cp = 0, cm = 0, z = 0, i = 0, hC = 0, hE = 0, hS = 0;
+      while (i < cap && (!hC || !hE || !hS)) {
+        i++;
+        const x = shift + nz();
+        cp = Math.max(0, cp + x - k); cm = Math.max(0, cm - x - k);
+        if (!hC && (cp > h || cm > h)) hC = i;
+        z = lam * x + (1 - lam) * (i === 1 ? 0 : z);
+        const se = Math.sqrt((lam / (2 - lam)) * (1 - Math.pow(1 - lam, 2 * i)));
+        if (!hE && Math.abs(z) > L * se) hE = i;
+        if (!hS && Math.abs(x) > 3) hS = i;
+      }
+      if (hC) { sC += hC; nC++; } if (hE) { sE += hE; nE++; } if (hS) { sS += hS; nS++; }
+    }
+    return { cusum: nC ? sC / nC : null, ewma: nE ? sE / nE : null, shewhart: nS ? sS / nS : null };
+  };
+
+  /* In control, all three must wait about the same time for a false alarm, or any speed
+     comparison between them is just one chart being more trigger-happy than another. */
+  const quiet = arl(0, 1200, 2000);
+  for (const [name, v] of [['CUSUM', quiet.cusum], ['EWMA', quiet.ewma], ['Shewhart', quiet.shewhart]]) {
+    assert.ok(v > 250 && v < 600, name + ' should wait around 370 points for a false alarm, measured ' + Math.round(v));
+  }
+  // Measured: 358, 445 and 374 against the textbook 370.
+
+  /* The reason to have them. A one-sigma shift leaves nearly every point inside three-sigma
+     limits, so the plain chart waits forty-five points; these two signal in ten. */
+  const one = arl(1, 1200, 2000);
+  assert.ok(one.cusum < 16 && one.ewma < 16, 'at one sigma both should signal inside about 10 points, got ' + Math.round(one.cusum) + ' and ' + Math.round(one.ewma));
+  assert.ok(one.shewhart > 30, 'and the plain chart should be far slower, got ' + Math.round(one.shewhart));
+  assert.ok(one.shewhart > 3 * one.cusum, 'the gap should be several-fold: ' + Math.round(one.shewhart) + ' against ' + Math.round(one.cusum));
+
+  // Half a sigma is where it is starkest: 35 and 41 points against 154.
+  const half = arl(0.5, 900, 2000);
+  assert.ok(half.shewhart > 3 * half.cusum, 'at half a sigma: ' + Math.round(half.shewhart) + ' against ' + Math.round(half.cusum));
+
+  /* And the price, which is CUSUM's alone. On a large sudden jump the plain chart does not
+     beat EWMA - they tie at one point - but CUSUM takes two, because its slack term has to
+     be paid back before the running sum can cross. Claiming both charts lose on big jumps
+     would have been the comfortable thing to write and is not what the measurement says. */
+  const jump = arl(4, 1200, 200);
+  assert.ok(jump.shewhart < 1.5, 'a four-sigma jump is caught by the plain chart almost at once, got ' + jump.shewhart.toFixed(2));
+  assert.ok(jump.ewma < 1.5, 'and EWMA matches it rather than lagging, got ' + jump.ewma.toFixed(2));
+  assert.ok(jump.cusum > jump.shewhart, 'while CUSUM costs a point: ' + jump.cusum.toFixed(2) + ' against ' + jump.shewhart.toFixed(2));
+  assert.ok(jump.cusum < 3, 'but only about one point, not several: ' + jump.cusum.toFixed(2));
+
+  /* The module must agree with that arithmetic, and must date the drift. A Shewhart signal
+     tells you something is wrong now; the CUSUM count says how long it has been wrong,
+     which is where an investigation starts. */
+  const r = E.rng(3);
+  const nz = () => { let u = 0, v = 0; while (!u) u = r(); while (!v) v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const y = E.range(40).map(() => 100 + 2 * nz()).concat(E.range(30).map(() => 100 + 1.5 + 2 * nz()));
+  const c = SPC.cusum(y, { mu0: 100, sigma: 2 });
+  const e = SPC.ewma(y, { mu0: 100, sigma: 2 });
+  const m = SPC.imr(y);
+  assert.ok(c.signals.length > 0, 'CUSUM must see a 0.75 sigma shift that the plain chart misses');
+  assert.strictEqual(m.signals.filter(s => s.i >= 40).length, 0, 'and the plain chart must indeed miss it, or this proves nothing');
+  assert.ok(c.shiftStarted >= 38 && c.shiftStarted <= 50,
+    'the drift should be dated near where it really began (point 40), got ' + c.shiftStarted);
+
+  // EWMA limits widen over the first points, because the average is still filling up.
+  assert.ok(e.ucl[0] < e.ucl[5] && e.ucl[5] < e.ucl[30], 'the exact form has widening limits, not a constant band');
+  assert.ok(Math.abs(e.ucl[69] - (100 + 2.962 * 2 * Math.sqrt(0.2 / 1.8))) < 0.01, 'and they settle on the asymptotic width');
+  assert.ok(/exact form rather than the asymptotic one/.test(e.why));
+
+  /* Where the centre comes from decides whether these charts work at all. Taking it from
+     the grand mean absorbs the drift into the thing the drift is measured against: on a
+     0.9-sigma step 60 points into a 110-point series, that leaves 9 signals where a
+     baseline window leaves 49. This was the first behaviour I shipped, and it made the
+     charts quietest about exactly what they are for. */
+  const r2 = E.rng(9);
+  const nz2 = () => { let u = 0, v = 0; while (!u) u = r2(); while (!v) v = r2(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const step = E.range(60).map(() => 99 + 0.4 * nz2()).concat(E.range(50).map(() => 99 + 0.36 + 0.4 * nz2()));
+  const byGrand = SPC.cusum(step, { mu0: E.mean(step) });
+  const byBase = SPC.cusum(step);
+  assert.ok(byBase.signals.length > 3 * byGrand.signals.length,
+    'a baseline centre must beat the grand mean by a wide margin: ' + byBase.signals.length + ' signals against ' + byGrand.signals.length);
+  assert.ok(/first \d+ points/.test(byBase.baseline.from), 'and it must say where the centre came from: ' + byBase.baseline.from);
+  assert.ok(/absorbs the drift being looked for/.test(byBase.why), 'and why it is not the grand mean');
+  // A target, when there is one, is better still: the value the process should hold.
+  const byTarget = SPC.cusum(step, { mu0: 99 });
+  assert.strictEqual(byTarget.baseline.from, 'the target you gave');
+  assert.ok(byTarget.signals.length >= byBase.signals.length - 5, 'a real target should do at least as well as a baseline');
+
+  // Both report the measured comparison rather than leaving it to a reader to look up.
+  assert.ok(/about 10 points against 45/.test(c.why) && /about 10 points against 45/.test(e.why));
+  assert.ok(/slack has to be paid back/.test(c.why), 'CUSUM must own its one weakness');
+
+  // Refusals.
+  assert.throws(() => SPC.cusum([1, 2, 3]), /at least 8 points/);
+  assert.throws(() => SPC.ewma(E.range(10).map(() => 5)), /no spread/);
+  assert.throws(() => SPC.ewma(E.range(10).map((_, i) => i), { lambda: 0 }), /above 0 and at most 1/);
+});

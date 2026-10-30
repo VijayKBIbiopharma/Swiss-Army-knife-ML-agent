@@ -573,6 +573,45 @@
         });
       }
     }
+    /* The drift charts, beside the I-MR one rather than instead of it. Both are drawn
+       because they answer the same question differently and disagreeing is informative:
+       CUSUM crossing while EWMA has not is a slow bias, the reverse is a recent step. */
+    if (s.cusum && s.ewma) {
+      const cu = s.cusum, ew = s.ewma;
+      const first = cu.signals.length ? cu.signals[0] : null;
+      const el = append(blocks, card('Drift charts \u2014 CUSUM and EWMA',
+        'For a small sustained shift, which the chart above is weakest at. ' +
+        (cu.signals.length || ew.signals.length
+          ? 'CUSUM ' + (cu.signals.length ? cu.signals.length + ' signal' + (cu.signals.length > 1 ? 's' : '') : 'quiet') +
+            ', EWMA ' + (ew.signals.length ? ew.signals.length + ' signal' + (ew.signals.length > 1 ? 's' : '') : 'quiet') + '.'
+          : 'Neither signals: no sustained shift from target.'),
+        '<div class="cc-cusum"></div><div class="cc-ewma"></div>' +
+        (first && cu.shiftStarted !== null
+          ? '<p class="hint"><b>The drift dates from row ' + (cu.rowNums ? cu.rowNums[cu.shiftStarted] : cu.shiftStarted + 1) +
+            '</b> \u2014 the running sum last sat at zero there, and crossed at row ' + (cu.rowNums ? cu.rowNums[first.i] : first.i + 1) +
+            '. A plain chart tells you something is wrong now; this says how long it has been wrong.</p>'
+          : '') +
+        '<p class="hint">' + h(cu.why) + '</p>' +
+        '<p class="hint">' + h(ew.why) + '</p>', 'drift'));
+      const label = i => 'Row ' + (cu.rowNums ? cu.rowNums[i] : i + 1);
+      /* CUSUM is two one-sided sums, so the signed version is drawn: the upward sum as it
+         stands and the downward one mirrored below zero, against one decision interval each
+         way. Plotting both as positive on one axis reads as a process drifting up. */
+      const signed = cu.hi.map((v, i) => (v > 0 ? v : -cu.lo[i]));
+      C.controlChart(el.querySelector('.cc-cusum'), signed, {
+        cl: 0, ucl: cu.h, lcl: -cu.h,
+        flags: signed.map((v, i) => (cu.signals.some(x => x.i === i) ? ['crossed the decision interval'] : [])),
+        rowLabel: label, xLabel: 'Row (time order)', yLabel: 'CUSUM, sigma units', label: 'CUSUM chart'
+      });
+      /* EWMA limits widen over the first points, and the chart drawer takes one pair of
+         numbers, so the settled width is drawn and the early points are described rather
+         than mis-drawn. Their own limits are in the table. */
+      C.controlChart(el.querySelector('.cc-ewma'), ew.z, {
+        cl: ew.mu0, ucl: ew.ucl[ew.n - 1], lcl: ew.lcl[ew.n - 1],
+        flags: ew.z.map((v, i) => (ew.signals.some(x => x.i === i) ? ['outside its own limit at this point'] : [])),
+        rowLabel: label, xLabel: 'Row (time order)', yLabel: 'EWMA of ' + rep.target, height: 200, label: 'EWMA chart'
+      });
+    }
     /* Rare events: the gaps, not the rate. Only drawn when the data is actually that shape,
        because on a busy process this chart answers a question nobody asked. */
     if (s.rare) {

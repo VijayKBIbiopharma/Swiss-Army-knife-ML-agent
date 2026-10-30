@@ -651,6 +651,18 @@
         out.imr = S.imr(y.slice(keep));
         out.imr.rowNums = rows.slice(keep).map(r => r + 2);
         out.imr.trimmed = keep;
+        /* The two charts built for a drift rather than a spike. Computed on the same rows
+           and the same within-subgroup sigma as the I-MR chart above, so the three are
+           comparable, and tuned to the same in-control false alarm rate so the speed
+           difference between them is about what they catch rather than how often they
+           interrupt. A count series goes on the count chart instead, where the spread is
+           fixed by the mean. */
+        try {
+          const slice = y.slice(keep);
+          out.cusum = S.cusum(slice, { mu0: out.spec.target !== null && out.spec.target !== undefined && out.spec.target !== '' ? Number(out.spec.target) : undefined });
+          out.ewma = S.ewma(slice, { mu0: out.cusum.mu0, sigma: out.cusum.sigma });
+          out.cusum.rowNums = out.imr.rowNums; out.ewma.rowNums = out.imr.rowNums;
+        } catch (err) { out.driftError = err.message; }
         /* Counted data on a measurement chart gets the limits wrong, because a count's
            spread is not free: a Poisson count's standard deviation is the square root of
            its own mean. So when the target is whole and never negative, the right chart is
