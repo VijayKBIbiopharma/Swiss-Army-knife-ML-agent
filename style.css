@@ -883,3 +883,44 @@ ol.ops li span { grid-column: 2; grid-row: 2; font-size: .83rem; line-height: 1.
 .method p { margin: 5px 0 0; font-size: 0.92rem; line-height: 1.45; }
 .method-head { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
 @media (max-width: 620px) { .method { padding: 8px 10px; } }
+
+/* ---------- The closed loop, and the stopping gates ---------- */
+.sub-head-hero { font-size: 1.02rem; line-height: 1.5; margin: 6px 0 0; opacity: 0.92; }
+.pillars { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); counter-reset: pill; }
+.pillars li { border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; counter-increment: pill; }
+.pillars li b { display: block; font-size: 0.95rem; }
+.pillars li b::before { content: counter(pill) " · "; opacity: 0.6; font-weight: 500; }
+.pillars li span { display: block; font-size: 0.86rem; opacity: 0.82; line-height: 1.4; }
+.hero-how { margin: 12px 0 0; }
+
+.cycle-wrap { display: grid; gap: 16px; grid-template-columns: minmax(230px, 320px) 1fr; align-items: start; }
+.cycle { width: 100%; height: auto; }
+.cyc-arc { fill: none; stroke: var(--line); stroke-width: 3; }
+.cyc-arrow { fill: var(--line); }
+.cyc-node circle { fill: var(--card); stroke: var(--line); stroke-width: 2; }
+.cyc-node text { fill: currentColor; font-size: 20px; font-weight: 600; text-anchor: middle; opacity: 0.55; }
+.cyc-node.on circle { fill: var(--accent); stroke: var(--accent); }
+.cyc-node.on text { fill: var(--accent-ink, #fff); opacity: 1; }
+.cyc-label { fill: currentColor; font-size: 15px; font-weight: 600; text-anchor: middle; }
+.cyc-mid { fill: currentColor; font-size: 12px; text-anchor: middle; opacity: 0.5; letter-spacing: 0.04em; }
+
+.loop-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.loop-step { border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; }
+.loop-step.on { border-color: var(--accent); }
+.loop-step p { margin: 5px 0 0; font-size: 0.9rem; line-height: 1.45; }
+.loop-head { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.loop-num { display: inline-grid; place-items: center; min-width: 1.4rem; height: 1.4rem; border-radius: 50%;
+  background: var(--line); font-size: 0.78rem; font-weight: 600; }
+.loop-step.on .loop-num { background: var(--accent); color: var(--accent-ink, #fff); }
+.loop-here { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); }
+
+.gates { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.gate { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; border-left-width: 3px; }
+.gate.capable { border-left-color: var(--ok, #2e7d32); }
+.gate.not { border-left-color: var(--bad, #c62828); }
+.gate.marginal { border-left-color: var(--warn, #ef6c00); }
+.gate-head { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; justify-content: space-between; }
+.gate-val { font-size: 1.12rem; font-weight: 600; margin: 4px 0 0; }
+.gate p { margin: 5px 0 0; font-size: 0.87rem; line-height: 1.45; opacity: 0.88; }
+@media (max-width: 760px) { .cycle-wrap { grid-template-columns: 1fr; } .cycle { max-width: 300px; margin: 0 auto; } }

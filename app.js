@@ -1823,9 +1823,135 @@
      Everything that routes to a tool goes through showTool, so the advisor (which routes by
      setting the hash), the department job buttons, the privacy lock link and the selector
      all land on the tool page without each needing to know about pages. */
+  /* ---------- How to use this: the loop, and whether you may stop ----------
+
+     One pass answers a question; four passes change a process. The phases are the method,
+     and they are cheap to print. The part worth building is the panel underneath, which
+     reads the run currently in memory and says which turn you are on and which exit
+     criteria are actually met - because "stop when the error plateaus" is advice, and
+     "your last round moved RMSE by 0.004, so another one will not pay" is a decision.
+
+     Where a gate cannot be computed it says what is missing rather than showing a dash: a
+     blank reads as a failure, and the usual reason a gate is blank is that nobody entered
+     the specification limits it needs. */
+  const PHASES = [
+    { n: 1, name: 'Discover', tag: 'Passive data',
+      what: 'Drop in messy historical logs, text attributes and assay results. It cleans, handles the skew, picks the algorithm, flags collinearity and ranks the drivers.',
+      tool: 'analyze', cta: 'Load historical data' },
+    { n: 2, name: 'Disentangle', tag: 'First-pass DOE',
+      what: 'History shows correlation, not cause. It fills in a run sheet - factorial, fractional or a definitive screen - that moves factors independently so the effects separate.',
+      tool: 'analyze', cta: 'Open the DOE builder' },
+    { n: 3, name: 'Refine', tag: 'Feedback',
+      what: 'You run the plate or the pilot. The new results go back in beside the old passive data, matched by column name so a reordered sheet still lands correctly.',
+      tool: 'analyze', cta: 'Add a round of results' },
+    { n: 4, name: 'Converge', tag: 'Re-optimization',
+      what: 'The intervals tighten, the confounding untangles, and screening gives way to response-surface work: curvature, sweet spots, and a window rather than a setting.',
+      tool: 'analyze', cta: 'See what another round buys' }
+  ];
+
+  // Which turn of the loop the session is actually on, from what is in memory.
+  function currentPhase() {
+    const r = state.report;
+    if (!state.table) return 1;
+    if (!r) return 1;
+    const camp = window.MLCampaignRun;
+    if (camp && camp.rounds > 1) return 4;
+    if (state.design || (r.doe && r.doe.terms)) return 3;
+    return 2;
+  }
+
+  function renderHow() {
+    const host = $('loop-steps');
+    if (!host) return;
+    const at = currentPhase();
+    host.innerHTML = PHASES.map(p => '<li class="loop-step' + (p.n === at ? ' on' : '') + '">' +
+      '<div class="loop-head"><span class="loop-num">' + p.n + '</span><b>' + h(p.name) + '</b>' +
+      '<span class="pb-tool">' + h(p.tag) + '</span>' + (p.n === at ? '<span class="loop-here">you are here</span>' : '') + '</div>' +
+      '<p>' + h(p.what) + '</p>' +
+      '<div class="row-actions"><button class="btn ghost small" type="button" data-phase-go="' + p.n + '">' + h(p.cta) + '</button></div>' +
+      '</li>').join('');
+    Array.prototype.forEach.call(document.querySelectorAll('.cycle .cyc-node'), g => {
+      g.classList.toggle('on', Number(g.getAttribute('data-phase')) === at);
+    });
+    Array.prototype.forEach.call(host.querySelectorAll('[data-phase-go]'), b => {
+      b.addEventListener('click', () => {
+        const p = PHASES[Number(b.getAttribute('data-phase-go')) - 1];
+        showTool(p.tool, true);
+        showPage('tools', true);
+        const target = p.n === 1 ? 'load' : p.n === 2 ? 'doe-wrap' : p.n >= 3 ? 'campaign' : 'load';
+        const el = $(target);
+        if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+      });
+    });
+    renderGates();
+  }
+
+  /* The three exit criteria, each either a measured verdict or a plain statement of what it
+     needs. Nothing here is a target the tool invented: the goal comes from your spec limits,
+     the plateau from the projection the campaign panel already fits, and 1.33 is the
+     capability convention, named as a convention. */
+  function renderGates() {
+    const host = $('exit-gates');
+    if (!host) return;
+    const r = state.report;
+    const cap = r && r.spc && r.spc.capability ? r.spc.capability : null;
+    const gates = [];
+
+    // 1. Is the goal met?
+    if (!r) gates.push({ ok: null, name: 'The goal is met', val: 'no run yet', why: 'Load data and run the agent, then this reads your own specification limits rather than a number the tool chose.' });
+    else if (!cap) gates.push({ ok: null, name: 'The goal is met', val: 'needs spec limits', why: 'Turn on Six Sigma mode and enter the limits you must hold. Without them there is no definition of "met" to check against, and the tool will not invent one.' });
+    else {
+      const out = cap.observedPct;
+      gates.push({ ok: out === 0, name: 'The goal is met', val: pct(1 - out) + ' inside spec',
+        why: out === 0 ? 'Every row in hand sits inside your limits. That is the observed count, which needs no distribution assumption.'
+          : Math.round(out * cap.n) + ' of ' + cap.n + ' rows sit outside your limits, so the process is not yet hitting the target you set.' });
+    }
+
+    /* 2. Have the returns diminished? The projection is fitted from the campaign's own
+          subsample curve, so the gain is the difference between the RMSE measured now and
+          the RMSE projected after another round - not a rule of thumb about round counts. */
+    const camp = window.MLCampaignRun || null;
+    const now = camp && camp.base ? camp.base.rmse : null;
+    const after = camp && camp.projection ? camp.projection.rmse : null;
+    if (!camp || !camp.projection || now === null || after === null || !isFinite(now) || !(now > 0)) {
+      gates.push({ ok: null, name: 'Error has plateaued', val: 'needs two rounds',
+        why: 'Stack a second round of results in step 6 and a learning curve is fitted to your own data, so the next round is costed before it is booked rather than guessed at.' });
+    } else {
+      const share = (now - after) / now;
+      const flat = camp.projection.flat === true;
+      const plateau = flat || share < 0.05;
+      /* One round is a forecast, not a plateau. The curve is fitted by subsampling whatever
+         is in hand, so with a single round it can legitimately project no gain - and
+         reporting that as "stop experimenting" before a single experiment has been run is
+         exactly the wrong conclusion to hand somebody. It is shown, and marked unconfirmed. */
+      const confirmed = camp.rounds > 1;
+      gates.push({ ok: confirmed ? plateau : null, name: 'Error has plateaued',
+        val: (flat ? 'curve is flat' : fmt(now) + ' \u2192 ' + fmt(after)) + (confirmed ? '' : ' (forecast)'),
+        why: 'Fitted from the subsample curve of the data in hand and clamped so it can never promise better than today\u2019s measurement. ' +
+          (confirmed
+            ? (flat ? 'Across ' + camp.rounds + ' rounds the curve is flat: more runs of the same kind are not expected to help, which is a finding rather than a failure to produce one.'
+                    : 'Another ' + camp.projection.addN + ' runs project ' + pct(share) + ' less error. Under about 5% is where experimenting stops paying.')
+            : 'This is from one round only, so it is a forecast rather than a plateau: the curve was traced by subsampling the rows you already have, and the test of it is one real round of new runs. Stack a second round in step 6 to settle it.') });
+    }
+
+    // 3. Is the process capable?
+    if (!cap || cap.Cpk === null) gates.push({ ok: null, name: 'The process is capable', val: 'needs spec limits', why: 'Cpk is a ratio of your tolerance to your spread, so it needs both limits. It is reported whatever the shape of the data, unlike the PPM and sigma figures.' });
+    else gates.push({ ok: cap.Cpk >= 1.33, name: 'The process is capable', val: 'Cpk ' + fmt(cap.Cpk),
+      why: 'The 1.33 bar is the industry convention rather than a regulatory limit. ' +
+        (cap.tailsUsable === false ? 'The tail figures for this data are withheld because it failed its normality test, so read Cpk and the observed count, not a PPM.' : 'Normality passed, so the PPM and sigma figures beside it can be read too.') });
+
+    const badge = g => (g.ok === true ? 'capable' : g.ok === false ? 'not' : 'marginal');
+    const mark = g => (g.ok === true ? 'met' : g.ok === false ? 'not met' : 'not measured');
+    host.innerHTML = '<div class="gates">' + gates.map(g =>
+      '<div class="gate ' + badge(g) + '"><div class="gate-head"><b>' + h(g.name) + '</b><span class="verdict ' + badge(g) + '">' + mark(g) + '</span></div>' +
+      '<div class="gate-val">' + h(String(g.val)) + '</div><p>' + h(g.why) + '</p></div>').join('') + '</div>' +
+      '<p class="hint">All three are read from the run in memory. Nothing is stored, so they reset when you clear your data, and they are decision support rather than a release decision.</p>';
+  }
+
   const PAGES = [
     // The tool page's address is the tool itself, so #variance still works as a deep link.
     { id: 'tools', hash: null },
+    { id: 'how', hash: 'how-to-use-this' },
     { id: 'apps', hash: 'where-to-start' },
     { id: 'data', hash: 'practice-data' }
   ];
@@ -1835,6 +1961,8 @@
       $('page-' + pg.id).hidden = pg.id !== name;
       $('page-btn-' + pg.id).setAttribute('aria-selected', String(pg.id === name));
     }
+    // The loop panel reads live state, so it is rebuilt each time it is opened.
+    if (name === 'how') renderHow();
     if (push) {
       const pg = PAGES.find(x => x.id === name);
       history.replaceState(null, '', '#' + (pg.hash || $('tool').value));
@@ -1860,6 +1988,7 @@
        exists. */
     $('go-practice').addEventListener('click', () => { showPage('data', true); window.scrollTo({ top: 0, behavior: 'smooth' }); });
     $('go-start').addEventListener('click', () => { showPage('apps', true); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+    if ($('hero-how')) $('hero-how').addEventListener('click', () => { showPage('how', true); window.scrollTo({ top: 0, behavior: 'smooth' }); });
     PAGES.forEach(pg => $('page-btn-' + pg.id).addEventListener('click', () => {
       showPage(pg.id, true); window.scrollTo({ top: 0, behavior: 'smooth' });
     }));

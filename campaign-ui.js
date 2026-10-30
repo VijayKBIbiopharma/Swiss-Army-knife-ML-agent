@@ -120,6 +120,9 @@
     const stacked = C.stack(rounds.map(r => r.table), { roundColumn: 'Round' });
     let proj = null;
     try { proj = C.project({ columns: stacked.columns, rows: stacked.rows }, target, Math.max(12, Math.round(a.latest.n * 0.3)), { seed: 42 }); } catch (err) { /* reported below */ }
+    /* Published for the "how to use this" panel, whose stopping criteria read the live run
+       rather than printing the advice. Session memory only, like everything else here. */
+    window.MLCampaignRun = { rounds: rounds.length, latest: a.latest, projection: proj ? proj.projection : null, base: proj ? proj.base : null };
     if (proj && proj.projection) {
       const p = proj.projection;
       html += '<div class="card"><h4>What another ' + p.addN + ' runs would be expected to buy</h4>' +
@@ -212,7 +215,7 @@
     ['cm-t-half', 'cm-t-rmse', 'cm-t-r2'].forEach(id => $(id).addEventListener('input', () => { if (rounds.length) render(); }));
   }
 
-  window.MLCampaignUI = { sync, reset: () => { rounds = []; measured = []; if ($('cm-out')) $('cm-out').innerHTML = ''; if ($('campaign')) $('campaign').hidden = true; } };
+  window.MLCampaignUI = { sync, reset: () => { rounds = []; measured = []; window.MLCampaignRun = null; if ($('cm-out')) $('cm-out').innerHTML = ''; if ($('campaign')) $('campaign').hidden = true; } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 })();

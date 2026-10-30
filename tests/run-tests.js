@@ -3385,18 +3385,18 @@ test('the tool page carries the tool and nothing else', () => {
     const end = nextPage >= 0 ? nextPage : html.indexOf('</main>', start);
     return html.slice(start, end);
   };
-  const tools = page('page-tools'), apps = page('page-apps'), data = page('page-data');
+  const tools = page('page-tools'), how = page('page-how'), apps = page('page-apps'), data = page('page-data');
 
   /* Three pages, and each block has exactly one home. Choosing a technique lives with the
      guidance, the datasets get a page of their own, and the tool page keeps neither. */
   /* One panel now carries both the jobs and the reference material: choosing your group
      twice, in two selects, to read two halves of the same answer was the thing to fix. */
-  const home = { ask: apps, 'tool-apps': apps, samples: data };
+  const home = { ask: apps, 'tool-apps': apps, samples: data, 'loop-steps': how, 'exit-gates': how };
   for (const id of Object.keys(home)) {
     assert.ok(home[id].indexOf('id="' + id + '"') >= 0, id + ' is not on the page it belongs to');
     assert.ok(tools.indexOf('id="' + id + '"') < 0, id + ' must NOT be on the tool page');
     // And on exactly one page, or it renders twice and the ids collide.
-    const where = [tools, apps, data].filter(pg => pg.indexOf('id="' + id + '"') >= 0);
+    const where = [tools, how, apps, data].filter(pg => pg.indexOf('id="' + id + '"') >= 0);
     assert.strictEqual(where.length, 1, id + ' appears on ' + where.length + ' pages');
   }
   // And the tool page keeps the selector and every tool panel.
@@ -3421,7 +3421,7 @@ test('the tool page carries the tool and nothing else', () => {
   const app0 = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
   const pagesDecl = app0.slice(app0.indexOf('const PAGES = ['), app0.indexOf('];', app0.indexOf('const PAGES = [')));
   const ids = Array.from(pagesDecl.matchAll(/id:\s*'(\w+)'/g)).map(m => m[1]);
-  assert.deepStrictEqual(ids.sort(), ['apps', 'data', 'tools']);
+  assert.deepStrictEqual(ids.sort(), ['apps', 'data', 'how', 'tools']);
   for (const id of ids) {
     assert.ok(html.indexOf('id="page-' + id + '"') >= 0, 'no markup for page ' + id);
     assert.ok(html.indexOf('id="page-btn-' + id + '"') >= 0, 'no tab for page ' + id);
@@ -4621,4 +4621,64 @@ test('the applications panel is one panel, and every method in it opens from the
   // The scope caveat has to survive the rewrite: it is what stops a reader assuming the
   // page reads images or audio.
   assert.ok(/not a claim about what this page reads/.test(app), 'the scope caveat must still be printed');
+});
+
+/* The loop tab. One pass answers a question; four passes change a process, and the method
+   is cheap to print - so the part that has to be right is the stopping panel, which reads
+   the run in memory rather than reprinting the advice. */
+test('the loop tab names the phase you are on, and its exit criteria read the live run', () => {
+  const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(ROOT, 'style.css'), 'utf8');
+
+  // The tab exists, is addressable, and the page is a real page rather than a section.
+  assert.ok(/id="page-btn-how"/.test(html), 'the tab button must exist');
+  assert.ok(/<div class="page" id="page-how"/.test(html), 'and a page of its own');
+  assert.ok(/'how', hash: 'how-to-use-this'/.test(app), 'the page needs an address, or it cannot be linked');
+
+  /* Four phases, drawn rather than listed. The diagram is decorative, so the phases also
+     exist as text - a loop nobody can read is not an explanation. */
+  assert.strictEqual((html.match(/class="cyc-node"/g) || []).length, 4, 'four nodes in the loop');
+  assert.strictEqual((html.match(/class="cyc-arc"/g) || []).length, 4, 'and four arrows, or it does not close');
+  for (const label of ['Discover', 'Disentangle', 'Refine', 'Converge']) {
+    assert.ok(html.indexOf('>' + label + '<') >= 0, label + ' must be labelled on the diagram');
+    assert.ok(app.indexOf("'" + label + "'") >= 0, label + ' must also exist as a phase in the renderer');
+  }
+  // The SVG carries a text alternative, since it is the whole point of the page.
+  assert.ok(/aria-label="A four-phase closed loop/.test(html), 'the diagram needs a description for a screen reader');
+  /* Inline styles are blocked by the page's own security policy, so the diagram must be
+     styled by class and attribute. A style= on it would render unstyled in the browser
+     while passing every test here. */
+  const svg = html.slice(html.indexOf('<svg class="cycle"'), html.indexOf('</svg>', html.indexOf('<svg class="cycle"')));
+  assert.ok(svg.indexOf('style=') < 0, 'the diagram must not use inline styles: the CSP blocks them');
+  assert.ok(/\.cyc-node\b/.test(css) && /\.cyc-arc\b/.test(css), 'and the classes it uses must be styled');
+
+  /* The class names must not collide with anything already on the page. They did: .phase
+     was already the DMAIC chip in the next-steps list, so the loop cards restyled it. */
+  assert.ok(!/class="phase'/.test(app), 'the loop cards must not reuse .phase, which is the DMAIC chip');
+  assert.ok(/loop-step/.test(app) && /\.loop-step\b/.test(css), 'they use their own class, and it is styled');
+
+  // Three exit criteria, each with a live reading and a stated source.
+  assert.ok(/The goal is met/.test(app) && /Error has plateaued/.test(app) && /The process is capable/.test(app),
+    'all three criteria must be rendered');
+  assert.ok(/MLCampaignRun/.test(app), 'the plateau gate must read the campaign, not a rule of thumb about round counts');
+  const campUi = fs.readFileSync(path.join(ROOT, 'campaign-ui.js'), 'utf8');
+  assert.ok(/window\.MLCampaignRun\s*=/.test(campUi), 'and the campaign panel must publish it, or the gate never fires');
+  assert.ok(/MLCampaignRun = null/.test(campUi), 'and clear it on reset, or a stale projection outlives the data');
+  /* 1.33 is a convention, not a regulation, and the panel has to say so. The same applies
+     to the capability figures it leans on when the data is not normal. */
+  assert.ok(/1\.33 bar is the industry convention/.test(app), 'the Cpk bar must be named as a convention');
+  assert.ok(/forecast rather than a plateau/.test(app),
+    'a plateau projected from one round must be marked as a forecast: concluding that experimenting will not pay before any experiment has run is the wrong answer to hand somebody');
+  // Nothing is stored, and the panel says so where somebody might assume otherwise.
+  assert.ok(/Nothing is stored, so they reset/.test(app), 'the gates read session memory and must say so');
+
+  // The tool page gained the loop in one line and three words per pillar, not an essay.
+  assert.ok(/class="pillars"/.test(html), 'the hero needs the three-step strip');
+  const hero = html.slice(html.indexOf('<section class="hero">'), html.indexOf('</section>', html.indexOf('<section class="hero">')));
+  for (const p of ['Learn', 'Test', 'Perfect']) assert.ok(hero.indexOf('<b>' + p + '</b>') >= 0, p + ' pillar missing');
+  const pillarText = (hero.match(/<span>([^<]*)<\/span>/g) || []).map(x => x.replace(/<\/?span>/g, ''));
+  assert.strictEqual(pillarText.length, 3);
+  for (const t of pillarText) assert.ok(t.split(/\s+/).length <= 8, 'a pillar must stay a label, not a paragraph: "' + t + '"');
+  assert.ok(/id="hero-how"/.test(html), 'and a way through to the loop from the tool page');
 });

@@ -29,6 +29,7 @@
   <div class="wrap">
     <nav class="pages" role="tablist" aria-label="Sections">
       <button class="page-tab" id="page-btn-tools" type="button" role="tab" aria-selected="true" aria-controls="page-tools">Tools</button>
+      <button class="page-tab" id="page-btn-how" type="button" role="tab" aria-selected="false" aria-controls="page-how">How to use this</button>
       <button class="page-tab" id="page-btn-apps" type="button" role="tab" aria-selected="false" aria-controls="page-apps">Where to start</button>
       <button class="page-tab" id="page-btn-data" type="button" role="tab" aria-selected="false" aria-controls="page-data">Practice data</button>
     </nav>
@@ -62,7 +63,14 @@
     <div class="wrap">
       <p class="eyebrow">Supervised · unsupervised · regression · classification · DOE</p>
       <h1>Drop in your data. The agent picks the algorithm, explains the drivers and designs your next experiment.</h1>
+      <p class="sub-head-hero">Then feed the results back in and the loop tightens: errors shrink, confounding untangles, and the process window closes in.</p>
       <p class="lede">It tests up to nine models on rows they have never seen, keeps the simplest one that wins, and turns the result into DMAIC next steps. Everything runs on your device. No upload, no account, no AI service.</p>
+      <ol class="pillars">
+        <li><b>Learn</b><span>Messy history in. Drivers out.</span></li>
+        <li><b>Test</b><span>Run the DOE sheet it fills in.</span></li>
+        <li><b>Perfect</b><span>Results back in. Errors shrink.</span></li>
+      </ol>
+      <p class="hint hero-how"><button class="btn ghost small" id="hero-how" type="button">See the loop, and when to stop</button></p>
     </div>
   </section>
 
@@ -1119,6 +1127,45 @@
   </section>
   </div>
   </div><!-- /page-tools -->
+
+  <div class="page" id="page-how" hidden>
+    <section class="wrap page-intro">
+      <h2>How to use this</h2>
+      <p class="lede">One pass answers a question. Four passes change a process. The loop below is the whole method; the panel under it reads your current run and says which turn you are on and whether you can stop.</p>
+    </section>
+
+    <section class="wrap">
+      <div class="cycle-wrap">
+        <svg class="cycle" viewBox="0 0 360 360" role="img" aria-label="A four-phase closed loop: discover, disentangle, refine, converge, returning to discover.">
+          <defs>
+            <marker id="cyc-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+              <path class="cyc-arrow" d="M 0 1 L 9 5 L 0 9 z"/>
+            </marker>
+          </defs>
+          <path class="cyc-arc" d="M 212.5 85.9 A 110 110 0 0 1 274.1 147.5" marker-end="url(#cyc-arrow)"/>
+          <path class="cyc-arc" d="M 274.1 212.5 A 110 110 0 0 1 212.5 274.1" marker-end="url(#cyc-arrow)"/>
+          <path class="cyc-arc" d="M 147.5 274.1 A 110 110 0 0 1 85.9 212.5" marker-end="url(#cyc-arrow)"/>
+          <path class="cyc-arc" d="M 85.9 147.5 A 110 110 0 0 1 147.5 85.9" marker-end="url(#cyc-arrow)"/>
+          <g class="cyc-node" data-phase="1"><circle cx="180" cy="70" r="36"/><text x="180" y="78">1</text></g>
+          <g class="cyc-node" data-phase="2"><circle cx="290" cy="180" r="36"/><text x="290" y="188">2</text></g>
+          <g class="cyc-node" data-phase="3"><circle cx="180" cy="290" r="36"/><text x="180" y="298">3</text></g>
+          <g class="cyc-node" data-phase="4"><circle cx="70" cy="180" r="36"/><text x="70" y="188">4</text></g>
+          <text class="cyc-label" x="180" y="22">Discover</text>
+          <text class="cyc-label" x="290" y="238">Disentangle</text>
+          <text class="cyc-label" x="180" y="346">Refine</text>
+          <text class="cyc-label" x="70" y="238">Converge</text>
+          <text class="cyc-mid" x="180" y="176">closed</text>
+          <text class="cyc-mid" x="180" y="194">loop</text>
+        </svg>
+        <ol class="loop-steps" id="loop-steps"></ol>
+      </div>
+    </section>
+
+    <section class="wrap">
+      <h3 class="sub-head">When to stop &mdash; read from your current run</h3>
+      <div id="exit-gates"></div>
+    </section>
+  </div><!-- /page-how -->
 
   <div class="page" id="page-apps" hidden>
     <section class="wrap page-intro">
