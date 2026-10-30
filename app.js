@@ -29,10 +29,12 @@
   function loadText(text, name, sampleTarget) {
     showError('load-error', ''); $('deleted-note').hidden = true;
     let table;
-    try { table = E.parseCSV(text); } catch (e) { return showError('load-error', 'Could not read that data: ' + e.message); }
+    try { table = E.parseTable(text, name); } catch (e) { return showError('load-error', 'Could not read that data: ' + e.message); }
     if (!table.columns.length || !table.rows.length) return showError('load-error', 'No data found. The first row should hold column names, with one row per observation below it.');
     if (table.columns.length < 2) return showError('load-error', 'Only one column found. If your file uses another separator, try pasting the cells from Excel instead.');
     state.table = table; state.name = name; state.sampleTarget = sampleTarget || null;
+    // What shape the file turned out to be, so a JSON export read the wrong way is visible.
+    state.shape = table.shape || null;
     state.sources = [sourceInfo(name, text, table)]; state.merge = null; state.pending = null; state.roleTarget = null; state.original = table;
     state.prof = E.profile(table);
     resetMerge();
@@ -122,7 +124,7 @@
       '<p class="preview-head">Previewing ' + (t.rows.length > shown ? 'the first <b>' + shown + '</b> rows of ' : 'all <b>' + shown + '</b> rows of ') +
       '<b>' + h(state.name || 'your data') + '</b></p>' +
       '<div class="table-scroll"><table class="preview-table"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>' +
-      '<p class="preview-foot"><span>Tabular</span><span>' + t.columns.length + ' columns &times; ' +
+      '<p class="preview-foot"><span>' + h(state.shape ? 'JSON: ' + state.shape : 'Tabular') + '</span><span>' + t.columns.length + ' columns &times; ' +
       t.rows.length.toLocaleString() + ' rows</span><span>' + cells.toLocaleString() + ' cells</span>' +
       '<span>Read in this browser. Never uploaded.</span></p></div>';
   }
@@ -200,7 +202,7 @@
   }
   function stageSecond(text, name) {
     let t;
-    try { t = E.parseCSV(text); } catch (e) { return showError('load-error', 'Could not read the second file: ' + e.message); }
+    try { t = E.parseTable(text, name); } catch (e) { return showError('load-error', 'Could not read the second file: ' + e.message); }
     if (!t.rows.length || t.columns.length < 2) return showError('load-error', 'The second file has no usable rows.');
     const base = state.original || state.table;
     state.pending = { text, name, table: t };
@@ -739,8 +741,9 @@
     if (ex.recipe) {
       C.hbar(c.querySelector('.recipe'), ex.recipe.slice(0, 10).map(x => ({
         label: x.label, value: x.effectRange,
-        text: (x.perUnit >= 0 ? '+' : '−') + fmt(Math.abs(x.perUnit)) + (x.numeric ? ' per unit' : ' vs ' + x.ref),
-        tip: x.numeric ? 'Each +1 in ' + x.label + ' changes ' + rep.target + ' by ' + fmt(x.perUnit) + '\nAcross its usual range: ' + fmt(x.effectRange) : x.label + ' changes ' + rep.target + ' by ' + fmt(x.perUnit) + ' compared with ' + x.ref
+        text: (x.perUnit >= 0 ? '+' : '−') + fmt(Math.abs(x.perUnit)) + (x.encoded ? ' per step' : x.numeric ? ' per unit' : ' vs ' + x.ref),
+        tip: x.encoded ? x.label + ': one standard step of this changes ' + rep.target + ' by ' + fmt(x.perUnit)
+          : x.numeric ? 'Each +1 in ' + x.label + ' changes ' + rep.target + ' by ' + fmt(x.perUnit) + '\nAcross its usual range: ' + fmt(x.effectRange) : x.label + ' changes ' + rep.target + ' by ' + fmt(x.perUnit) + ' compared with ' + x.ref
       })), { label: 'Recipe coefficients' });
     }
   }
@@ -1165,7 +1168,7 @@
     const text = $('mix-data').value.trim();
     if (!text) return showError('mix-error', 'Paste the completed run sheet first, or load the worked example.');
     let t;
-    try { t = E.parseCSV(text); } catch (e) { return showError('mix-error', 'Could not read that: ' + e.message); }
+    try { t = E.parseTable(text); } catch (e) { return showError('mix-error', 'Could not read that: ' + e.message); }
     if (!t.rows.length || t.columns.length < 3) return showError('mix-error', 'Expected a header row, one column per component, and a column holding the measured response.');
     const prof = E.profile(t);
     const numeric = prof.columns.filter(c => c.kind === 'numeric').map(c => c.name);

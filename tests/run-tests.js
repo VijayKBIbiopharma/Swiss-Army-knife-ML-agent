@@ -3696,8 +3696,8 @@ test('levels the model cannot tell apart are named, not left to show as a smalle
      history never used cannot be placed, so every combination containing it is refused -
      on a catalogue of six helpers where three have ever been run, that is half the
      catalogue, and the only sign used to be a candidate count smaller than the arithmetic
-     implied. And the encoder keeps the twelve commonest levels and pools the rest, so a
-     thirteenth helper is modelled as "one of the rare ones" rather than as itself.
+     implied. And a level that was run only a handful of times is modelled, but on a number
+     that is mostly the overall average rather than anything about that level.
 
      Neither is a wrong decision. Both are indefensible as silent ones, because a helper
      the model could not see then looks exactly like a helper that scored badly. */
@@ -3739,9 +3739,14 @@ test('levels the model cannot tell apart are named, not left to show as a smalle
   // A factor whose levels are all runnable must not be reported at all, or the panel is noise.
   assert.ok(!plan.coverage.some(c => c.factor === 'Promoter_Type'));
 
-  /* The other failure: more levels than the encoder models individually. Fifteen helpers,
-     all genuinely run, and the three rarest are pooled - a prediction for any of them is a
-     prediction for the pool. */
+  /* The other failure used to be pooling: the encoder kept the twelve commonest levels and
+     lumped the rest into "other", so a thirteenth helper was modelled as "one of the rare
+     ones". It no longer does that - a many-levelled column is carried as a frequency and a
+     smoothed level average, so every level is modelled as itself. What that cannot remove
+     is the thinness; it only makes it gradual, because the average for a level with eight
+     runs is mostly the overall average by design. So the claim to check is that the
+     thinness is still named, with the weight stated. Fifteen helpers, all genuinely run,
+     three of them deliberately rare. */
   const LV = E.range(15).map(i => 'pHelp-' + String(i + 1).padStart(2, '0'));
   const r2 = E.rng(3);
   const nz2 = () => { const u = Math.max(1e-9, r2()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r2()); };
@@ -3759,10 +3764,25 @@ test('levels the model cannot tell apart are named, not left to show as a smalle
     programs: [{ id: 'P1', attributes: { Protein_Class: 'mAb', Protein_kDa: '148' } }], targets: ['Titer_gL'] },
     { seed: 42, runs: 24 });
   const cov2 = plan2.coverage.find(c => c.factor === 'Helper');
-  assert.ok(cov2, 'pooling must be reported too');
-  assert.ok(cov2.merged.length >= 1, 'the rare levels are pooled and must be named: ' + JSON.stringify(cov2));
-  assert.ok(cov2.modelled.length <= 12, 'the encoder models at most twelve levels individually');
-  assert.strictEqual(cov2.modelled.length + cov2.merged.length + cov2.unseen.length, 15, 'every level accounted for');
+  assert.ok(cov2, 'thin levels must be reported too');
+  assert.strictEqual(cov2.unseen.length, 0, 'all fifteen were run');
+  assert.strictEqual(cov2.modelled.length, 15, 'every level is modelled as itself now, not twelve of them');
+  // The three rare ones, and only those three, are called thin.
+  assert.ok(cov2.thin.length >= 3 && cov2.thin.length <= 4, 'the rare levels must be named: ' + JSON.stringify(cov2.thin));
+  for (const t of cov2.thin) {
+    assert.ok(t.runs < 20, t.level + ' was flagged thin on ' + t.runs + ' runs, which is not thin');
+    // The weight is stated, and it is the smoothing weight over the level's own runs.
+    assert.ok(Math.abs(t.shrink - E.TARGET_PRIOR / (t.runs + E.TARGET_PRIOR)) < 1e-12);
+    assert.ok(t.shrink > 0.5, 'thin means the prior outweighs the level own runs, got ' + t.shrink.toFixed(2));
+  }
+  // A level with plenty of runs is not flagged, or the panel is noise again.
+  const flagged = new Set(cov2.thin.map(t => t.level));
+  assert.ok(LV.slice(0, 12).some(l => !flagged.has(l)), 'the common levels must not be flagged');
+
+  /* And the gain, on this same data: the three rare helpers are now ranked individually
+     rather than as one pool, so a sheet can propose one of them and say which. */
+  const sheetLevels = new Set(plan2.perProgram[0].sheet.map(r => r.config.Helper));
+  assert.ok(sheetLevels.size >= 2, 'the run sheet must still vary the helper: ' + JSON.stringify(Array.from(sheetLevels)));
 });
 
 const CM = require(path.join(ROOT, 'campaign.js'));
@@ -4004,4 +4024,154 @@ test('the control chart runs the full Nelson set, and says what that costs', () 
   assert.ok(SPC.imr(shift, { rules: 'all' }).signals.length > SPC.imr(shift, { rules: 'limits' }).signals.length * 3,
     'the full set must catch a shift the limits miss');
   assert.strictEqual(SPC.imr(shift, { rules: 'limits' }).rules, 'limits');
+});
+
+test('JSON lands as a table whatever shape the export used', () => {
+  // A list of records, which is what most APIs return. A field only some records carry
+  // still gets a column, blank where it is absent, rather than knocking the rows out of line.
+  const recs = E.parseTable('[{"Batch":"A","Titer":2.4},{"Batch":"B","Titer":3.1,"Note":"re-run"}]', 'runs.json');
+  assert.deepStrictEqual(recs.columns, ['Batch', 'Titer', 'Note']);
+  assert.deepStrictEqual(recs.rows, [['A', '2.4', ''], ['B', '3.1', 're-run']]);
+
+  // An envelope: the records wrapped in metadata, the usual shape of a LIMS pull.
+  const env = E.parseTable('{"status":"ok","count":2,"data":[{"A":1},{"A":2}]}', 'pull.json');
+  assert.deepStrictEqual(env.columns, ['A']);
+  assert.strictEqual(env.rows.length, 2);
+  assert.ok(/"data" list/.test(env.shape), 'it must say which list it read, got ' + env.shape);
+
+  // One array per column, which is how a dataframe serialises.
+  const cols = E.parseTable('{"A":[1,2,3],"B":[4,5,6]}', 'frame.json');
+  assert.deepStrictEqual(cols.columns, ['A', 'B']);
+  assert.deepStrictEqual(cols.rows, [['1', '4'], ['2', '5'], ['3', '6']]);
+
+  // One record per line, which is what a streamed export writes.
+  const nd = E.parseTable('{"A":1}\n{"A":2}\n{"A":3}\n', 'stream.ndjson');
+  assert.strictEqual(nd.rows.length, 3);
+
+  // A list of rows with the names on top, and a single record.
+  assert.deepStrictEqual(E.parseTable('[["A","B"],[1,2]]', 'grid.json').columns, ['A', 'B']);
+  assert.deepStrictEqual(E.parseTable('{"A":1,"B":2}', 'one.json').rows, [['1', '2']]);
+
+  /* Nesting, which instrument exports are full of. A nested object takes dotted names; a
+     list inside one record is not a column, so it is kept as text rather than invented
+     into one; null is missing, not zero; true and false are two levels. */
+  const nest = E.parseTable('[{"id":1,"qc":{"purity":99.1,"hmw":0.4},"tags":["a","b"],"passed":true,"note":null}]', 'x.json');
+  assert.deepStrictEqual(nest.columns, ['id', 'qc.purity', 'qc.hmw', 'tags', 'passed', 'note']);
+  assert.deepStrictEqual(nest.rows[0], ['1', '99.1', '0.4', 'a; b', 'true', '']);
+  const prof = E.profile({ columns: nest.columns, rows: nest.rows });
+  assert.strictEqual(prof.columns[5].missing, 1, 'null must read as missing, not as a value');
+
+  // A JSON file that is not JSON says so, rather than being silently read as one column.
+  assert.throws(() => E.parseTable('{nope', 'broken.json'), /not valid JSON/);
+  // And the sniffing is by content too, so a pasted record works with no file name at all.
+  assert.deepStrictEqual(E.parseTable('  [{"A":1}]').columns, ['A']);
+  // A CSV is still a CSV, even opening with a brace.
+  assert.deepStrictEqual(E.parseTable('{a},b\n1,2\n', 'odd.csv').columns, ['{a}', 'b']);
+});
+
+/* Many levels, few rows each: 48 strains, a backbone catalogue, a supplier list. One-hot
+   gives twelve of them a column and lumps the rest into "other", so the column that
+   separates 48 strains arrives separating thirteen. Frequency and smoothed level averages
+   carry it instead - and the level average is the one encoding that can leak the answer,
+   so this test measures both what it buys and what fitting it wrong would cost. */
+test('many-levelled text columns are carried as numbers, and fitting them leaks if done once', () => {
+  const build = (nLev, signal, feed, seed) => {
+    const r = E.rng(seed), nz = () => { let u = 0, v = 0; while (!u) u = r(); while (!v) v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+    const eff = E.range(nLev).map(() => nz() * 2);
+    const rows = [];
+    for (let i = 0; i < 200; i++) {
+      const L = Math.floor(r() * nLev), x = r() * 10;
+      rows.push(['S' + L, x.toFixed(3), (50 + feed * x + signal * eff[L] + nz()).toFixed(4)]);
+    }
+    return { columns: ['Strain', 'Feed', 'Titer'], rows };
+  };
+  // The same table with every level outside the top twelve renamed "other": exactly what
+  // one-hot could have seen.
+  const collapse = t => {
+    const counts = {};
+    for (const q of t.rows) counts[q[0]] = (counts[q[0]] || 0) + 1;
+    const keep = new Set(Object.keys(counts).sort((a, b) => counts[b] - counts[a]).slice(0, 12));
+    return { columns: t.columns.slice(), rows: t.rows.map(q => [keep.has(q[0]) ? q[0] : 'other', q[1], q[2]]) };
+  };
+  const setup = t => {
+    const prof = E.profile(t);
+    const target = prof.columns.find(c => c.name === 'Titer');
+    const feats = prof.columns.filter(c => c.name !== 'Titer' && E.isUsableFeature(c));
+    return { data: E.supervisedData(prof, target, feats, 'regression'), model: E.MODELS.find(m => m.id === 'ridge') };
+  };
+  const honest = (t, seed) => {
+    const { data, model } = setup(t);
+    const folds = E.makeFolds(data.rows.length, 5, E.rng(seed));
+    return E.regressionMetrics(data.y, E.crossValidate(model, data, 'regression', folds, 5, seed)).r2;
+  };
+  // The leak: one encoder fit on every row, then used inside the folds. Each fold is then
+  // scored on rows whose own results are already baked into the numbers it trained on.
+  const leaky = (t, seed) => {
+    const { data, model } = setup(t);
+    const folds = E.makeFolds(data.rows.length, 5, E.rng(seed));
+    const enc = E.fitEncoder(data.featureCols, data.rows, { y: data.y, task: 'regression' });
+    const n = data.rows.length, oof = new Array(n);
+    for (let f = 0; f < 5; f++) {
+      const tr = [], te = [];
+      for (let i = 0; i < n; i++) (folds[i] === f ? te : tr).push(i);
+      const fit = model.fit(enc.transform(tr.map(i => data.rows[i])), tr.map(i => data.y[i]), { task: 'regression', nClasses: 0, rand: E.rng(seed + f) });
+      const pr = fit.predict(enc.transform(te.map(i => data.rows[i])));
+      te.forEach((i, j) => { oof[i] = pr[j]; });
+    }
+    return E.regressionMetrics(data.y, oof).r2;
+  };
+  const avg = f => { let s = 0; for (let i = 1; i <= 8; i++) s += f(i); return s / 8; };
+
+  // 40 strains, 5 runs each, and the strain genuinely matters.
+  const real = s => build(40, 1, 0.5, s * 77);
+  const gain = avg(s => honest(real(s)), 0), oneHot = avg(s => honest(collapse(real(s)), 0));
+  assert.ok(gain > oneHot + 0.1, 'carrying every level must beat collapsing to twelve: ' +
+    gain.toFixed(3) + ' against ' + oneHot.toFixed(3));
+  // Measured: 0.70 against 0.49. A fifth of the achievable fit was in the levels one-hot dropped.
+
+  /* The control, and the reason the encoder is rebuilt per fold. Nothing is predictable
+     here at all: strain is noise and there is no other signal, so an honest check must
+     report no fit. Fit the level averages once on every row and the same nothing scores
+     like a working model. */
+  const noise = s => build(40, 0, 0, s * 77);
+  const fair = avg(s => honest(noise(s)), 0), leak = avg(s => leaky(noise(s)), 0);
+  assert.ok(fair < 0.02, 'a noise column must not score: got ' + fair.toFixed(3));
+  assert.ok(leak > fair + 0.2, 'fitting the averages on every row must inflate the score, or this test proves nothing: ' +
+    leak.toFixed(3) + ' against ' + fair.toFixed(3));
+  // Measured: −0.16 done per fold, +0.15 done once. That +0.15 is a model that does not exist.
+
+  /* The smoothing weight, swept rather than assumed. At 5 rows per level, a weight of 1
+     buys 0.013 more on real signal and costs 0.063 more on noise than a weight of 10, and
+     the curve is that flat from 1 to 40, so 10 is taken as the safer end of a shallow
+     trade-off. The encoder must sit in that flat region, not past it. */
+  const t0 = real(3);
+  const enc = E.fitEncoder(E.profile(t0).columns.filter(c => c.name === 'Strain'), E.range(200), { y: t0.rows.map(q => Number(q[2])), task: 'regression' });
+  const part = enc.parts[0];
+  assert.strictEqual(part.type, 'high', 'a 40-level column must not be one-hot');
+  assert.strictEqual(part.maps.length, 2, 'frequency and level average, two columns, not thirteen');
+  assert.deepStrictEqual(part.maps.map(m => m.kind), ['freq', 'target']);
+  assert.strictEqual(enc.labels.length, 2);
+  assert.ok(/how common/.test(enc.labels[0]) && /average/.test(enc.labels[1]), 'the labels must say which is which: ' + enc.labels.join(' / '));
+
+  // A level this fit never saw is given the overall figure, which is the only honest answer
+  // for it, and never a number borrowed from a different level.
+  const unseen = enc.encodeValues({ Strain: 'S_NEVER_RAN' });
+  const freqMap = part.maps[0], tgtMap = part.maps[1];
+  assert.ok(Math.abs(unseen[0] - (freqMap.fallback - freqMap.m) / freqMap.s) < 1e-12);
+  assert.ok(Math.abs(unseen[1] - (tgtMap.fallback - tgtMap.m) / tgtMap.s) < 1e-12);
+  // The fallback average is the overall average of the rows it was fit on.
+  assert.ok(Math.abs(tgtMap.fallback - E.mean(t0.rows.map(q => Number(q[2])))) < 1e-9);
+
+  // Twelve levels or fewer still get a column each, with the most common one as reference.
+  const small = { columns: ['Line', 'Y'], rows: E.range(60).map(i => ['L' + (i % 4), String(i)]) };
+  const sp = E.profile(small);
+  const senc = E.fitEncoder(sp.columns.filter(c => c.name === 'Line'), E.range(60), { y: E.range(60), task: 'regression' });
+  assert.strictEqual(senc.parts[0].type, 'cat');
+  assert.strictEqual(senc.labels.length, 3, 'four levels, three dummies');
+
+  // With no target to lean on - the unsupervised path - only the frequency survives, since
+  // there is no result to average.
+  const unsup = E.fitEncoder(E.profile(t0).columns.filter(c => c.name === 'Strain'), E.range(200));
+  assert.strictEqual(unsup.parts[0].maps.length, 1);
+  assert.deepStrictEqual(unsup.parts[0].maps.map(m => m.kind), ['freq']);
 });

@@ -29,7 +29,7 @@
 
   function loadText(text) {
     let t;
-    try { t = E.parseCSV(text); } catch (e) { return fail('Could not read the data: ' + e.message); }
+    try { t = E.parseTable(text); } catch (e) { return fail('Could not read the data: ' + e.message); }
     if (!t.rows.length || t.columns.length < 2) return fail('No usable rows found. The first row should hold column names.');
     table = t;
     const prof = E.profile(t);
@@ -53,7 +53,7 @@
      what the single-file layout produces, so the two paths meet here and never diverge. */
   function loadSide(which, text, name) {
     let t;
-    try { t = E.parseCSV(text); } catch (e) { return fail('Could not read that file: ' + e.message); }
+    try { t = E.parseTable(text, name); } catch (e) { return fail('Could not read that file: ' + e.message); }
     if (!t.rows.length) return fail('No rows found in that file.');
     const prof = E.profile(t);
     const numeric = prof.columns.filter(c => c.kind === 'numeric').map(c => c.name);

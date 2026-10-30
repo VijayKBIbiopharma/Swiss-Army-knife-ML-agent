@@ -28,7 +28,7 @@
   const TITER = /titer|titre|g_?l|gl$/i, QP = /qp|productivity|pcd|pg.?cell/i, IDC = /id$|^id|construct|name|clone/i;
   function loadText(text) {
     let t;
-    try { t = E.parseCSV(text); } catch (e) { return fail('Could not read that: ' + e.message); }
+    try { t = E.parseTable(text); } catch (e) { return fail('Could not read that: ' + e.message); }
     if (!t.rows.length || t.columns.length < 3) return fail('Expected a header row, feature columns and at least one outcome column.');
     table = t; prof = E.profile(t);
     const numeric = prof.columns.filter(c => c.kind === 'numeric').map(c => c.name);
@@ -273,7 +273,7 @@
     const text = $('pl-sheet').value.trim();
     if (!text) return sheetFail('Paste a run sheet, or take the runs designed above.');
     let t;
-    try { t = E.parseCSV(text); } catch (e) { return sheetFail('Could not read that sheet: ' + e.message); }
+    try { t = E.parseTable(text); } catch (e) { return sheetFail('Could not read that sheet: ' + e.message); }
     if (!t.rows.length) return sheetFail('That sheet has a header row but no runs under it.');
     const parsed = P.parseRunSheet(t, env, values);
     const res = P.forecastSheet(models, env, parsed.rows, {

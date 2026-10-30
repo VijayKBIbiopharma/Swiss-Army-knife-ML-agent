@@ -213,6 +213,16 @@
     report.classes = data.classes;
     report.nUsed = data.rows.length;
 
+    /* Columns with more levels than one-hot can carry. Worth saying out loud, because it
+       changes how the importance and the recipe for that column should be read. */
+    report.encoding = features.filter(c => c.kind === 'categorical' && c.unique > E.HIGH_CARD)
+      .map(c => ({ name: c.name, levels: c.unique }));
+    for (const en of report.encoding) {
+      say(en.name + ' has ' + en.levels + ' levels, too many for a column each. It is carried as numbers instead: how common each level is, and ' +
+        (task === 'classification' ? 'the share of each ' + targetCol.name + ' class for it' : 'how ' + targetCol.name + ' averaged for it') +
+        '. Both are built only from the rows each fold trains on, so the averages never see the rows they are checked against.');
+    }
+
     // DOE check first: designed experiments get a classic effects analysis too.
     if (task === 'regression') {
       const det = D.detect(prof, features, targetCol);
@@ -266,7 +276,7 @@
     const nnRow = ok.find(b => b.id === 'mlp');
     if (nnRow) {
       say('Training the neural network on all rows so you can watch it learn (85% to learn from, 15% held back to check it).');
-      const enc = E.fitEncoder(features, data.rows), Xa = enc.transform(data.rows);
+      const enc = E.fitEncoder(features, data.rows, { y: data.y, task, classes: data.classes }), Xa = enc.transform(data.rows);
       const tr = E.mlpTrainer(Xa, data.y, { task, nClasses: K, rand: rng(seed + 7) });
       while (!tr.step(3)) { progress({ log: report.log.slice(), nn: { history: tr.history, sizes: tr.sizes, bestEpoch: tr.bestEpoch } }); await tick(); }
       report.nn = { history: tr.history.slice(), sizes: tr.sizes, bestEpoch: tr.bestEpoch, inputs: enc.labels, score: nnRow.metrics[key], rank: ok.filter(b => b.id !== 'baseline').indexOf(nnRow) + 1, chosen: best.id === 'mlp', cvMs: nnRow.ms };
@@ -939,6 +949,14 @@
   function splitQuestion(enc, f, t) {
     const part = enc.parts[enc.groups[f]];
     if (part.type === 'num') return { q: part.col.name + ' ≤ ' + fmt(t * part.s + part.m) + '?', leftIsYes: true };
+    /* A column with too many levels for one-hot is carried as numbers - how common the
+       level is, and how the result averaged for it - so the split is a threshold on one of
+       those, not a yes/no on a level. Said that way rather than dressed up as a level test. */
+    if (part.type === 'high') {
+      const mp = part.maps[E.encOffset(enc, f)];
+      const v = t * mp.s + mp.m;
+      return { q: enc.labels[f] + ' ≤ ' + (mp.kind === 'freq' ? pct(v) : fmt(v)) + '?', leftIsYes: true };
+    }
     const lv = enc.labels[f].slice(part.col.name.length + 3);
     return { q: part.col.name + ' = ' + lv + '?', leftIsYes: false };
   }
@@ -959,6 +977,8 @@
       rep.explain.recipe = full.fitted.w.map((w, j) => {
         const part = full.enc.parts[full.enc.groups[j]];
         if (part.type === 'num') return { label: part.col.name, numeric: true, perUnit: w / part.s, effectRange: w / part.s * ((part.col.stats.p90 - part.col.stats.p10) || 0) };
+        // No reference level to compare against when the column is carried as numbers.
+        if (part.type === 'high') return { label: full.enc.labels[j], numeric: false, encoded: true, perUnit: w, effectRange: w };
         return { label: full.enc.labels[j], numeric: false, ref: part.kept[0], perUnit: w, effectRange: w };
       }).filter(r => Math.abs(r.effectRange) > 1e-9).sort((a, b) => Math.abs(b.effectRange) - Math.abs(a.effectRange));
     }

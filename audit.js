@@ -155,6 +155,12 @@
       ['Inputs used', rep.features.join(', ')],
       ['Set aside', rep.dropped.map(d => d.name + ' (' + d.reason + ')').join('; ') || 'None']
     ];
+    /* Which inputs were not one-hot encoded. A reviewer reading an importance or a
+       coefficient for one of these is reading a frequency and a smoothed level average, not
+       a level switch, and has no way to know that unless it is written down. */
+    if (rep.encoding && rep.encoding.length) analysis.push(['Many-levelled inputs',
+      rep.encoding.map(e => e.name + ' (' + e.levels + ' levels)').join('; ') +
+      ' \u2014 carried as how common each level is and the level average of the result, smoothed towards the overall average, and rebuilt inside every fold so no fold sees its own rows']);
     if (rep.leaks && rep.leaks.length) analysis.push(['Leakage check', rep.leaks.map(l => l.name + ': ' + l.why).join('; ')]);
     else if (rep.target) analysis.push(['Leakage check', 'Passed: no single input reproduces the target almost perfectly.']);
     if (rep.best) {

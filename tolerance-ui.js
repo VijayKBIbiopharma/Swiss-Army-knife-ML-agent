@@ -45,7 +45,7 @@
   const VALUE = /result|value|assay|purity|potency|conc|content|titer|titre|measure|yield|response|%/i;
   function loadText(text) {
     let t;
-    try { t = E.parseCSV(text); } catch (e) { return fail('Could not read the data: ' + e.message); }
+    try { t = E.parseTable(text); } catch (e) { return fail('Could not read the data: ' + e.message); }
     if (!t.rows.length) return fail('No usable rows found. The first row should hold column names.');
     table = t;
     const prof = E.profile(t);

@@ -183,20 +183,140 @@
       } else field += ch;
     }
     if (field !== '' || row.length) { row.push(field); rows.push(row); }
-    const clean = rows.filter(r => r.some(c => c.trim() !== ''));
+    return parseGrid(rows);
+  }
+
+  /* Header row plus body: blank lines dropped, a nameless column named for its position, a
+     repeated name numbered, and every row padded or trimmed to the header's width. Shared
+     with the JSON reader below, so nothing downstream can tell which format the data
+     arrived in. */
+  function parseGrid(text) {
+    const clean = text.filter(r => r.some(c => String(c).trim() !== ''));
     if (!clean.length) return { columns: [], rows: [] };
     const seen = {};
-    const columns = clean[0].map((h, i) => {
-      let name = h.trim() || 'Column ' + (i + 1);
+    const columns = clean[0].map((hd, i) => {
+      let name = String(hd).trim() || 'Column ' + (i + 1);
       if (seen[name]) name = name + ' (' + (++seen[name]) + ')'; else seen[name] = 1;
       return name;
     });
-    const body = clean.slice(1).map(r => {
-      const out = r.slice(0, columns.length).map(c => c.trim());
+    const rows = clean.slice(1).map(r => {
+      const out = r.slice(0, columns.length).map(c => String(c).trim());
       while (out.length < columns.length) out.push('');
       return out;
     });
-    return { columns, rows: body };
+    return { columns, rows };
+  }
+
+  // ---------- JSON parsing ----------
+  /* Instrument and LIMS exports arrive as JSON at least as often as CSV, and in a handful
+     of shapes: a list of records, a records list wrapped in an envelope, one array per
+     column, or one record per line from a streamed export. Rather than demand one shape,
+     recognise which it is and report it back, so a file pulled from the wrong endpoint is
+     obvious instead of silently half-read. */
+  const RECORD_KEYS = ['data', 'records', 'rows', 'results', 'items', 'values', 'table', 'runs', 'samples', 'batches'];
+  const isPlain = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+  const isScalar = v => v === null || v === undefined || (typeof v !== 'object');
+
+  // One record becomes one flat row. Nested objects take dotted names; a list inside a
+  // single record is not a column, so it is kept as text rather than invented into one.
+  function flattenRecord(obj, out, prefix, depth) {
+    if (depth > 8) { out[prefix] = JSON.stringify(obj); return out; }
+    for (const k of Object.keys(obj)) {
+      const key = prefix ? prefix + '.' + k : String(k);
+      const v = obj[k];
+      if (v === null || v === undefined) out[key] = '';
+      else if (Array.isArray(v)) out[key] = v.map(x => (x === null || x === undefined) ? '' : (typeof x === 'object' ? JSON.stringify(x) : String(x))).join('; ');
+      else if (typeof v === 'object') flattenRecord(v, out, key, depth + 1);
+      else if (typeof v === 'boolean') out[key] = v ? 'true' : 'false';
+      else out[key] = String(v);
+    }
+    return out;
+  }
+  // Columns are the union of every record's keys in first-seen order, so a field that only
+  // some records carry still gets a column, with blanks where it is absent.
+  function tableFromRecords(records) {
+    const flat = records.map(r => flattenRecord(r, Object.create(null), '', 0));
+    const columns = [], seen = Object.create(null);
+    for (const f of flat) for (const k of Object.keys(f)) if (!seen[k]) { seen[k] = true; columns.push(k); }
+    const rows = flat.map(f => columns.map(c => (c in f ? f[c] : '')));
+    return { columns, rows };
+  }
+  function tableFromGrid(grid) {
+    const cell = v => (v === null || v === undefined) ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+    const text = grid.map(r => r.map(cell));
+    return parseGrid(text);
+  }
+  function parseJSON(text) {
+    const t = String(text || '').replace(/^﻿/, '').trim();
+    if (!t) return { columns: [], rows: [], shape: 'empty' };
+    let data, firstError = null;
+    try { data = JSON.parse(t); } catch (e) { firstError = e; }
+    if (firstError) {
+      /* One record per line - what streamed exports and log tails write. Every line has to
+         parse as a record; one bad line means this is not that format, and the original
+         error is the honest one to report. */
+      const lines = t.split(/\r?\n/).filter(l => l.trim());
+      const recs = [];
+      for (const line of lines) {
+        let r = null;
+        try { r = JSON.parse(line); } catch (e) { r = null; }
+        if (!isPlain(r)) throw new Error('this is not valid JSON (' + firstError.message + ')');
+        recs.push(r);
+      }
+      if (recs.length < 2) throw new Error('this is not valid JSON (' + firstError.message + ')');
+      return Object.assign(tableFromRecords(recs), { shape: 'one JSON record per line, ' + recs.length + ' of them' });
+    }
+    if (Array.isArray(data)) {
+      if (!data.length) return { columns: [], rows: [], shape: 'an empty list' };
+      if (data.every(isPlain)) return Object.assign(tableFromRecords(data), { shape: 'a list of ' + data.length + ' records' });
+      if (data.every(Array.isArray)) return Object.assign(tableFromGrid(data), { shape: 'a list of rows, with the column names in the first row' });
+      if (data.every(isScalar)) return Object.assign(tableFromRecords(data.map(v => ({ Value: v }))), { shape: 'a list of ' + data.length + ' values' });
+      throw new Error('this list mixes records with other values, so there is no single table in it');
+    }
+    if (isPlain(data)) {
+      const keys = Object.keys(data);
+      // An envelope: a records list with metadata around it.
+      const listKeys = keys.filter(k => Array.isArray(data[k]) && data[k].length && data[k].every(isPlain));
+      if (listKeys.length) {
+        let pick = listKeys.find(k => RECORD_KEYS.indexOf(String(k).toLowerCase()) >= 0);
+        if (!pick) pick = listKeys.slice().sort((a, b) => data[b].length - data[a].length)[0];
+        const other = listKeys.filter(k => k !== pick);
+        return Object.assign(tableFromRecords(data[pick]), {
+          shape: 'the "' + pick + '" list, ' + data[pick].length + ' records' +
+            (other.length ? ' (ignoring ' + other.map(k => '"' + k + '"').join(', ') + ')' : '')
+        });
+      }
+      // One array per column, which is how dataframes serialise.
+      const arrs = keys.filter(k => Array.isArray(data[k]));
+      if (arrs.length && arrs.length === keys.length && data[arrs[0]].length) {
+        const n = data[arrs[0]].length;
+        if (arrs.every(k => data[k].length === n && data[k].every(isScalar))) {
+          const grid = [arrs.slice()];
+          for (let i = 0; i < n; i++) grid.push(arrs.map(k => data[k][i]));
+          return Object.assign(tableFromGrid(grid), { shape: 'one array per column, ' + n + ' rows' });
+        }
+      }
+      if (keys.length) return Object.assign(tableFromRecords([data]), { shape: 'a single record' });
+      return { columns: [], rows: [], shape: 'an empty object' };
+    }
+    throw new Error('JSON holding a single value is not a table');
+  }
+
+  const JSON_NAME = /\.(json|ndjson|jsonl)$/i;
+  const looksJSON = text => {
+    const t = String(text || '').replace(/^﻿/, '');
+    const i = t.search(/\S/);
+    return i >= 0 && (t[i] === '{' || t[i] === '[');
+  };
+  /* One door for every text format. The file name decides when it is explicit; otherwise
+     the first non-blank character does, and anything that fails as JSON is still tried as
+     delimited text, so a CSV whose first cell opens with a brace is not lost. */
+  function parseTable(text, name) {
+    const named = JSON_NAME.test(String(name || ''));
+    if (named || looksJSON(text)) {
+      try { return parseJSON(text); } catch (e) { if (named) throw e; }
+    }
+    return parseCSV(text);
   }
 
   // ---------- Profiling ----------
@@ -265,7 +385,71 @@
   function isUsableFeature(col) { return col.kind === 'numeric' || col.kind === 'categorical'; }
 
   // ---------- Encoding (fit on training rows only, to avoid leakage) ----------
-  function fitEncoder(cols, rows) {
+  const HIGH_CARD = 12;      // more levels than this and one-hot stops carrying the column
+  const TARGET_PRIOR = 10;   // smoothing weight for level averages, in prior observations
+
+  /* A column with many levels, each holding few rows: 48 strains across 200 runs, a plasmid
+     backbone catalogue, a supplier list. One-hot cannot carry it - twelve levels get a
+     column each and everything else is lumped into "other", so a column that distinguishes
+     48 strains arrives as one that distinguishes thirteen. Two numbers carry it instead:
+     how often each level appears, and how the result averaged for that level.
+
+     The averages are pulled towards the overall average with a weight of TARGET_PRIOR prior
+     observations, so a level seen twice cannot claim its own two runs as the truth. Both
+     numbers are built only from the rows handed in, which is what keeps the second one
+     honest: fit it on every row and it has already seen the answers it is about to be
+     scored against, which reads as a model that works and is not one. */
+  function highCardPart(col, rows, counts, lv, mode, y, task, classes) {
+    const n = rows.length || 1;
+    const maps = [], labels = [];
+    const freq = Object.create(null);
+    for (const k of lv) freq[k] = counts[k] / n;
+    maps.push({ kind: 'freq', table: freq, fallback: 0 });
+    labels.push(col.name + ' (how common this level is)');
+    if (y && y.length === rows.length) {
+      const targets = [];
+      if (task === 'classification') {
+        const K = (classes && classes.length) || 0;
+        // One share per class, bar the first, which is the reference the others are read against.
+        for (let c = 1; c < K; c++) targets.push({ of: c, label: col.name + ' (share "' + classes[c] + '" for this level)' });
+      } else targets.push({ of: null, label: col.name + ' (average ' + (task === 'regression' ? 'result' : 'value') + ' for this level)' });
+      for (const t of targets) {
+        const sum = Object.create(null), cnt = Object.create(null);
+        let gs = 0, gn = 0;
+        for (let j = 0; j < rows.length; j++) {
+          const raw = y[j];
+          if (raw === null || raw === undefined) continue;
+          const yv = t.of === null ? Number(raw) : (raw === t.of ? 1 : 0);
+          if (!isFinite(yv)) continue;
+          gs += yv; gn++;
+          const v = col.values[rows[j]];
+          if (v === null || v === undefined) continue;
+          sum[v] = (sum[v] || 0) + yv; cnt[v] = (cnt[v] || 0) + 1;
+        }
+        const g = gn ? gs / gn : 0;
+        const table = Object.create(null);
+        for (const k of Object.keys(cnt)) table[k] = (sum[k] + TARGET_PRIOR * g) / (cnt[k] + TARGET_PRIOR);
+        maps.push({ kind: 'target', table, fallback: g });
+        labels.push(t.label);
+      }
+    }
+    /* Standardised on the training rows, so these sit on the same scale as every other
+       input rather than on the result's scale, which would quietly dominate a ridge fit. */
+    for (const mp of maps) {
+      const vals = rows.map(r => {
+        const v = col.values[r];
+        const t = (v === null || v === undefined) ? undefined : mp.table[v];
+        return t === undefined ? mp.fallback : t;
+      });
+      mp.m = mean(vals); mp.s = sd(vals) || 1;
+    }
+    return { col, type: 'high', maps, mode, nLevels: lv.length, labels };
+  }
+
+  function fitEncoder(cols, rows, opt) {
+    opt = opt || {};
+    // y is positional against `rows`, not indexed by row number, so a fold hands in its own.
+    const y = opt.y || null, task = opt.task || null, classes = opt.classes || null;
     const parts = [];
     for (const col of cols) {
       if (col.kind === 'numeric') {
@@ -278,12 +462,11 @@
         const counts = {};
         for (const r of rows) { const v = col.values[r]; if (v !== null) counts[v] = (counts[v] || 0) + 1; }
         const lv = Object.keys(counts).sort((a, b) => counts[b] - counts[a] || (a < b ? -1 : 1));
-        const kept = lv.slice(0, 12);
         const mode = lv[0];
+        if (lv.length > HIGH_CARD) { parts.push(highCardPart(col, rows, counts, lv, mode, y, task, classes)); continue; }
         // First (most common) level is the reference, so it gets no column.
-        const dummies = kept.slice(1);
-        if (lv.length > 12) dummies.push('__other__');
-        parts.push({ col, type: 'cat', kept, mode, dummies, labels: dummies.map(d => col.name + ' = ' + (d === '__other__' ? 'other' : d)) });
+        const dummies = lv.slice(1);
+        parts.push({ col, type: 'cat', kept: lv, mode, dummies, labels: dummies.map(d => col.name + ' = ' + d) });
       }
     }
     const labels = [], groups = [];
@@ -294,6 +477,14 @@
         if (p.type === 'num') {
           const v = get(p.col);
           out.push(((v === null || v === undefined ? p.med : v) - p.m) / p.s);
+        } else if (p.type === 'high') {
+          const v = get(p.col);
+          for (const mp of p.maps) {
+            const t = (v === null || v === undefined) ? undefined : mp.table[v];
+            // A level this fit never saw falls back to the overall figure, which is the
+            // only honest answer for it.
+            out.push(((t === undefined ? mp.fallback : t) - mp.m) / mp.s);
+          }
         } else {
           let v = get(p.col);
           if (v === null || v === undefined) v = p.mode;
@@ -990,7 +1181,7 @@
       const tr = [], te = [];
       for (let i = 0; i < n; i++) (folds[i] === f ? te : tr).push(i);
       if (!te.length || !tr.length) continue;
-      const enc = fitEncoder(data.featureCols, tr.map(i => data.rows[i]));
+      const enc = fitEncoder(data.featureCols, tr.map(i => data.rows[i]), { y: tr.map(i => data.y[i]), task, classes: data.classes });
       const Xtr = enc.transform(tr.map(i => data.rows[i]));
       const Xte = enc.transform(te.map(i => data.rows[i]));
       const fitted = model.fit(Xtr, tr.map(i => data.y[i]), { task, nClasses: K, rand: rng(seed + f) });
@@ -1001,7 +1192,7 @@
   }
 
   function fitFull(model, data, task, seed) {
-    const enc = fitEncoder(data.featureCols, data.rows);
+    const enc = fitEncoder(data.featureCols, data.rows, { y: data.y, task, classes: data.classes });
     const X = enc.transform(data.rows);
     const K = data.classes ? data.classes.length : 0;
     const fitted = model.fit(X, data.y, { task, nClasses: K, rand: rng(seed) });
@@ -1113,6 +1304,13 @@
      For classifiers it tracks the probability of class `cls`. `subset` (optional) limits the
      averaging and the "typical" value to some rows, e.g. only customers now in Bronze; the
      grid still spans every row, because moving up usually means going beyond today's range. */
+  // Which of a part's own columns feature f is: a many-levelled column emits more than one.
+  function encOffset(enc, f) {
+    let off = 0;
+    while (f - off - 1 >= 0 && enc.groups[f - off - 1] === enc.groups[f]) off++;
+    return off;
+  }
+
   function partialDependence(full, data, col, cls, subset) {
     const { enc, fitted } = full;
     const raw = data.rows, rows = subset && subset.length ? subset : raw;
@@ -1251,8 +1449,8 @@
   root.MLEngine = {
     rng, shuffle, range, mean, sd, variance, quantile, median, pearson, tTestP, tQuantile, ibeta, invert, gram,
     normCdf, normPdf, normInv, lgamma,
-    parseCSV, profile, isUsableFeature, toNumber, fitEncoder, fitRidgeCore, fitLasso, buildTree, mlpTrainer,
-    MODELS, makeFolds, crossValidate, fitFull, fitPLS, regressionMetrics, classificationMetrics,
+    parseCSV, parseJSON, parseTable, profile, isUsableFeature, toNumber, fitEncoder, fitRidgeCore, fitLasso, buildTree, mlpTrainer,
+    MODELS, makeFolds, crossValidate, fitFull, encOffset, HIGH_CARD, TARGET_PRIOR, fitPLS, regressionMetrics, classificationMetrics,
     supervisedData, vif, permutationImportance, partialDependence, pickProb, treePredictRow, kmeans, silhouette, pca
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLEngine;

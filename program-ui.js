@@ -38,7 +38,7 @@
       return { kind: 'workbook', sheets: wb.sheets.filter(s => s.columns.length), name };
     }
     const text = await file.text();
-    return { kind: 'text', sheets: [Object.assign({ name: name }, E.parseCSV(text))], name };
+    return { kind: 'text', sheets: [Object.assign({ name: name }, E.parseTable(text, name))], name };
   }
 
   // A sheet picker, shown only when the choice is real.
@@ -154,7 +154,7 @@
     const t = $(textId).value.trim();
     if (!t) return fail(errId, 'Paste something first.');
     let parsed;
-    try { parsed = E.parseCSV(t); } catch (err) { return fail(errId, 'Could not read that: ' + err.message); }
+    try { parsed = E.parseTable(t); } catch (err) { return fail(errId, 'Could not read that: ' + err.message); }
     if (!parsed.rows.length) return fail(errId, 'That looks like a header row with nothing under it.');
     $('delete-top').hidden = false;
     take(Object.assign({ name: 'pasted in' }, parsed));
@@ -335,6 +335,7 @@
        here is indistinguishable, in the output, from a helper that scored badly. */
     if (plan.coverage && plan.coverage.length) {
       const anyUnseen = plan.coverage.some(c => c.unseen.length);
+      // A factor reported only for thin levels is a caution, not a refusal.
       html += '<div class="plain ' + (anyUnseen ? 'not' : 'marginal') + '"><h4>Levels this history cannot speak for</h4>';
       for (const c of plan.coverage) {
         if (c.unseen.length) {
@@ -343,13 +344,15 @@
             (c.unseen.length === 1 ? 'it' : 'them') + ' is refused rather than guessed. ' +
             c.modelled.length + ' of ' + c.total + ' levels can be scored.</p>';
         }
-        if (c.merged.length) {
-          html += '<p><b>' + h(c.factor) + ':</b> ' + c.merged.map(h).join(', ') +
-            ' appear too rarely in the history to be modelled individually, so they are pooled with each other as &ldquo;one of the rare ones&rdquo;. ' +
-            'A prediction for any of them is really a prediction for that pool, and they cannot be told apart.</p>';
+        if (c.thin && c.thin.length) {
+          html += '<p><b>' + h(c.factor) + ':</b> ' + c.thin.map(t => h(t.level) + ' (' + t.runs + ' run' + (t.runs === 1 ? '' : 's') + ', ' +
+            Math.round(t.shrink * 100) + '% of its number is the overall average)').join(', ') +
+            '. ' + (c.thin.length === 1 ? 'That level is' : 'Those levels are') + ' modelled individually, but on so few runs that most of what is predicted for ' +
+            (c.thin.length === 1 ? 'it' : 'them') + ' is the overall average rather than anything about ' + (c.thin.length === 1 ? 'it' : 'them') +
+            '. They can be ranked; a small difference between them is not evidence.</p>';
         }
       }
-      html += '<p class="hint">Both are fixable the same way: run them. A handful of runs on a level turns it from something the model refuses or pools into something it can rank.</p></div>';
+      html += '<p class="hint">Both are fixable the same way: run them. A handful of runs on a level turns it from something the model refuses into something it can rank, and a handful more turns its own average into evidence rather than a borrowed one.</p></div>';
     }
     html += '<p class="sub-head">' + plan.candidateCount.toLocaleString() + ' buildable vectors from your catalogue' +
       (plan.sampled ? ' (sampled from ' + plan.candidateTotal.toLocaleString() + ', spread across the catalogue rather than the first chunk of it)' : '') +

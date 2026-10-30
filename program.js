@@ -300,30 +300,50 @@
      A level the historical runs never used cannot be placed at all, so every combination
      containing it is refused - on a catalogue offering six helpers where only three have
      ever been run, that is half the catalogue gone, and the only sign of it was a smaller
-     number of scored candidates than the arithmetic implied. And the encoder keeps the
-     twelve commonest levels of a factor and pools the rest into one "other" column, so a
-     thirteenth helper is not modelled as itself: it is modelled as "one of the rare ones",
-     indistinguishable from the others down there.
+     number of scored candidates than the arithmetic implied. And a level that has been run
+     only a handful of times is modelled, but on a number that is mostly the overall average
+     rather than anything about that level.
 
      Neither is wrong as a decision. Both are indefensible as silent ones, because the
      reader has no way to tell a helper that scored badly from a helper the model could not
-     see. So every catalogue level is classified against what the model actually holds. */
+     see. So every catalogue level is classified against what the model actually holds.
+
+     The second class used to be pooling: the encoder kept the twelve commonest levels of a
+     factor and lumped the rest into one "other" column, so a thirteenth helper was modelled
+     as "one of the rare ones" rather than as itself. A many-levelled factor is now carried
+     as a frequency and a smoothed level average instead, so every level is modelled as
+     itself and nothing is pooled. That removes the pooling but not the underlying thinness,
+     it only makes it gradual: the average for a level with three runs is mostly the overall
+     average, because that is what the smoothing is for. So what is reported now is the
+     levels whose own runs carry less weight in their own number than the prior does, with
+     the weight stated rather than left for the reader to work out. */
+  const THIN_SHRINK = 0.5;
   function levelCoverage(prof, factors, enc) {
     const out = [];
     for (const f of factors) {
       if (f.kind !== 'categorical' && f.kind !== 'fixed') continue;
       const col = prof.columns.find(c => c.name === f.name);
       const part = enc && enc.parts ? enc.parts.find(x => x.col && x.col.name === f.name) : null;
-      const seen = col ? new Set((col.values || []).filter(v => v !== null && norm(v) !== '').map(norm)) : new Set();
-      const kept = part && part.kept ? new Set(part.kept.map(norm)) : null;
-      const modelled = [], merged = [], unseen = [];
+      const counts = Object.create(null);
+      for (const v of (col && col.values) || []) {
+        if (v === null || v === undefined) continue;
+        const k = norm(v);
+        if (k !== '') counts[k] = (counts[k] || 0) + 1;
+      }
+      const seen = new Set(Object.keys(counts));
+      // Only the smoothed encoding has a prior to be outweighed by; a one-hot level has none.
+      const prior = part && part.type === 'high' ? engine().TARGET_PRIOR : 0;
+      const modelled = [], unseen = [], thin = [];
       for (const lv of f.levels) {
         const v = norm(lv);
-        if (!seen.has(v)) unseen.push(lv);
-        else if (kept && !kept.has(v)) merged.push(lv);
-        else modelled.push(lv);
+        if (!seen.has(v)) { unseen.push(lv); continue; }
+        modelled.push(lv);
+        if (prior) {
+          const shrink = prior / (counts[v] + prior);
+          if (shrink > THIN_SHRINK) thin.push({ level: lv, runs: counts[v], shrink });
+        }
       }
-      if (merged.length || unseen.length) out.push({ factor: f.name, modelled, merged, unseen, total: f.levels.length });
+      if (unseen.length || thin.length) out.push({ factor: f.name, modelled, unseen, thin, total: f.levels.length });
     }
     return out;
   }

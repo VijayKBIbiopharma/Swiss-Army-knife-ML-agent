@@ -34,7 +34,7 @@
         {
           title: 'Pick the vector for a programme that has not started yet',
           tool: 'plasmid',
-          data: 'Three files, Excel or CSV: the runs you have already screened (with the protein each was for), the factors and levels you can actually order, and the incoming programme\u2019s protein attributes. Twelve complete runs is the minimum.',
+          data: 'Three files, Excel, CSV or JSON: the runs you have already screened (with the protein each was for), the factors and levels you can actually order, and the incoming programme\u2019s protein attributes. Twelve complete runs is the minimum.',
           out: 'A balanced run sheet per programme: which vector to build, its predicted titer with a calibrated interval, and which rows reach past your evidence. Two recommendations where they differ \u2014 the best central estimate and the best worst case.',
           not: 'It does not design the plasmid, pick restriction sites, or predict folding. And if every historical run is the same molecule, it will not pretend to know how a different one behaves \u2014 it says the history cannot answer that, rather than returning a confident number with a narrow band.'
         },

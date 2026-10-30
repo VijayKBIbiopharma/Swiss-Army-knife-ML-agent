@@ -25,7 +25,7 @@
 
   function loadText(text) {
     let t;
-    try { t = E.parseCSV(text); } catch (e) { return fail('Could not read the data: ' + e.message); }
+    try { t = E.parseTable(text); } catch (e) { return fail('Could not read the data: ' + e.message); }
     if (!t.rows.length || t.columns.length < 3) return fail('Need at least three columns: a batch, a time, and one sensor.');
     table = t;
     const prof = E.profile(t);

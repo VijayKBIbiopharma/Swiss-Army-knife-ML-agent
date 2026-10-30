@@ -195,7 +195,7 @@
         if (!sheet) return fail('No readable sheet in that workbook.');
         table = sheet;
       } else {
-        table = E.parseCSV(await file.text());
+        table = E.parseTable(await file.text(), file.name);
       }
       if (!table.rows.length) return fail('That file has a header row and no runs under it.');
       if (!table.columns.some(c => String(c).trim().toLowerCase() === String(target).trim().toLowerCase())) {

@@ -71,11 +71,11 @@
     <div class="load-grid">
       <div class="card">
         <label class="drop" id="drop">
-          <input type="file" id="file" accept=".csv,.tsv,.txt,text/csv,text/plain">
-          <b>Choose a CSV file</b>
-          <span>or drag it here. One row per observation, column names in the first row.</span>
+          <input type="file" id="file" accept=".csv,.tsv,.txt,.json,.ndjson,text/csv,text/plain,application/json">
+          <b>Choose a CSV or JSON file</b>
+          <span>or drag it here. One row per observation, column names in the first row. A JSON export can be a list of records, one record per line, or one array per column.</span>
         </label>
-        <p class="hint">Excel? Save as CSV, or copy the cells and paste below.</p>
+        <p class="hint">Excel? Save as CSV, or copy the cells and paste below. JSON from a LIMS or an instrument can be pasted straight in.</p>
         <label class="field-label" for="paste">Paste data</label>
         <textarea id="paste" rows="5" spellcheck="false" autocomplete="off" placeholder="Temperature,Pressure,Yield&#10;180,60,87.2&#10;200,75,91.5"></textarea>
         <div class="row-actions">
@@ -104,7 +104,7 @@
       <details class="merge" id="merge">
         <summary>Join a second file on a shared ID (for example a process log and a QC report)</summary>
         <div class="merge-body">
-          <label class="drop small" id="drop2"><input type="file" id="file2" accept=".csv,.tsv,.txt,text/csv,text/plain"><b>Choose the second file</b><span>Its rows are matched to this file on a key column such as BatchID or LotNumber. Repeated rows per key (replicate lanes) are averaged.</span></label>
+          <label class="drop small" id="drop2"><input type="file" id="file2" accept=".csv,.tsv,.txt,.json,.ndjson,text/csv,text/plain,application/json"><b>Choose the second file</b><span>Its rows are matched to this file on a key column such as BatchID or LotNumber. Repeated rows per key (replicate lanes) are averaged.</span></label>
           <div id="merge-config" hidden>
             <div class="controls">
               <label>Key in <span id="m-left-name">file 1</span> <select id="m-left"></select></label>
@@ -196,7 +196,7 @@
         <label>Target RMSE <input type="number" step="any" id="cm-t-rmse" placeholder="optional"></label>
         <label>Target R&sup2; <input type="number" step="any" id="cm-t-r2" placeholder="optional"></label>
       </div>
-      <label class="drop small" id="cm-drop"><input type="file" id="cm-file" accept=".csv,.tsv,.txt,.xlsx"><b>Add this round&rsquo;s results</b><span>The run sheet with the measured column filled in. Columns are matched by name, so their order does not matter and an extra column is kept rather than dropped.</span></label>
+      <label class="drop small" id="cm-drop"><input type="file" id="cm-file" accept=".csv,.tsv,.txt,.json,.ndjson,.xlsx"><b>Add this round&rsquo;s results</b><span>The run sheet with the measured column filled in. Columns are matched by name, so their order does not matter and an extra column is kept rather than dropped.</span></label>
       <p class="error" id="cm-error" role="alert" hidden></p>
       <div id="cm-out"></div>
     </div>
@@ -289,9 +289,9 @@
         <button class="btn ghost small" id="stab-sample2" type="button">Example: batches that differ</button>
         <button class="btn ghost small" id="stab-clear" type="button">Clear</button>
       </div>
-      <label class="full" for="stab-data">Stability data (CSV or tab separated, with a header row)</label>
+      <label class="full" for="stab-data">Stability data (CSV or tab separated with a header row, or JSON)</label>
       <textarea id="stab-data" rows="6" spellcheck="false" placeholder="BatchID,Month,Purity_Pct&#10;B-001,0,99.4&#10;B-001,3,99.1&#10;B-001,6,98.7"></textarea>
-      <input type="file" id="stab-file" accept=".csv,.tsv,.txt" class="file-input">
+      <input type="file" id="stab-file" accept=".csv,.tsv,.txt,.json,.ndjson" class="file-input">
       <p class="hint" id="stab-read" aria-live="polite"></p>
       <div class="controls" id="stab-map" hidden>
         <label>Time column (months)
@@ -375,9 +375,9 @@
           <p class="hint">Readings need not line up between batches: different intervals and different batch lengths are handled. Three batches is the bare minimum; ten or more makes the envelope mean something.</p>
         </div>
       </details>
-      <label class="full" for="gb-data">Readings (CSV or tab separated, with a header row)</label>
+      <label class="full" for="gb-data">Readings (CSV or tab separated with a header row, or JSON)</label>
       <textarea id="gb-data" rows="6" spellcheck="false" placeholder="BatchID,Hours,Temp_C,DO_Pct,pH&#10;B-2401,0,37.0,55.2,7.05&#10;B-2401,6,37.0,54.1,7.04"></textarea>
-      <input type="file" id="gb-file" accept=".csv,.tsv,.txt" class="file-input">
+      <input type="file" id="gb-file" accept=".csv,.tsv,.txt,.json,.ndjson" class="file-input">
       <p class="hint" id="gb-read" aria-live="polite"></p>
       <div id="gb-settings" hidden>
         <div class="controls">
@@ -456,16 +456,16 @@
         </label>
       </div>
       <div id="eq-one">
-        <label class="full" for="eq-data">Results (CSV or tab separated, with a header row)</label>
+        <label class="full" for="eq-data">Results (CSV or tab separated with a header row, or JSON)</label>
         <textarea id="eq-data" rows="6" spellcheck="false" placeholder="SampleID,Method_Lab,Result_Value&#10;S-01,Lab A,98.7&#10;S-01,Lab B,98.9"></textarea>
-        <input type="file" id="eq-file" accept=".csv,.tsv,.txt" class="file-input">
+        <input type="file" id="eq-file" accept=".csv,.tsv,.txt,.json,.ndjson" class="file-input">
       </div>
       <div id="eq-two" class="two-up" hidden>
         <div class="side">
           <h4>Reference method <span class="chip">the one you trust</span></h4>
           <label class="full" for="eq-a-name">What to call it</label>
           <input id="eq-a-name" type="text" value="Reference method">
-          <input type="file" id="eq-a-file" accept=".csv,.tsv,.txt" class="file-input">
+          <input type="file" id="eq-a-file" accept=".csv,.tsv,.txt,.json,.ndjson" class="file-input">
           <label class="full" for="eq-a-data">or paste its results</label>
           <textarea id="eq-a-data" rows="5" spellcheck="false" placeholder="SampleID,Result&#10;S-01,98.7"></textarea>
           <p class="hint" id="eq-a-read" aria-live="polite"></p>
@@ -478,7 +478,7 @@
           <h4>New method <span class="chip">the one being tested</span></h4>
           <label class="full" for="eq-b-name">What to call it</label>
           <input id="eq-b-name" type="text" value="New method">
-          <input type="file" id="eq-b-file" accept=".csv,.tsv,.txt" class="file-input">
+          <input type="file" id="eq-b-file" accept=".csv,.tsv,.txt,.json,.ndjson" class="file-input">
           <label class="full" for="eq-b-data">or paste its results</label>
           <textarea id="eq-b-data" rows="5" spellcheck="false" placeholder="SampleID,Result&#10;S-01,98.9"></textarea>
           <p class="hint" id="eq-b-read" aria-live="polite"></p>
@@ -579,9 +579,9 @@
           <div id="vc-shape-body"></div>
         </div>
       </details>
-      <label class="full" for="vc-data">Measurements (CSV or tab separated, with a header row)</label>
+      <label class="full" for="vc-data">Measurements (CSV or tab separated with a header row, or JSON)</label>
       <textarea id="vc-data" rows="6" spellcheck="false" placeholder="Lot,Result&#10;L-2401,96.2&#10;L-2401,96.6&#10;L-2402,94.1"></textarea>
-      <input type="file" id="vc-file" accept=".csv,.tsv,.txt" class="file-input">
+      <input type="file" id="vc-file" accept=".csv,.tsv,.txt,.json,.ndjson" class="file-input">
       <p class="hint" id="vc-read" aria-live="polite"></p>
       <div id="vc-settings" hidden>
         <div class="controls" id="vc-map-components">
@@ -662,9 +662,9 @@
             <p class="hint">These must be independent results on the scale the specification is written on: one number per batch, not every replicate of every assay. Replicates make the spread look smaller than batch-to-batch reality and would give you limits that no future batch can hold.</p>
           </div>
         </details>
-        <label class="full" for="tl-data">Results (CSV or tab separated, with a header row)</label>
+        <label class="full" for="tl-data">Results (CSV or tab separated with a header row, or JSON)</label>
         <textarea id="tl-data" rows="6" spellcheck="false" placeholder="BatchID,Purity_Pct&#10;B-2401,98.1&#10;B-2402,97.4"></textarea>
-        <input type="file" id="tl-file" accept=".csv,.tsv,.txt" class="file-input">
+        <input type="file" id="tl-file" accept=".csv,.tsv,.txt,.json,.ndjson" class="file-input">
         <p class="hint" id="tl-read" aria-live="polite"></p>
         <div id="tl-settings" hidden>
           <div class="controls">
@@ -767,7 +767,7 @@
   <section class="wrap step" id="pg-step1">
     <div class="step-head"><h2>1 &middot; Historical runs</h2></div>
     <div class="card">
-      <p class="summary">Every construct this site has already screened: the protein it was for, the parts it was built from, and the titer it gave. Excel or CSV. <b>Nothing is uploaded</b> &mdash; the workbook is unzipped and read inside this tab.</p>
+      <p class="summary">Every construct this site has already screened: the protein it was for, the parts it was built from, and the titer it gave. Excel, CSV or JSON. <b>Nothing is uploaded</b> &mdash; the workbook is unzipped and read inside this tab.</p>
       <div class="row-actions">
         <button class="btn ghost small" id="pg-demo" type="button">Load a worked example (all three files)</button>
         <button class="btn ghost small" id="pg-clear" type="button">Clear</button>
@@ -781,11 +781,11 @@
           <p class="hint">The protein columns matter as much as the vector columns. A history of one molecule cannot say how a different molecule will behave, and this tool will say so rather than predict anyway. Twelve complete runs is the minimum.</p>
         </div>
       </details>
-      <input type="file" id="pg-hist-file" accept=".csv,.tsv,.txt,.xlsx" class="file-input">
+      <input type="file" id="pg-hist-file" accept=".csv,.tsv,.txt,.json,.ndjson,.xlsx" class="file-input">
       <details class="shape">
         <summary>&hellip;or paste the runs in</summary>
         <div class="shape-body">
-          <label class="full" for="pg-hist-paste">Historical runs (CSV or tab separated, with a header row)</label>
+          <label class="full" for="pg-hist-paste">Historical runs (CSV or tab separated with a header row, or JSON)</label>
           <textarea id="pg-hist-paste" rows="6" spellcheck="false" placeholder="Construct_ID,Protein_Class,Protein_kDa,Promoter_Type,Selection_Marker,Plasmid_Size_kb,Titer_gL"></textarea>
           <div class="row-actions"><button class="btn" id="pg-hist-use" type="button">Use these runs</button></div>
           <p class="hint">Copy straight out of a spreadsheet and it pastes as tab separated, which is read as readily as commas. There is no hand-entry form for this step &mdash; nobody types two hundred runs, and pretending otherwise would just be a form nobody uses.</p>
@@ -820,11 +820,11 @@
           <p class="hint">Levels may be separated by semicolons, commas or pipes, or given one per row. A factor with only one level is held fixed and said so. Factor names must match the column names in step 1, and any that do not are listed rather than ignored.</p>
         </div>
       </details>
-      <input type="file" id="pg-fac-file" accept=".csv,.tsv,.txt,.xlsx" class="file-input">
+      <input type="file" id="pg-fac-file" accept=".csv,.tsv,.txt,.json,.ndjson,.xlsx" class="file-input">
       <details class="shape" id="pg-fac-entry">
         <summary>&hellip;or type the catalogue in</summary>
         <div class="shape-body">
-          <label class="full" for="pg-fac-paste">Factors and levels (CSV or tab separated, with a header row)</label>
+          <label class="full" for="pg-fac-paste">Factors and levels (CSV or tab separated with a header row, or JSON)</label>
           <textarea id="pg-fac-paste" rows="4" spellcheck="false" placeholder="Factor,Levels,Min,Max,Step"></textarea>
           <div class="row-actions"><button class="btn" id="pg-fac-use" type="button">Use this catalogue</button></div>
           <h4>Or build it a factor at a time</h4>
@@ -857,11 +857,11 @@
           <p class="hint">The attribute columns should be ones that appear in step 1, or the history has nothing to say about them. Any column matching a step 2 factor is dropped with a note, because choosing those is the tool's job.</p>
         </div>
       </details>
-      <input type="file" id="pg-prog-file" accept=".csv,.tsv,.txt,.xlsx" class="file-input">
+      <input type="file" id="pg-prog-file" accept=".csv,.tsv,.txt,.json,.ndjson,.xlsx" class="file-input">
       <details class="shape" id="pg-prog-entry">
         <summary>&hellip;or type the programmes in</summary>
         <div class="shape-body">
-          <label class="full" for="pg-prog-paste">Future programmes (CSV or tab separated, with a header row)</label>
+          <label class="full" for="pg-prog-paste">Future programmes (CSV or tab separated with a header row, or JSON)</label>
           <textarea id="pg-prog-paste" rows="4" spellcheck="false" placeholder="Program_ID,Protein_Class,Protein_kDa"></textarea>
           <div class="row-actions"><button class="btn" id="pg-prog-use" type="button">Use these programmes</button></div>
           <h4>Or add one programme at a time</h4>
@@ -916,9 +916,9 @@
           <p class="hint">Column names need not match exactly &mdash; you map them below. Twelve complete runs is the minimum: most of them train the model and a slice is held back to calibrate the interval, and that held-back slice is what makes the interval mean anything.</p>
         </div>
       </details>
-      <label class="full" for="pl-data">Historical runs (CSV or tab separated, with a header row)</label>
+      <label class="full" for="pl-data">Historical runs (CSV or tab separated with a header row, or JSON)</label>
       <textarea id="pl-data" rows="6" spellcheck="false" placeholder="Construct_ID,Promoter_Type,Enhancer_Present,CAI_Score,Plasmid_Size_kb,Selection_Marker,Expression_Mode,Seed_Density_10e5,Titer_gL,Productivity_qp"></textarea>
-      <input type="file" id="pl-file" accept=".csv,.tsv,.txt" class="file-input">
+      <input type="file" id="pl-file" accept=".csv,.tsv,.txt,.json,.ndjson" class="file-input">
       <p class="hint" id="pl-read" aria-live="polite"></p>
       <div id="pl-map" hidden>
         <div class="controls">
@@ -978,9 +978,9 @@
           <p class="hint">Only the columns you are varying are needed. <code>RunOrder</code> and <code>StdOrder</code> are recognised and carried through. Any feature the sheet does not carry is held at the desk setting, and the tool lists which ones those were &mdash; a sheet that silently omits the factor you care about otherwise looks identical to one that has it.</p>
         </div>
       </details>
-      <label class="full" for="pl-sheet">Proposed runs (CSV or tab separated, with a header row)</label>
+      <label class="full" for="pl-sheet">Proposed runs (CSV or tab separated with a header row, or JSON)</label>
       <textarea id="pl-sheet" rows="6" spellcheck="false" placeholder="RunOrder,Promoter_Type,CAI_Score,Plasmid_Size_kb"></textarea>
-      <input type="file" id="pl-sheet-file" accept=".csv,.tsv,.txt" class="file-input">
+      <input type="file" id="pl-sheet-file" accept=".csv,.tsv,.txt,.json,.ndjson" class="file-input">
       <div class="controls">
         <label>What the intervals should claim
           <select id="pl-sheet-mode">
