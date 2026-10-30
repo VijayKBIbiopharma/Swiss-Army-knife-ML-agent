@@ -573,6 +573,38 @@
         });
       }
     }
+    /* Rare events: the gaps, not the rate. Only drawn when the data is actually that shape,
+       because on a busy process this chart answers a question nobody asked. */
+    if (s.rare) {
+      const q = s.rare;
+      const lim = v => (v === null ? 'none at this rate' : fmt(v, q.kind === 'g' ? 0 : 2));
+      const sig = q.signals.slice(0, 6).map(x => 'gap ' + (x.i + 1) + ' (' + x.meaning + ')');
+      const el = append(blocks, card('Rare-event chart \u2014 ' + (q.kind === 'g' ? 'units between events' : 'time between events'),
+        Math.round(q.zeroShare * 100) + '% of rows recorded nothing, so the rate is too low to chart directly. These are the ' +
+        q.n + ' gaps between the ' + q.events + ' events instead. ' +
+        (q.signals.length ? q.signals.length + ' signal' + (q.signals.length > 1 ? 's' : '') + '.' : 'No signals.'),
+        '<div class="cc-rare"></div>' +
+        '<p class="hint">' + h(q.why) + '</p>' +
+        (sig.length ? '<p class="hint">Signals: ' + h(sig.join('; ')) + (q.signals.length > 6 ? '\u2026' : '') + '</p>' : '') +
+        '<div class="table-scroll"><table class="spc-table"><tbody>' +
+        row('Events', q.events) + row('Event rate', q.rateLabel) +
+        row('Centre line (median gap)', fmt(q.centre, 0)) +
+        row('Lower limit', lim(q.lcl)) + row('Upper limit', lim(q.ucl)) +
+        row('Three sigma would have given', fmt(q.naive.lower, 0) + ' to ' + fmt(q.naive.upper, 0) + (q.naive.clamped ? ' (lower clamped to 0)' : '')) +
+        row('Run rule', q.runLen + ' gaps the same side of the centre, risk ' + (q.runRisk * 100).toFixed(2) + '% a point') +
+        '</tbody></table></div>', 'rareEvents'));
+      const flags = q.gaps.map((v, i) => {
+        const hits = q.signals.filter(x => x.i === i);
+        return hits.length ? hits.map(x => x.meaning) : [];
+      });
+      C.controlChart(el.querySelector('.cc-rare'), q.gaps, {
+        cl: q.centre, ucl: q.ucl, lcl: q.lcl === null ? 0 : q.lcl, flags,
+        rowLabel: i => 'Gap ' + (i + 1),
+        // The points are gaps, not rows, so the default axis caption would be wrong here.
+        xLabel: 'Gap number (in order)',
+        yLabel: q.kind === 'g' ? 'Units between events' : 'Time between events', label: 'Rare-event chart'
+      });
+    }
     if (s.boxes) {
       const el = append(blocks, card('Box plots of ' + rep.target, 'Overall' + (s.boxes.by.length ? ', and split by ' + h(s.boxes.by.map(b => b.name).join(', ')) : '') + '. Shifted boxes change the average; wider boxes mean more variation.',
         '<div class="bp-all"></div>' + s.boxes.by.map((b, i) => '<h4>By ' + h(b.name) + '</h4><div class="bp-' + i + '"></div>').join(''), 'boxplot'));

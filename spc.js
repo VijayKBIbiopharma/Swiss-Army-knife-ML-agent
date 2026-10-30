@@ -437,6 +437,119 @@
     };
   }
 
-  root.MLSpc = { normCdf, normInv, capability, imr, countChart, boxCoxLambda, nonNormalTail, box, snRatio, taguchi, attribute };
+
+  /* ---------- When the event is rare: chart the gaps, not the rate ----------
+
+     At a tenth of a percent, a proportion chart is mostly noise. Inspect a thousand
+     containers and expect one finding: the subgroup proportion is 0, 0.001, 0.002, the
+     limits sit on top of each other, and the lower limit is zero - so the chart can signal
+     that things got worse and can never signal that they got better. Four departments in
+     this tool name that gap, and it is the same gap each time.
+
+     The fix is to stop charting the rate and start charting the distance between events:
+     containers inspected between findings, or days between failures. Those gaps carry every
+     event individually instead of summarising a thousand of them into one dot, and they
+     have a distribution worth using - geometric for counted opportunities, exponential for
+     elapsed time.
+
+     What must not be done to them is three sigma. Both distributions are heavily skewed, so
+     a symmetric band is wrong on both sides. The lower limit lands below zero and is clamped
+     away, and on a chart of GAPS that is the expensive half: gaps get shorter when the rate
+     goes up, so a lower limit that cannot be crossed is a chart that cannot tell you
+     contamination is increasing. (It is the mirror of the proportion chart's failure, where
+     a lower limit of zero hides an improvement.) So the limits here are
+     PROBABILITY limits: the points in each tail that carry alpha/2 of the distribution,
+     computed from the fitted parameter rather than from a standard deviation. What three
+     sigma would have given is computed too and reported beside them, because the difference
+     is the argument for doing it this way. */
+  function rareEvents(gaps, opt) {
+    opt = opt || {};
+    const g = (gaps || []).map(v => (num(v) ? Number(v) : null));
+    if (g.some(v => v === null)) throw new Error('Every gap must be a number: how many units, or how long, between one event and the next.');
+    if (g.some(v => v < 0)) throw new Error('A gap cannot be negative.');
+    const n = g.length;
+    if (n < 8) throw new Error('Need at least 8 gaps - that is 9 events - before limits mean anything. Below that the chart moves more than the process does.');
+
+    const whole = g.every(v => v === Math.round(v));
+    const kind = opt.kind || (whole ? 'g' : 't');
+    if (kind === 'g' && !whole) throw new Error('A g-chart counts whole units between events. These gaps are not whole numbers, so this is time between events: use the t-chart.');
+    const alpha = opt.alpha === undefined || opt.alpha === null ? 0.0027 : Number(opt.alpha);
+    if (!(alpha > 0 && alpha < 0.5)) throw new Error('The false alarm rate must be between 0 and 0.5. The default, 0.0027, is what three sigma means on a normal chart, so the two are comparable.');
+    const m = mean(g);
+    if (!(m > 0)) throw new Error('Every gap is zero, which means an event at every opportunity. That is not a rare event and this is not the chart for it.');
+
+    const lo = alpha / 2, hi = 1 - alpha / 2;
+    let centre, lcl, ucl, rate, rateLabel, lclExists = true;
+    if (kind === 'g') {
+      /* Gaps counted as opportunities between events, so X is geometric on 0,1,2,... with
+         mean (1-p)/p. P(X > k) = (1-p)^(k+1). */
+      const p = 1 / (m + 1);
+      const q = 1 - p;
+      const lq = Math.log(q);
+      ucl = Math.ceil(Math.log(lo) / lq) - 1;
+      const kLow = Math.floor(Math.log(hi) / lq) - 1;
+      lcl = kLow;
+      if (kLow < 0) { lcl = null; lclExists = false; }
+      centre = Math.ceil(Math.log(0.5) / lq) - 1;   // the median, which is the honest centre for a skewed chart
+      rate = p;
+      rateLabel = 'about 1 event in every ' + fmtInt(1 / p) + ' units';
+    } else {
+      const lam = 1 / m;
+      ucl = -Math.log(lo) / lam;
+      lcl = -Math.log(hi) / lam;
+      centre = Math.log(2) / lam;
+      rate = lam;
+      rateLabel = 'about 1 event every ' + fmtInt(m) + ' units of time';
+    }
+
+    /* What a three-sigma chart would have drawn on the same gaps, for comparison. The
+       lower limit is the point: on a skewed distribution it lands below zero and is clamped
+       away, and with it goes any chance of seeing the process improve. */
+    const s = sd(g);
+    const naive = { lower: m - 3 * s, upper: m + 3 * s };
+    naive.clamped = naive.lower < 0;
+    naive.lowerDrawn = Math.max(0, naive.lower);
+
+    const signals = [];
+    for (let i = 0; i < n; i++) {
+      if (g[i] > ucl) signals.push({ i, value: g[i], side: 'above', rule: 'limit', meaning: 'a longer gap than chance explains: the rate has fallen, or an event was missed' });
+      else if (lclExists && g[i] < lcl) signals.push({ i, value: g[i], side: 'below', rule: 'limit', meaning: 'a shorter gap than chance explains: the rate has risen' });
+    }
+    /* A single point is not enough here, and measurement says so: at a three-sigma-equivalent
+       false alarm rate this chart catches a fourfold improvement in about five events and a
+       fourfold deterioration in none at all, because no lower limit exists to cross. Yet a
+       rising rate is the case these departments care about most.
+
+       It presents as a RUN of short gaps rather than as one impossible gap, so a run rule
+       carries that half. The centre line is the median, so each point falls below it with
+       probability one half and a run of `run` has probability 2^-run per position - at the
+       default of eight that is 0.39%, the same order as the limits themselves, so the rule
+       is not bought with a flood of false alarms. */
+    const runLen = Math.max(4, Math.round(opt.run === undefined ? 8 : opt.run));
+    let below = 0, above = 0;
+    for (let i = 0; i < n; i++) {
+      below = g[i] < centre ? below + 1 : 0;
+      above = g[i] > centre ? above + 1 : 0;
+      if (below === runLen) signals.push({ i, value: g[i], side: 'below', rule: 'run', meaning: runLen + ' gaps in a row shorter than usual: the rate has risen' });
+      if (above === runLen) signals.push({ i, value: g[i], side: 'above', rule: 'run', meaning: runLen + ' gaps in a row longer than usual: the rate has fallen' });
+    }
+    signals.sort((x, y) => x.i - y.i);
+    return {
+      kind, n, events: n + 1, alpha, mean: m, median: centre,
+      centre, lcl, ucl, lclExists, rate, rateLabel, gaps: g.slice(),
+      signals, naive, runLen,
+      runRisk: Math.pow(0.5, runLen),
+      why: 'Limits are the points carrying ' + (alpha / 2 * 100).toPrecision(2) + '% in each tail of the fitted ' +
+        (kind === 'g' ? 'geometric' : 'exponential') + ' distribution, not three standard deviations. ' +
+        (naive.clamped
+          ? 'Three sigma would have put the lower limit at ' + fmtSigned(naive.lower) + ', which is below zero and would be clamped away. Gaps shorten when the rate rises, so a lower limit nothing can cross is a chart that cannot tell you the rate is rising.'
+          : 'Three sigma would have given ' + fmtSigned(naive.lower) + ' to ' + fmtSigned(naive.upper) + ' here.') +
+        (lclExists ? '' : ' At this rate and this false alarm rate no lower limit exists at all: with events this rare, even a gap of zero is not surprising on its own, so a rise in the rate shows up as a run of short gaps rather than as one point. A looser false alarm rate, or more events, brings the lower limit into existence.')
+    };
+  }
+  const fmtInt = v => (isFinite(v) ? Math.round(v).toLocaleString() : '–');
+  const fmtSigned = v => (isFinite(v) ? (Math.round(v * 100) / 100).toLocaleString() : '–');
+
+  root.MLSpc = { normCdf, normInv, capability, imr, countChart, rareEvents, boxCoxLambda, nonNormalTail, box, snRatio, taguchi, attribute };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLSpc;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

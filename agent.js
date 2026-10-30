@@ -669,6 +669,23 @@
             out.counts.unitsColumn = usable ? uCol.name : null;
             if (o.unitsColumn && !usable) out.counts.unitsNote = 'The column "' + o.unitsColumn + '" could not be used as the number of units looked at - it has blanks, zeros or negatives - so a c-chart was drawn instead, which assumes every point had the same opportunity.';
           } catch (err) { out.countsError = err.message; }
+          /* Rare events need the other chart entirely. When the counts are mostly zeros -
+             a finding now and then rather than a rate worth charting - the gaps between
+             findings carry far more than the counts do, so they are charted too and the
+             panel says which to read. */
+          const total = y.reduce((p, q) => p + q, 0);
+          const zeros = y.filter(v => v === 0).length;
+          if (total >= 9 && zeros / y.length >= 0.5) {
+            const gaps = [];
+            let since = 0, started = false;
+            for (const v of y) {
+              if (v === 0) { since++; continue; }
+              for (let k = 0; k < v; k++) { if (started) gaps.push(since); started = true; since = 0; }
+              since = 0;
+            }
+            try { if (gaps.length >= 8) { out.rare = S.rareEvents(gaps); out.rare.zeroShare = zeros / y.length; } }
+            catch (err) { out.rareError = err.message; }
+          }
         }
       }
       // Box plots by the most important columns that have a handful of levels.

@@ -4850,3 +4850,119 @@ test('every help key the page asks for exists, and the optional blocks are reach
   assert.ok(/c && c\.nonNormal/.test(app),
     'the Box-Cox result must be reached through a guard on capability, which only exists when spec limits were given');
 });
+
+/* The gap four departments name. At a tenth of a percent a proportion chart is mostly
+   noise: inspect a thousand containers, expect one finding, and the limits sit on top of
+   each other with a lower limit of zero. The answer is to chart the distance between
+   events instead - and then to resist charting it with three sigma, because both the
+   geometric and the exponential are badly skewed. */
+test('a rare-event chart uses probability limits, and a run rule carries the half they cannot', () => {
+  const geomGaps = (p, n, r) => { const g = []; for (let i = 0; i < n; i++) { let k = 0; while (r() > p) k++; g.push(k); } return g; };
+
+  // The fitted rate comes back, which everything else rests on.
+  let est = 0, trials = 200;
+  for (let t = 0; t < trials; t++) est += SPC.rareEvents(geomGaps(1 / 500, 60, E.rng(300 + t))).rate;
+  assert.ok(Math.abs(est / trials - 1 / 500) < 1 / 500 * 0.15, 'the rate should come back near 1 in 500, got 1 in ' + Math.round(trials / est));
+
+  /* Three sigma is the thing not to do, and the output has to show why rather than assert
+     it. On a skewed distribution the lower limit lands below zero and is clamped away - and
+     on a chart of gaps that is the expensive half, because gaps SHORTEN when the rate rises. */
+  const ch = SPC.rareEvents(geomGaps(1 / 500, 40, E.rng(4)));
+  assert.strictEqual(ch.kind, 'g');
+  assert.ok(ch.naive.lower < 0, 'three sigma must put the lower limit below zero at this rate, got ' + ch.naive.lower.toFixed(1));
+  assert.strictEqual(ch.naive.clamped, true);
+  assert.ok(/cannot tell you the rate is rising/.test(ch.why), 'and the output must say which half that costs: ' + ch.why.slice(0, 120));
+  // The upper limit is a probability limit, far above what three sigma would have drawn.
+  assert.ok(ch.ucl > ch.naive.upper, 'the probability upper limit must sit above the three-sigma one: ' + ch.ucl + ' against ' + ch.naive.upper.toFixed(0));
+  // At a three-sigma-equivalent alpha and this rate, no lower limit exists at all, and it says so.
+  assert.strictEqual(ch.lclExists, false);
+  assert.ok(/no lower limit exists at all/.test(ch.why));
+
+  /* So the single-point rule alone cannot see a rising rate, which is the case these
+     departments care about most. Measured below: it catches a fourfold deterioration in
+     none of 150 runs. The run rule is what recovers it. */
+  const toSignal = (pBase, pNew, trialsN, baseN, horizon, opt) => {
+    let caught = 0, tot = 0;
+    for (let t = 0; t < trialsN; t++) {
+      const r = E.rng(9000 + t);
+      const base = geomGaps(pBase, baseN, r);
+      let hit = 0;
+      const seq = [];
+      for (let j = 0; j < horizon; j++) {
+        let k = 0; while (r() > pNew) k++;
+        seq.push(k);
+        const sub = SPC.rareEvents(base.concat(seq), opt);
+        if (sub.signals.some(x => x.i >= baseN)) { hit = j + 1; break; }
+      }
+      if (hit) { caught++; tot += hit; }
+    }
+    return { pct: caught / trialsN, avg: caught ? tot / caught : null };
+  };
+  // Limits only: run length pushed past the horizon so only the limits can fire.
+  const limitsOnly = { alpha: 0.0027, run: 10000 };
+  const worseLimits = toSignal(1 / 1000, 1 / 250, 60, 50, 60, limitsOnly);
+  assert.strictEqual(worseLimits.pct, 0, 'with no lower limit, a single point cannot see a rising rate');
+
+  // With the run rule, the same deterioration is caught almost always, and quickly.
+  const worse = toSignal(1 / 1000, 1 / 250, 150, 50, 60, { alpha: 0.0027 });
+  assert.ok(worse.pct > 0.9, 'the run rule must recover deterioration detection, got ' + Math.round(worse.pct * 100) + '%');
+  assert.ok(worse.avg < 25, 'and reasonably quickly, averaged ' + (worse.avg || 0).toFixed(0) + ' events');
+  // Measured: 0% on limits alone, 99% in an average of 12 events with the run rule.
+
+  // Improvement is the other half, and the upper limit sees it on its own.
+  const better = toSignal(1 / 1000, 1 / 4000, 150, 50, 60, { alpha: 0.0027 });
+  assert.ok(better.pct > 0.9, 'a fourfold improvement must be caught, got ' + Math.round(better.pct * 100) + '%');
+  assert.ok(better.avg < 15, 'improvement should show fast, averaged ' + (better.avg || 0).toFixed(0));
+
+  /* What that costs, measured rather than hoped. The run rule is deliberately set where its
+     own risk is the same order as the limits: the centre is the median, so each point falls
+     below it with probability one half and a run of eight is 2^-8, about 0.39%. */
+  const stable = toSignal(1 / 1000, 1 / 1000, 150, 50, 60, { alpha: 0.0027 });
+  const perPoint = 1 - Math.pow(1 - stable.pct, 1 / 60);
+  assert.ok(perPoint < 0.012, 'the false alarm rate per point should stay near the sum of the two rules, got ' + (perPoint * 100).toFixed(2) + '%');
+  assert.ok(Math.abs(ch.runRisk - Math.pow(0.5, 8)) < 1e-12, 'the run rule risk must be reported');
+  // Measured: about 0.6% per point, against 0.27% for the limits alone plus 0.39% for the run.
+
+  /* And the comparison that justifies the whole build. A p-chart over the same ground, in
+     subgroups of a thousand: it is blind to the improvement entirely, and its three-sigma
+     limits are badly calibrated at this rate because the normal approximation fails when
+     the expected count per subgroup is about one. */
+  const pChart = (p, subgroups, n, r) => {
+    const base = 1 / 1000, sd = Math.sqrt(base * (1 - base) / n);
+    const ucl = base + 3 * sd, lcl = Math.max(0, base - 3 * sd);
+    let out = 0;
+    for (let s = 0; s < subgroups; s++) {
+      let c = 0;
+      for (let i = 0; i < n; i++) if (r() < p) c++;
+      if (c / n > ucl || c / n < lcl) out++;
+    }
+    return out / subgroups;
+  };
+  assert.strictEqual(pChart(1 / 4000, 60, 1000, E.rng(77)), 0, 'a p-chart at this rate cannot see an improvement at all');
+  /* Its false alarm rate is not a matter of simulation luck, it is arithmetic: the upper
+     limit lands at 3.998 defectives, so any subgroup with four or more signals, and with an
+     expected count of one that is P(Poisson(1) >= 4) = 1.9%. Seven times the 0.27% that
+     "three sigma" is supposed to mean, because the normal approximation has no business
+     here. Asserted exactly, then confirmed by simulation. */
+  const poisTail = (lam, k) => { let s = 0, term = Math.exp(-lam); for (let i = 0; i < k; i++) { s += term; term *= lam / (i + 1); } return 1 - s; };
+  const pChartAlarm = poisTail(1, 4);
+  assert.ok(Math.abs(pChartAlarm - 0.0190) < 0.0005, 'the p-chart false alarm rate here is 1.9%, got ' + (pChartAlarm * 100).toFixed(2) + '%');
+  assert.ok(pChartAlarm > 6 * 0.0027, 'which is several times the rate three sigma implies');
+  assert.ok(pChart(1 / 1000, 200, 1000, E.rng(78)) > 0.008, 'and simulation agrees');
+
+  /* Time between events rather than units between them: the same chart on an exponential
+     fit, chosen automatically when the gaps are not whole numbers. */
+  const expGaps = (lam, n, r) => E.range(n).map(() => -Math.log(Math.max(1e-12, r())) / lam);
+  const t = SPC.rareEvents(expGaps(1 / 30, 40, E.rng(11)), { alpha: 0.0027 });
+  assert.strictEqual(t.kind, 't');
+  assert.ok(Math.abs(t.mean - 30) < 9, 'mean days between events should be near 30, got ' + t.mean.toFixed(1));
+  assert.ok(t.lcl > 0 && t.ucl > t.lcl, 'an exponential chart has both limits: ' + t.lcl + ' to ' + t.ucl);
+  assert.ok(Math.abs(t.centre - Math.log(2) * t.mean) < 1e-6, 'its centre is the median, not the mean');
+
+  // Refusals, each with a reason that tells you what to do instead.
+  assert.throws(() => SPC.rareEvents([1, 2, 3]), /at least 8 gaps/);
+  assert.throws(() => SPC.rareEvents([1, 2, 3, 4, 5, 6, 7, -1]), /cannot be negative/);
+  assert.throws(() => SPC.rareEvents(E.range(10).map(() => 0)), /not a rare event/);
+  assert.throws(() => SPC.rareEvents([1.5, 2, 3, 4, 5, 6, 7, 8], { kind: 'g' }), /use the t-chart/);
+  assert.throws(() => SPC.rareEvents(E.range(10).map(() => 5), { alpha: 0.9 }), /between 0 and 0.5/);
+});
