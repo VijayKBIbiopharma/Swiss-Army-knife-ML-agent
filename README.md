@@ -114,6 +114,12 @@ Drop in a CSV and it:
 
     **Categorical helper factors** work as they arrive: a catalogue of six helper plasmids at four to six levels each, with no Min or Max anywhere, parses and enumerates &mdash; 5,760 buildable vectors from a realistic AAV-style catalogue, scored in full rather than sampled. That became affordable by fixing the nearest-neighbour search behind the intervals, which built and sorted an array of every training distance on every call: partial selection of the five nearest instead took 4,000 scored candidates from **2,600ms to 36ms**, and the conformal coverage tests confirm the answer is unchanged.
 
+28. **The loop: passive data, a design, runs, back into the model, again until it is good enough.** Four of the five steps already existed separately &mdash; a baseline from operational data, a recommended design, a run sheet with a column to write results into, and a model that can be refitted. What was missing was the loop: nothing stacked a round of results onto what came before, nothing tracked whether the model was improving, and nothing would say when to stop. Step 6 of the agent does all three. Rounds are matched **by column name**, so a sheet that comes back with its columns reordered and an extra one added lands in the right places rather than putting operator initials in the titer column.
+
+    **The obvious way to measure progress is wrong, and the brief asks for it.** R&sup2; is error measured against the spread of the data, and every round of a DoE campaign widens that spread deliberately &mdash; that is what the design is for. Measured on identical data, identical noise and an identical model, widening the sampled range alone takes R&sup2; from **0.376 to 0.975 while the cross-validated RMSE sits at 0.265 the whole way**. A campaign steered by R&sup2; would declare success after one round of widening ranges having learned nothing. So progress is tracked on the **prediction interval** and the **RMSE**, which do not move when the range does, and every R&sup2; change is split into the part the widened spread explains and the part a genuinely better model explains. On a worked two-round campaign that split came out as +0.470 from range against &minus;0.006 from the model.
+
+    **What another round would buy is measured, not promised.** The model is refit on subsets of increasing size to trace the curve this dataset is actually on, then read forward. Validated against what actually happens: projecting the error at double the sample size landed within 5&ndash;13%, erring conservative, and the estimated noise floor came out at 0.322 against a true 0.300 &mdash; which is the number that says stop running plates and improve the assay instead. Two guards matter: the fitted slope cannot be negative and the projection cannot be worse than what is already measured, because an unguarded least-squares fit on noisy subsample points will cheerfully predict that running more experiments makes the model worse.
+
 Ways to share results, all built in the browser:
 - **Save as PDF**: an A4 report (action plan, what-if scenarios, every chart with its "how to read this" note, the DOE run sheet, the models in plain words, a glossary, and an audit trail).
 - **Download Excel (.xlsx)**: every number behind the report, one sheet per topic (summary, audit trail, columns and roles, models, drivers, action plan, capability, control chart, desirability, DOE effects, what-if scenarios, DOE run sheet, data analyzed). Numbers stay numbers.
@@ -194,6 +200,8 @@ node --test tests/run-tests.js
 | `pdf.js` | Dependency-free PDF writer for "Save as PDF" |
 | `explain.js` | Plain-English explanations and analogies shared by results, report and lessons |
 | `learn.html`, `learn.js` | ML Agent Academy: interactive lessons |
+| `campaign.js` | The iteration loop: stacking rounds, per-round metrics, range-effect attribution, learning-curve projection |
+| `campaign-ui.js` | Step 6 panel: rounds table, targets, what another round would buy |
 | `samples.js` | Synthetic biologics practice datasets, tagged by function |
 
 Limits: up to 3,000 rows are used for modeling (a random sample above that), classification supports up to 20 classes, and gradient boosting for classification is binary only.

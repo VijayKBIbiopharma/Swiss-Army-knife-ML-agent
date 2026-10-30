@@ -187,6 +187,21 @@
     <div id="result-blocks"></div>
   </section>
 
+  <section class="wrap step" id="campaign" hidden>
+    <div class="step-head"><span class="num">6</span><h2>Iterate: run the design, feed the results back</h2></div>
+    <div class="card">
+      <p class="summary">The loop this tool is built for: passive data gives a baseline, the baseline suggests a design, the design is run, and the results come back here. Each round is stacked onto the last and the model refitted, so you can see whether it is actually getting better &mdash; and stop when it is good enough rather than when the budget runs out.</p>
+      <div class="controls">
+        <label>Target interval (&plusmn;, in the units of the result) <input type="number" step="any" id="cm-t-half" placeholder="e.g. 0.5"></label>
+        <label>Target RMSE <input type="number" step="any" id="cm-t-rmse" placeholder="optional"></label>
+        <label>Target R&sup2; <input type="number" step="any" id="cm-t-r2" placeholder="optional"></label>
+      </div>
+      <label class="drop small" id="cm-drop"><input type="file" id="cm-file" accept=".csv,.tsv,.txt,.xlsx"><b>Add this round&rsquo;s results</b><span>The run sheet with the measured column filled in. Columns are matched by name, so their order does not matter and an extra column is kept rather than dropped.</span></label>
+      <p class="error" id="cm-error" role="alert" hidden></p>
+      <div id="cm-out"></div>
+    </div>
+  </section>
+
   <section class="wrap step" id="next" hidden>
     <div class="step-head"><span class="num">4</span><h2>Next steps</h2></div>
     <ol class="dmaic" id="next-steps"></ol>
@@ -1155,6 +1170,7 @@
 <script src="audit.js"></script>
 <script src="xlsx.js"></script>
 <script src="program.js"></script>
+<script src="campaign.js"></script>
 <script src="departments.js"></script>
 <script src="uncertainty.js"></script>
 <script src="agent.js"></script>
@@ -1183,6 +1199,7 @@
 <script src="plasmid.js"></script>
 <script src="plasmid-ui.js"></script>
 <script src="program-ui.js"></script>
+<script src="campaign-ui.js"></script>
 <script src="seq.js"></script>
 </body>
 </html>

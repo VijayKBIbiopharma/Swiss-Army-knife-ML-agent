@@ -3764,3 +3764,120 @@ test('levels the model cannot tell apart are named, not left to show as a smalle
   assert.ok(cov2.modelled.length <= 12, 'the encoder models at most twelve levels individually');
   assert.strictEqual(cov2.modelled.length + cov2.merged.length + cov2.unseen.length, 15, 'every level accounted for');
 });
+
+const CM = require(path.join(ROOT, 'campaign.js'));
+
+test('rounds stack by column name, not by column order', () => {
+  /* A run sheet comes back with its columns in whatever order the instrument wrote them,
+     and usually with an extra one nobody asked for. Matching by position would silently put
+     the operator initials in the titer column; dropping the unmatched column would throw
+     away every earlier measurement of it. */
+  const a = { name: 'passive', columns: ['Temp', 'pH', 'Titer'], rows: [['35', '7', '3.0'], ['36', '7.1', '3.8']] };
+  const b = { name: 'DOE 1', columns: ['Titer', 'Temp', 'pH', 'Operator'], rows: [['4.2', '37', '7.2', 'VK']] };
+  const st = CM.stack([a, b]);
+  assert.deepStrictEqual(st.columns, ['Temp', 'pH', 'Titer', 'Operator', 'Round']);
+  assert.deepStrictEqual(st.rows[0], ['35', '7', '3.0', '', '0'], 'the first round has no Operator and must keep the gap');
+  assert.deepStrictEqual(st.rows[2], ['37', '7.2', '4.2', 'VK', '1'], 'the reordered round must land in the right columns');
+  assert.deepStrictEqual(st.rounds.map(r => r.rows), [2, 1]);
+  // Names differing only by case or punctuation are the same column.
+  const c = CM.stack([{ columns: ['Temp_C', 'Titer'], rows: [['35', '3']] }, { columns: ['temp c', 'titer'], rows: [['36', '4']] }]);
+  assert.deepStrictEqual(c.columns, ['Temp_C', 'Titer', 'Round']);
+  assert.strictEqual(c.rows.length, 2);
+  assert.deepStrictEqual(c.rows[1], ['36', '4', '1']);
+  // And the round tag can be turned off for callers that do not want it.
+  assert.deepStrictEqual(CM.stack([a], { roundColumn: false }).columns, ['Temp', 'pH', 'Titer']);
+});
+
+test('a campaign is steered on the interval, because R-squared moves with the range', () => {
+  /* The trap in this loop. R2 is error measured against the spread of the data, and every
+     round of a design-of-experiments campaign widens that spread deliberately - that is
+     what the design is for. So R2 rises whether or not the model has improved, and a
+     campaign steered by it would stop after one round of widening ranges having learned
+     nothing. Measured here rather than argued. */
+  const truth = t => 3 + 0.9 * (t - 35);
+  const mk = (n, half, seed) => {
+    const r = E.rng(seed);
+    const z = () => { const u = Math.max(1e-12, r()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+    const rows = [];
+    for (let i = 0; i < n; i++) { const t = 35 - half + r() * 2 * half; rows.push([t.toFixed(3), (truth(t) + z() * 0.25).toFixed(3)]); }
+    return { columns: ['Temp', 'Titer'], rows };
+  };
+  // Identical truth, identical noise, identical model. Only the sampled range changes.
+  const narrow = CM.metrics(mk(300, 0.4, 11), 'Titer', { seed: 42 });
+  const wide = CM.metrics(mk(300, 3.2, 11), 'Titer', { seed: 42 });
+  assert.ok(wide.r2 - narrow.r2 > 0.4,
+    'widening the range alone must move R2 a long way: ' + narrow.r2.toFixed(3) + ' -> ' + wide.r2.toFixed(3));
+  assert.ok(Math.abs(wide.rmse - narrow.rmse) < 0.05,
+    'while the error per row barely moves: ' + narrow.rmse.toFixed(3) + ' vs ' + wide.rmse.toFixed(3));
+
+  /* So the two causes are separated. On exactly this pair the model is no better at all, and
+     the attribution has to say so rather than reporting a 0.6 improvement. */
+  const a = CM.assess([narrow, wide], { halfWidth: 0.9 });
+  assert.ok(a.rangeEffect, 'the attribution must be computed once there is more than one round');
+  assert.ok(a.rangeEffect.spreadRatio > 2, 'the spread really did grow: ' + a.rangeEffect.spreadRatio.toFixed(2));
+  assert.ok(Math.abs(a.rangeEffect.genuine) < 0.1,
+    'almost none of this is a better model, got ' + a.rangeEffect.genuine.toFixed(3));
+  assert.ok(a.rangeEffect.fromWidening > 0.4,
+    'and almost all of it is the range, got ' + a.rangeEffect.fromWidening.toFixed(3));
+  assert.ok(Math.abs(a.rangeEffect.fromWidening + a.rangeEffect.genuine - a.deltaR2) < 1e-9,
+    'the two parts must add up to the move actually seen');
+
+  // Targets are checked individually and only all of them together end a campaign.
+  const t = CM.assess([narrow, wide], { halfWidth: 0.0001, r2: 0.5 });
+  assert.strictEqual(t.met.r2, true);
+  assert.strictEqual(t.met.halfWidth, false);
+  assert.strictEqual(t.done, false, 'meeting the R2 target while the interval is nowhere near is not done');
+  assert.strictEqual(CM.assess([narrow], {}).done, false, 'no targets set is not the same as targets met');
+
+  // A target the tool cannot measure is refused rather than guessed.
+  assert.throws(() => CM.metrics({ columns: ['a', 'b'], rows: [['x', 'y'], ['x', 'z']] }, 'b'), /not a number|at least 8/);
+  assert.throws(() => CM.metrics(mk(300, 1, 5), 'NoSuchColumn'), /No column called/);
+});
+
+test('what another round would buy is projected from this dataset, and checked against what it does', () => {
+  /* The projection refits on subsets of increasing size and reads the curve forward, rather
+     than quoting a rule of thumb. Here it is held to that: project from n what the error
+     will be at 2n, then actually build 2n and measure. */
+  const truth = (t, p) => 3 + 0.9 * (t - 35) - 0.18 * (t - 35) * (t - 35) + 1.0 * (p - 7);
+  const mk = (n, seed) => {
+    const r = E.rng(seed);
+    const z = () => { const u = Math.max(1e-12, r()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+    const rows = [];
+    for (let i = 0; i < n; i++) {
+      const t = 33 + r() * 4, p = 6.6 + r() * 0.8;
+      rows.push([t.toFixed(3), p.toFixed(3), (truth(t, p) + z() * 0.3).toFixed(3)]);
+    }
+    return { columns: ['Temp', 'pH', 'Titer'], rows };
+  };
+  const errs = [];
+  for (const n of [100, 160]) {
+    const proj = CM.project(mk(n, 11), 'Titer', n, { seed: 42 });
+    assert.ok(proj.projection, 'a projection must be produced at n=' + n);
+    assert.strictEqual(proj.projection.atN, 2 * n);
+    const actual = CM.metrics(mk(2 * n, 11), 'Titer', { seed: 42 });
+    errs.push(Math.abs(proj.projection.rmse / actual.rmse - 1));
+    /* More runs must never be projected to make the model worse. Left unguarded the least
+       squares fit will happily return a rising curve when the subsample measurements are
+       noisy, which produces the one projection nobody should ever be shown. A flat curve is
+       the honest reading of that situation and is flagged as flat. */
+    assert.ok(proj.projection.rmse <= proj.base.rmse + 1e-9, 'the curve must not predict getting worse with more data');
+    if (proj.projection.flat) assert.ok(proj.projection.rmse <= proj.base.rmse + 1e-9,
+      'a flat curve projects no better than today, and no worse');
+    /* The floor is where the curve is heading, and it cannot sit below the noise that
+       generated the data - that is the number that says stop running plates and improve the
+       assay instead. */
+    assert.ok(proj.projection.rmseFloor > 0.15 && proj.projection.rmseFloor < 0.5,
+      'the floor should land near the 0.3 noise it was generated with, got ' + proj.projection.rmseFloor.toFixed(3));
+    assert.ok(proj.points.length >= 3, 'the curve needs points to be fitted through');
+  }
+  assert.ok(Math.max.apply(null, errs) < 0.25,
+    'the projection must land near what actually happens: errors were ' + errs.map(e => (e * 100).toFixed(0) + '%').join(', '));
+
+  // Too little data to trace a curve is said rather than extrapolated from two points.
+  const tiny = CM.project(mk(12, 3), 'Titer', 12, { seed: 42 });
+  assert.ok(tiny.projection === null || tiny.points.length >= 3);
+  if (tiny.projection === null) assert.ok(/Too few runs/.test(tiny.why));
+  // And the extrapolation is labelled as one.
+  const p2 = CM.project(mk(120, 11), 'Titer', 40, { seed: 42 });
+  assert.ok(/assumes the next runs resemble/.test(p2.assumption), p2.assumption);
+});

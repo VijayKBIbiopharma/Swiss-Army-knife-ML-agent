@@ -414,6 +414,8 @@
 
     $('next-steps').innerHTML = rep.nextSteps.map(s => '<li class="p-' + s.phase + '"><span class="phase">' + h(s.phase) + '</span><b>' + h(s.title) + '</b><p>' + h(s.text) + '</p></li>').join('');
     $('next').hidden = false;
+    // The iteration panel takes the loaded data as round 0 and the chosen target as its result.
+    if (window.MLCampaignUI) window.MLCampaignUI.sync(state.table, state.name, $('target').value);
     if (quiet) return;
     if (rep.doeRecommendation && rep.doeRecommendation.factors.length) prefillDOE(rep);
     $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1519,6 +1521,7 @@
     const had = !!state.table;
     clearTimeout(idleTimer);
     state.table = state.prof = state.report = state.sim = null; state.name = ''; state.sampleTarget = null;
+    if (window.MLCampaignUI) window.MLCampaignUI.reset();
     state.sources = []; state.merge = state.pending = state.original = state.roleTarget = state.multiRows = state.runOptions = state.runAt = null;
     resetMerge(); $('m-preview').textContent = ''; $('m-result').innerHTML = ''; $('multi-table').innerHTML = ''; $('multi').open = false;
     if (window.MLSeq) window.MLSeq.clear();
