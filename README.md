@@ -145,7 +145,7 @@ Ways to share results, all built in the browser:
 - **Download audit package (.zip)**: the PDF, the workbook, `audit-trail.txt`, the DOE run sheet, a README and `SHA256SUMS.txt`. The audit trail records the tool version, time, each input file's SHA-256 fingerprint, size and shape, the join (keys, unmatched IDs, averaged replicates), the target, settings and spec limits, every column set aside and why, the leakage check, the validation scheme, the models and the selection rule, the seed, the agent's log, the data-handling statement, and signature lines. It is decision support, not a validated GxP system.
 - **Print** (clean, light-themed) and **Download as web page** (.html).
 
-**Live:** https://vjpowerhouse.github.io/Swiss-Army-knife-ML-agent/ · **Academy:** https://vjpowerhouse.github.io/Swiss-Army-knife-ML-agent/learn.html
+**Live:** https://vijaykbibiopharma.github.io/Swiss-Army-knife-ML-agent/ · **Academy:** https://vijaykbibiopharma.github.io/Swiss-Army-knife-ML-agent/learn.html
 
 (Served by GitHub Pages from the `main` branch root. To turn it on: Settings → Pages → Deploy from a branch → `main` / root.)
 
