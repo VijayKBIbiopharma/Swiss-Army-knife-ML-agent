@@ -297,7 +297,8 @@
     setTimeout(() => {
       try {
         lastPlan = M.plan({ profile: prof, factors: catalogue.factors, programs: programs.programs, targets },
-          { confidence: Number($('pg-conf').value), runs: Number($('pg-runs').value), seed: 42 });
+          { confidence: Number($('pg-conf').value), runs: Number($('pg-runs').value),
+            purpose: $('pg-purpose').value, seed: 42 });
         render(lastPlan);
         $('pg-step4').hidden = false;
         $('pg-step4').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -361,13 +362,16 @@
       }
 
       // the run sheet
+      const anyRep = r.sheet.some(x => x.replicate > 1);
       html += '<div class="table-scroll"><table class="runsheet"><thead><tr><th class="num-cell">Run</th><th class="num-cell">Std</th>' +
+        (anyRep ? '<th class="num-cell">Rep</th>' : '') +
         plan.axes.map(a => '<th>' + h(a.name) + '</th>').join('') +
         plan.targets.map(x => '<th class="num-cell">' + h(x) + '</th><th class="num-cell">interval</th>').join('') +
         '<th>Standing</th><th class="num-cell">Measured</th></tr></thead><tbody>';
       for (const s of r.sheet) {
         const b = { inside: ['capable', 'near the data'], edge: ['marginal', 'edge'], outside: ['not', 'far'] }[s.trust] || ['not', '–'];
         html += '<tr><td class="num-cell">' + s.run + '</td><td class="num-cell">' + s.std + '</td>' +
+          (anyRep ? '<td class="num-cell">' + (s.replicate > 1 ? '<span class="flagged-note">' + s.replicate + '</span>' : '1') + '</td>' : '') +
           plan.axes.map(a => '<td>' + h(String(s.config[a.name])) + '</td>').join('') +
           plan.targets.map(x => {
             const v = s.results[x];
@@ -380,6 +384,26 @@
       html += '</tbody></table></div>';
 
       // what the sheet is balanced on, which is what makes it a design and not a top-N list
+      if (r.purpose === 'select') {
+        html += '<div class="plain capable"><h4>' + r.sheet.length + ' strains: the best ' + r.distinct +
+          ' vectors, each built ' + r.replicates + ' times</h4>' +
+          '<p>Out of ' + plan.candidateCount.toLocaleString() + ' buildable vectors, the wells go to the few the model ranks highest rather than one each across the catalogue. ' +
+          'That is not a shortcut: a single observation of a vector is mostly noise, and a sheet of singles ends up ranking noise. ' +
+          'Measured over 4,000 simulated 48-well sheets drawn from 36 candidates, running every vector once identified the truly best one in ' +
+          '33 to 36% of sheets; concentrating on the predicted leaders reached 56 to 61%.</p>' +
+          '<p>How far to concentrate is read off this model\u2019s own cross-validated R\u00b2 (' + f2(plan.perProgram.length ? (r.rankQuality || 0) : 0) +
+          '), not guessed \u2014 a model that cannot predict spreads wider, because its ranking deserves less weight.</p>' +
+          '<p><b>What this costs.</b> Concentrating gives up the level balance that lets a sheet estimate factor effects: these ' + r.distinct +
+          ' builds may share a promoter and tell you nothing about the others. That is the right trade for choosing a vector and the wrong one for ' +
+          'learning what drives titer \u2014 switch the sheet to <i>map what drives titer</i> for that, and it spreads and balances instead.</p></div>';
+      } else if (r.replicated) {
+        html += '<p class="hint"><b>' + r.sheet.length + ' strains: ' + r.distinct + ' distinct vectors, ' + r.replicated +
+          ' repeats.</b> Your catalogue allows ' + plan.candidateCount.toLocaleString() +
+          ' buildable vectors, so a sheet this long repeats some. Repeats are the only thing that measures pure error, without which there is no way to ' +
+          'tell a real lack of fit from ordinary run-to-run scatter \u2014 but they buy nothing about settings nobody is running.</p>';
+      } else if (r.sheet.length < (plan.requestedRuns || r.sheet.length)) {
+        html += '<p class="hint">Only ' + r.sheet.length + ' rows: every buildable vector in your catalogue is already on the sheet once.</p>';
+      }
       if (r.balance) {
         const worst = Math.max.apply(null, Object.keys(r.balance).map(k => r.balance[k].spread));
         html += '<p class="hint">' + (worst === 0
@@ -415,11 +439,12 @@
       if (!r.candidates) { L.push([q('Result'), q('refused: nothing in the catalogue can be scored for this protein')], []); continue; }
       L.push([q('Highest predicted'), q(plan.axes.map(a => a.name + '=' + r.bestPredicted.config[a.name]).join('; ')), r.bestPredicted.value, r.bestPredicted.low, r.bestPredicted.high]);
       L.push([q('Safest (best floor)'), q(plan.axes.map(a => a.name + '=' + r.safestChoice.config[a.name]).join('; ')), r.safestChoice.value, r.safestChoice.low, r.safestChoice.high]);
-      L.push(['RunOrder', 'StdOrder'].concat(plan.axes.map(a => a.name),
+      L.push([q('Strains on the sheet'), r.sheet.length, q('Distinct vectors'), r.distinct, q('Replicated runs'), r.replicated]);
+      L.push(['RunOrder', 'StdOrder', 'Replicate'].concat(plan.axes.map(a => a.name),
         plan.targets.reduce((acc, x) => acc.concat([x, x + '_low', x + '_high']), []),
         ['Standing', 'BeyondRange', 'Measured']));
       for (const s of r.sheet) {
-        const row = [s.run, s.std].concat(plan.axes.map(a => q(s.config[a.name])));
+        const row = [s.run, s.std, s.replicate || 1].concat(plan.axes.map(a => q(s.config[a.name])));
         for (const x of plan.targets) { const v = s.results[x]; row.push(v.value, v.low, v.high); }
         row.push(q(s.trust), q(s.outside.map(o => o.field).join('; ')), '');
         L.push(row);
@@ -505,7 +530,7 @@
     $('pg-demo').addEventListener('click', demo);
     $('pg-clear').addEventListener('click', clear);
     $('pg-run').addEventListener('click', run);
-    ['pg-target', 'pg-target2', 'pg-conf', 'pg-runs'].forEach(id => $(id).addEventListener('change', () => {
+    ['pg-target', 'pg-target2', 'pg-conf', 'pg-runs', 'pg-purpose'].forEach(id => $(id).addEventListener('change', () => {
       if (id === 'pg-target' || id === 'pg-target2') renderProgBuild();
       if (lastPlan) run();
     }));

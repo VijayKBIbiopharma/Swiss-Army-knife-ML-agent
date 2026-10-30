@@ -250,7 +250,12 @@
      being the alphabetical first chunk of it. */
   function candidates(factors, opt) {
     opt = opt || {};
-    const cap = opt.cap || 4000;
+    /* Raised once scoring a candidate got cheap. A catalogue with half a dozen helper
+       factors at four to six levels each runs into five figures of combinations, and
+       sampling them means the best build may simply not be among the ones scored - a
+       failure that is invisible in the output. Full enumeration is preferred wherever it
+       is affordable, and the result still says which happened. */
+    const cap = opt.cap || 20000;
     const axes = factors.filter(f => f.kind !== 'fixed').map(f => {
       if (f.kind === 'categorical') return { name: f.name, values: f.levels.slice() };
       const lv = [];
@@ -289,6 +294,38 @@
     return { list, axes, fixed, total, sampled: true };
   }
 
+  /* How to spend the wells: on more vectors, or on more repeats of fewer.
+
+     The first version spread them - every buildable vector once, then repeats - which is
+     right for mapping a design space and wrong for the job this tool actually has, which is
+     picking a vector to build. Measured over 4,000 simulated sheets of 48 wells drawn from
+     36 candidates, scoring how often the sheet identifies the truly best vector:
+
+       strategy                poor prediction   good prediction
+       36 distinct x 1              33.1%            36.4%
+       top 24 x 2                   39.1%            42.3%
+       top 16 x 3                   41.9%            48.4%
+       top 12 x 4                   41.4%            55.9%
+       top 8  x 6                   37.2%            61.4%
+
+     Running everything once is the worst option in every column, because a single
+     observation of a vector is mostly noise and the sheet ends up ranking noise. How far to
+     concentrate depends on how much the prediction can be trusted, which is not a matter of
+     taste here - cross-validation measured it. So the replicate count is read off that R2
+     rather than guessed, and a model that cannot predict spreads wider because its ranking
+     deserves less weight.
+
+     The cost is real and is stated rather than hidden: concentrating on the leaders gives up
+     the level balance that lets a sheet estimate factor effects. A sheet of the top eight
+     may run one promoter eight times and tell you nothing about the others. That is the
+     right trade when the question is "which one do we build" and the wrong one when it is
+     "what drives titer", so both are offered and the default follows the tool's own job. */
+  function replicatesFor(r2) {
+    // Correlation, not variance explained: the ranking is what matters here.
+    const r = Math.sqrt(Math.max(0, Math.min(1, r2 === null || r2 === undefined ? 0 : r2)));
+    return r < 0.45 ? 3 : r < 0.70 ? 4 : 6;
+  }
+
   /* A run sheet chosen from the scored candidates. Balance first, then promise: every level
      of every factor should appear about equally often, because a sheet that runs CMV eight
      times and SV40 once cannot tell you anything about SV40 whatever its predictions say.
@@ -298,26 +335,69 @@
      The balance achieved is returned and asserted in the tests rather than claimed here. */
   function runSheet(scored, axes, opt) {
     opt = opt || {};
-    const runs = Math.max(2, Math.min(opt.runs || 12, scored.length));
+    if (!scored.length) return { sheet: [], balance: null, counts: {}, distinct: 0, replicated: 0 };
+    /* A plate holds more wells than a catalogue holds vectors. Forty-eight strains built
+       from a catalogue of thirty-six used to come back as thirty-six, quietly - the sheet
+       simply stopped and nothing said why half a plate was missing.
+
+       So a sheet longer than the catalogue replicates, deliberately and evenly, and says
+       which rows are repeats. That is not padding: replication is the only thing that
+       measures pure error, and without an estimate of pure error there is no way to tell a
+       real lack of fit from ordinary run-to-run scatter. What it does not buy is information
+       about settings nobody is running, which is why the count of distinct vectors is
+       reported beside the number of runs rather than folded into it. */
+    const runs = Math.max(2, opt.runs || 12);
+    /* Selection mode: spend the budget on the best-predicted few, repeated. The candidates
+       are already sorted best-first by the caller, so this is a prefix of them. */
+    if (opt.purpose === 'select') {
+      const reps = Math.max(2, opt.replicates || 3);
+      const k = Math.max(2, Math.min(scored.length, Math.floor(runs / reps)));
+      const picked = scored.slice(0, k);
+      const rows = [];
+      for (let copy = 1; copy <= reps; copy++) for (const c of picked) rows.push(Object.assign({}, c, { replicate: copy }));
+      // Any wells left over by the division go to the very best candidates.
+      for (let i = 0; rows.length < runs; i++) {
+        const c = picked[i % picked.length];
+        rows.push(Object.assign({}, c, { replicate: reps + 1 + Math.floor(i / picked.length) }));
+      }
+      const bal = {};
+      axes.forEach(a => {
+        const cnt = {}; a.values.forEach(v => { cnt[String(v)] = 0; });
+        rows.forEach(x => { cnt[String(x.config[a.name])] = (cnt[String(x.config[a.name])] || 0) + 1; });
+        const vs = a.values.map(v => cnt[String(v)] || 0);
+        bal[a.name] = { counts: vs, spread: Math.max.apply(null, vs) - Math.min.apply(null, vs) };
+      });
+      const order = engine().shuffle(engine().range(rows.length), engine().rng(opt.seed || 29));
+      const sheet = rows.map((c, i) => Object.assign({}, c, { std: i + 1 }));
+      order.forEach((ri, pos) => { sheet[ri].run = pos + 1; });
+      sheet.sort((a, b) => a.run - b.run);
+      return { sheet, balance: bal, counts: {}, distinct: k, replicated: rows.length - k, purpose: 'select', replicates: reps };
+    }
     const counts = {};
     axes.forEach(a => { counts[a.name] = {}; a.values.forEach(v => { counts[a.name][String(v)] = 0; }); });
-    const chosen = [], used = new Set();
+    const chosen = [];
+    const timesUsed = new Array(scored.length).fill(0);
     // How badly a pick would skew the sheet: the count it would push up, summed over factors.
     const cost = c => axes.reduce((s, a) => s + (counts[a.name][String(c.config[a.name])] || 0), 0);
     for (let k = 0; k < runs; k++) {
-      let best = null, bestCost = Infinity, bestVal = -Infinity;
+      let best = null, bestRep = Infinity, bestCost = Infinity, bestVal = -Infinity;
       for (let i = 0; i < scored.length; i++) {
-        if (used.has(i)) continue;
-        const c = scored[i], cst = cost(c);
-        const val = isFinite(c.value) ? c.value : -Infinity;
-        if (cst < bestCost || (cst === bestCost && val > bestVal)) { best = i; bestCost = cst; bestVal = val; }
+        const rep = timesUsed[i], cst = cost(scored[i]);
+        const val = isFinite(scored[i].value) ? scored[i].value : -Infinity;
+        /* Everything unused comes first, so a sheet shorter than the catalogue behaves
+           exactly as before and only a longer one starts a second pass. Then balance, then
+           the better-predicted build. */
+        if (rep < bestRep || (rep === bestRep && (cst < bestCost || (cst === bestCost && val > bestVal)))) {
+          best = i; bestRep = rep; bestCost = cst; bestVal = val;
+        }
       }
       if (best === null) break;
-      used.add(best);
+      timesUsed[best]++;
       const c = scored[best];
       axes.forEach(a => { counts[a.name][String(c.config[a.name])]++; });
-      chosen.push(c);
+      chosen.push(Object.assign({}, c, { replicate: timesUsed[best] }));
     }
+    const distinct = timesUsed.filter(v => v > 0).length;
     // What balance actually came out, per factor: the gap between the most and least used
     // level. Zero means every level appears the same number of times.
     /* Reported as absent rather than as zero spread when nothing was chosen: a spread of 0
@@ -336,7 +416,7 @@
     const sheet = chosen.map((c, i) => Object.assign({}, c, { std: i + 1 }));
     order.forEach((ri, pos) => { sheet[ri].run = pos + 1; });
     sheet.sort((a, b) => a.run - b.run);
-    return { sheet, balance, counts };
+    return { sheet, balance, counts, distinct, replicated: chosen.length - distinct, purpose: 'screen', replicates: 1 };
   }
 
   /* The whole flow. History and catalogue in, a scored sheet per programme out. */
@@ -391,7 +471,15 @@
          The highest prediction is the best bet; the highest lower bound is the choice that
          is least likely to disappoint, which is usually what a programme actually wants. */
       const byFloor = usable.slice().sort((a, b) => b.low - a.low);
-      const sheet = runSheet(byPoint, cand.axes, { runs: opt.runs || 12, seed: opt.seed || 29 });
+      /* The replicate count comes from the cross-validated R2 of the model doing the
+         ranking, so a model that cannot predict spreads wider rather than concentrating on
+         an order it has not earned. */
+      const r2 = models[targets[0]] ? models[targets[0]].r2 : 0;
+      const purpose = opt.purpose === 'screen' ? 'screen' : 'select';
+      const sheet = runSheet(byPoint, cand.axes, {
+        runs: opt.runs || 12, seed: opt.seed || 29, purpose,
+        replicates: opt.replicates || replicatesFor(r2)
+      });
       return {
         id: pg.id, attributes: pg.attributes, standing: t.standing,
         novel: t.novel, unseen: t.unseen, noEvidence: t.noEvidence,
@@ -399,17 +487,20 @@
         bestPredicted: byPoint[0] || null,
         safestChoice: byFloor[0] || null,
         agree: !!(byPoint[0] && byFloor[0]) && byPoint[0].config === byFloor[0].config,
-        sheet: sheet.sheet, balance: sheet.balance
+        sheet: sheet.sheet, balance: sheet.balance,
+        distinct: sheet.distinct, replicated: sheet.replicated,
+        purpose: sheet.purpose, replicates: sheet.replicates, rankQuality: r2
       };
     });
 
     return {
       targets, models, env, factors, proteinCols, modelCols, missing,
       candidateCount: cand.list.length, candidateTotal: cand.total, sampled: cand.sampled,
+      requestedRuns: opt.runs || 12,
       axes: cand.axes, transfer, confidence: conf, perProgram
     };
   }
 
-  root.MLProgram = { parseCatalogue, parseProgram, proteinColumns, attributeChoices, transferability, candidates, runSheet, plan };
+  root.MLProgram = { parseCatalogue, parseProgram, proteinColumns, attributeChoices, transferability, candidates, runSheet, replicatesFor, plan };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLProgram;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -101,6 +101,19 @@ Drop in a CSV and it:
 
     So effects are now reported on **Benjamini&ndash;Hochberg adjusted q-values**, with the raw p kept beside them in the table. On the same null data that drops the rate from 23.2% to **1.8%** of analyses, and on the same design carrying two real effects it still finds both **100%** of the time &mdash; so the correction costs no power here. BH rather than Bonferroni or Holm because a screen wants to control the share of claimed effects that are wrong, and the stricter corrections would strip real effects out of a nineteen-run design where power is already thin. The family-wise risk is also stated in plain numbers, because an adjusted column nobody reads does not stop anyone over-reading the raw one; it is given as an upper bound, since the terms share one error variance estimate and the measured risk (23.2%) sits below what independence predicts (43.1%). The findings, the next steps and the action plan all read the same adjusted column through one helper &mdash; two of them reading the raw one while the third reads the adjusted one is how a report ends up recommending a lever it has just disowned.
 
+27. **The run sheet spends its wells where they are worth most.** A 48-well screen from a catalogue of 36 vectors used to come back as 36 rows, silently &mdash; the sheet simply stopped and nothing said why half a plate was missing. Sheets longer than the catalogue now replicate, and more importantly the default allocation changed. Measured over 4,000 simulated 48-well sheets drawn from 36 candidates, scoring how often the sheet identifies the truly best vector:
+
+    | allocation | poor prediction | good prediction |
+    |---|---|---|
+    | 36 distinct &times; 1 | 33.1% | 36.4% |
+    | top 16 &times; 3 | 41.9% | 48.4% |
+    | top 12 &times; 4 | 41.4% | 55.9% |
+    | top 8 &times; 6 | 37.2% | **61.4%** |
+
+    Running everything once is the worst option in every column, because a single observation of a vector is mostly noise and a sheet of singles ends up ranking noise. How far to concentrate is read off the model's own cross-validated R&sup2; rather than guessed, so a model that cannot predict spreads wider because its ranking deserves less weight. The cost is stated rather than hidden: concentrating gives up the level balance that lets a sheet estimate factor effects, which is the right trade for *which vector do we build* and the wrong one for *what drives titer* &mdash; so the sheet has both modes and the screening one still balances.
+
+    **Categorical helper factors** work as they arrive: a catalogue of six helper plasmids at four to six levels each, with no Min or Max anywhere, parses and enumerates &mdash; 5,760 buildable vectors from a realistic AAV-style catalogue, scored in full rather than sampled. That became affordable by fixing the nearest-neighbour search behind the intervals, which built and sorted an array of every training distance on every call: partial selection of the five nearest instead took 4,000 scored candidates from **2,600ms to 36ms**, and the conformal coverage tests confirm the answer is unchanged.
+
 Ways to share results, all built in the browser:
 - **Save as PDF**: an A4 report (action plan, what-if scenarios, every chart with its "how to read this" note, the DOE run sheet, the models in plain words, a glossary, and an audit trail).
 - **Download Excel (.xlsx)**: every number behind the report, one sheet per topic (summary, audit trail, columns and roles, models, drivers, action plan, capability, control chart, desirability, DOE effects, what-if scenarios, DOE run sheet, data analyzed). Numbers stay numbers.

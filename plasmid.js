@@ -131,14 +131,30 @@
       const col = trainX.map(r => r[j]);
       spread.push(E.sd(col) || 1);
     }
+    const inv = spread.map(v => 1 / v);
+    const K = Math.min(5, trainX.length);
     const distance = x => {
-      const ds = trainX.map(r => {
-        let s = 0;
-        for (let j = 0; j < p; j++) { const d = (r[j] - x[j]) / spread[j]; s += d * d; }
-        return Math.sqrt(s / Math.max(1, p));
-      }).sort((a, b) => a - b);
-      const k = Math.min(5, ds.length);
-      let s = 0; for (let i = 0; i < k; i++) s += ds[i];
+      /* The five nearest, kept by insertion into a tiny array rather than by building an
+         array of every distance and sorting it. Same answer, and the difference is not
+         academic: scoring a catalogue of six helper factors is thousands of calls to this,
+         and the sort was most of the time they took. Square roots only on the few kept. */
+      const top = [];
+      for (let i = 0; i < trainX.length; i++) {
+        const r = trainX[i];
+        let sq = 0;
+        for (let j = 0; j < p; j++) { const d = (r[j] - x[j]) * inv[j]; sq += d * d; }
+        if (top.length < K) {
+          let k2 = top.length; top.push(sq);
+          while (k2 > 0 && top[k2 - 1] > top[k2]) { const t = top[k2 - 1]; top[k2 - 1] = top[k2]; top[k2] = t; k2--; }
+        } else if (sq < top[K - 1]) {
+          top[K - 1] = sq;
+          let k2 = K - 1;
+          while (k2 > 0 && top[k2 - 1] > top[k2]) { const t = top[k2 - 1]; top[k2 - 1] = top[k2]; top[k2] = t; k2--; }
+        }
+      }
+      const k = top.length;
+      let s = 0;
+      for (let i = 0; i < k; i++) s += Math.sqrt(top[i] / Math.max(1, p));
       return k ? s / k : 0;
     };
     const calDist = calX.map(distance);

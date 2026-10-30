@@ -859,8 +859,14 @@
       <div id="pg-prog-sheet"></div>
       <div id="pg-prog-out"></div>
       <div class="controls">
-        <label>Runs per programme on the sheet
-          <select id="pg-runs"><option>8</option><option selected>12</option><option>16</option><option>24</option></select>
+        <label>Strains per programme on the sheet
+          <select id="pg-runs"><option>8</option><option>12</option><option>16</option><option>24</option><option selected>48</option><option>96</option></select>
+        </label>
+        <label>What the sheet is for
+          <select id="pg-purpose">
+            <option value="select" selected>Pick the best vector &mdash; repeat the leaders</option>
+            <option value="screen">Map what drives titer &mdash; spread across the catalogue</option>
+          </select>
         </label>
       </div>
       <div class="row-actions"><button class="btn primary" id="pg-run" type="button" disabled>Build the run sheet</button></div>

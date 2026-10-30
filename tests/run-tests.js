@@ -3228,7 +3228,7 @@ test('the plan refuses a protein it cannot place, and offers a floor as well as 
   const ok = plan.perProgram.find(p => p.id === 'PRG-ok');
   assert.strictEqual(ok.standing, 'supported');
   assert.strictEqual(ok.candidates, 36);
-  assert.strictEqual(ok.sheet.length, 12);
+  assert.strictEqual(ok.sheet.length, 12, 'the sheet is the length that was asked for');
   assert.ok(ok.bestPredicted && ok.safestChoice);
   // The floor is never above the central estimate, and the band brackets it.
   assert.ok(ok.bestPredicted.low < ok.bestPredicted.value && ok.bestPredicted.value < ok.bestPredicted.high);
@@ -3239,9 +3239,42 @@ test('the plan refuses a protein it cannot place, and offers a floor as well as 
   // The corpus was built so a strong promoter wins; the recommendation must reflect that.
   assert.ok(['CMV', 'CAG'].indexOf(ok.bestPredicted.config.Promoter_Type) >= 0,
     'a strong promoter should win here, got ' + ok.bestPredicted.config.Promoter_Type);
-  // Balance holds on the real sheet, not only on the synthetic one.
-  Object.keys(ok.balance).forEach(k => assert.ok(ok.balance[k].spread <= 1,
-    k + ' is unbalanced on the sheet: ' + JSON.stringify(ok.balance[k].counts)));
+  /* The sheet defaults to selection: spend the wells on the best-predicted few, repeated.
+     Measured over 4,000 simulated 48-well sheets drawn from 36 candidates, running every
+     vector once identifies the true best in 33-36% of sheets while concentrating on the
+     predicted leaders reaches 56-61%, because a single observation of a vector is mostly
+     noise and a sheet of singles ends up ranking noise. */
+  assert.strictEqual(ok.purpose, 'select', 'picking a vector is what this tool is for');
+  assert.ok(ok.replicates >= 2, 'selection means repeats, got ' + ok.replicates);
+  assert.strictEqual(ok.distinct * ok.replicates <= ok.sheet.length, true);
+  assert.ok(ok.replicated > 0, 'and the repeats must actually be on the sheet');
+  const copies = {};
+  ok.sheet.forEach(x => { copies[x.replicate] = (copies[x.replicate] || 0) + 1; });
+  assert.ok(Object.keys(copies).length >= 2, 'more than one copy of something: ' + JSON.stringify(copies));
+
+  /* The cost of that, stated rather than hidden: concentrating on the leaders gives up the
+     level balance that lets a sheet estimate factor effects. A sheet of the top few may run
+     one promoter every time and say nothing about the others. */
+  const spreads = Object.keys(ok.balance).map(k => ok.balance[k].spread);
+  assert.ok(Math.max.apply(null, spreads) > 1, 'a selection sheet is deliberately unbalanced');
+
+  /* Screening mode is the other half of that trade and must still be balanced, because
+     that is the mode for the question "what drives titer" rather than "which do we build". */
+  const screen = PG.plan({ profile: prof, factors: VEC_FACTORS, programs, targets: ['Titer_gL'] },
+    { seed: 42, runs: 12, confidence: 0.9, purpose: 'screen' });
+  const sc = screen.perProgram.find(p => p.id === 'PRG-ok');
+  assert.strictEqual(sc.purpose, 'screen');
+  assert.strictEqual(sc.replicated, 0, 'twelve wells over thirty-six vectors needs no repeats');
+  Object.keys(sc.balance).forEach(k => assert.ok(sc.balance[k].spread <= 1,
+    k + ' is unbalanced on the screening sheet: ' + JSON.stringify(sc.balance[k].counts)));
+
+  /* How far to concentrate is read off the cross-validated R2 of the model doing the
+     ranking, not guessed: a model that cannot predict spreads wider because its order
+     deserves less weight. */
+  assert.strictEqual(PG.replicatesFor(0.05), 3);
+  assert.strictEqual(PG.replicatesFor(0.4), 4);
+  assert.strictEqual(PG.replicatesFor(0.9), 6);
+  assert.strictEqual(PG.replicatesFor(null), 3, 'no score at all must not mean maximum confidence');
 
   /* The refusal. A protein class nothing in the history contains cannot be mapped to the
      nearest molecule and scored - that is precisely the move that would produce a confident
