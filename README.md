@@ -189,6 +189,14 @@ Ways to share results, all built in the browser:
 
 (Served by GitHub Pages from the `main` branch root. To turn it on: Settings → Pages → Deploy from a branch → `main` / root.)
 
+## What is missing
+
+`GAPS.md` is the department-by-department evaluation: every gap quoted verbatim from the
+tool's own content, classified as buildable here, architectural, or somebody else's job, and
+ranked by how many departments it blocks. The build checks that it has not drifted from the
+code. It also answers whether an image classifier such as PICTS should be integrated: no,
+but its output should be, and the tool should be what qualifies it.
+
 ## Privacy guarantees
 
 | Guarantee | How it is enforced |

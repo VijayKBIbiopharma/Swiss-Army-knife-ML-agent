@@ -4740,3 +4740,46 @@ test('agreement works on a multi-category call, and says which binary figures do
   for (let i = 0; i < 20; i++) for (const who of ['A1', 'A2']) many.push({ part: 'P' + i, operator: who, rating: 'type' + (i % 9) });
   assert.throws(() => VC.attributeAgreement(many), /not a measurement/);
 });
+
+/* The department evaluation is a handover document, and a handover document that drifts
+   from the thing it describes is worse than none: it gets quoted in a meeting six months
+   after the gap was closed. So every gap in it is quoted verbatim from the tool's own
+   content, and this is what keeps that true. */
+test('the gap evaluation quotes the tool rather than describing it, and covers every department', () => {
+  const doc = fs.readFileSync(path.join(ROOT, 'GAPS.md'), 'utf8');
+  const apps = require(path.join(ROOT, 'applications.js'));
+
+  for (const [key, label] of apps.FUNCTIONS) {
+    assert.ok(doc.indexOf('### ' + label) >= 0, label + ' has no section in the evaluation');
+    /* Verbatim, not paraphrased. A paraphrase is where a document starts being wrong: the
+       gap gets softened in the retelling and nobody notices it no longer matches. */
+    for (const gap of apps.PLAYBOOKS[key].gaps) {
+      assert.ok(doc.indexOf(gap) >= 0, label + ': this gap is not quoted in the evaluation, or has been reworded:\n  ' + gap);
+    }
+  }
+  // Every gap carries a class, because the class is what decides who pays for the work.
+  const bullets = doc.match(/^- \*\*\[[^\]]+\]\*\* /gm) || [];
+  const gapCount = apps.FUNCTIONS.reduce((n, [k]) => n + apps.PLAYBOOKS[k].gaps.length, 0);
+  assert.strictEqual(bullets.length, gapCount,
+    'every gap must appear exactly once with a class: ' + bullets.length + ' bullets against ' + gapCount + ' gaps');
+  assert.ok(!/\*\*\[\?\]\*\*/.test(doc), 'no gap may be left unclassified');
+
+  // The three classes have to be defined, or the letters are decoration.
+  for (const c of ['A — buildable', 'B — architectural', 'C — somebody else']) {
+    assert.ok(doc.indexOf(c) >= 0, 'class "' + c + '" is used but not defined');
+  }
+
+  /* The rare-event chart is the headline recommendation, and the claim behind it is that
+     four departments name it. If a fifth starts naming it, or one stops, the count in the
+     priority table is wrong and this catches it. */
+  const rare = apps.FUNCTIONS.filter(([k]) => apps.PLAYBOOKS[k].gaps.some(g => /rare-event chart/.test(g)));
+  assert.strictEqual(rare.length, 4, 'the evaluation says four departments name the rare-event chart, found ' + rare.length);
+  assert.ok(/Build this first/.test(doc), 'and it must still be the headline recommendation');
+
+  /* The PICTS answer is a recommendation against integrating, and the reason is the privacy
+     guarantee. If that guarantee ever stops being true the recommendation has to be revisited,
+     so the lint that enforces it is named here on purpose. */
+  assert.ok(/PICTS/.test(doc), 'the PICTS question must be answered in the handover');
+  assert.ok(/nothing leaves this browser/.test(doc) || /nothing can be sent anywhere/.test(doc),
+    'and the answer must rest on the guarantee, not on taste');
+});

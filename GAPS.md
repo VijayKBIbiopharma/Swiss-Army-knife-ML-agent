@@ -1,0 +1,217 @@
+# What is missing, by department
+
+A readout for the Digital Innovation team before this goes under code review. It is written
+to be argued with: every gap below is quoted verbatim from the tool's own content, which the
+build checks, so nothing here is a summary of a summary.
+
+## How to read it
+
+Gaps fall into three classes, and the class decides who should pay for the work.
+
+| Class | Meaning | Who acts |
+|---|---|---|
+| **A — buildable** | Fits the current architecture: tabular data, vanilla JavaScript, runs offline in one page. Bounded, testable work. | This tool |
+| **B — architectural** | Would require reading images or spectra, holding a trained model, calling a service, or writing prose. Any of these breaks the one guarantee the tool rests on: nothing leaves the browser, and there is no model and no AI service in it. | A different system |
+| **C — somebody else's job** | Workflow, records, compendial and regulatory decisions. Not a limitation of the statistics; a different kind of software. | An existing system |
+
+A class B gap is not a backlog item. Closing one means giving up the privacy guarantee, the
+offline guarantee, or both, and the guarantee is most of why the tool is usable without a
+validation project.
+
+## Priority, by how many departments it blocks
+
+| Gap | Class | Departments affected | Assessment |
+|---|---|---|---|
+| **Rare-event chart** (units or days between events) | A | GMP manufacturing, particle characterization, microbiology, facilities | **Build this first.** Four departments name it. At a finding rate in the tenths of a percent, every chart the tool currently has is mostly noise, so those four groups have no usable chart for their most common question. Scope is comparable to the count charts already built: one function, a measured false-alarm rate, a measured detection rate, and the trade stated. |
+| **Image and spectrum reading** | B | Cell line, downstream, AFS, QC, particle characterization, microbiology | Six departments, and not buildable here. See the PICTS note below: the right move is to consume a classifier's output, not to become one. |
+| **Live connections** (historian, BMS, SCADA, LIMS) | B | GMP manufacturing, facilities, QC, MSAT | Export-and-load is the deliberate design. A live connection means a server, credentials and a validation burden. |
+| **CUSUM and EWMA** | A | GMP manufacturing, and useful to facilities and microbiology | Detects a small sustained shift faster than the Nelson rules. Well-defined, bounded, and the existing chart machinery takes it. |
+| **ICH Q2 calculations** (linearity, LOD, LOQ, robustness) | A | AFS, QC | Two departments ask for the same named set. Mechanical to implement and easy to validate against published examples. |
+| **Reliability distributions** (Weibull, hazard, survival) | A | Facilities | MTBF work is currently limited to trends and comparisons. Self-contained. |
+| **Size distribution across bins** | A | Particle characterization | Counts per bin are handled as counts, with nothing modelled over the bin structure. |
+| **Capability across sites in one step** | A | MSAT | Small. Run per site and compare today. |
+| **Compendial and regulatory decision logic** | C | Microbiology, particle characterization, QA | Whether a result is an excursion or reportable is a regulated decision. The tool should keep refusing it. |
+| **Document writing** | B/C | QA and regulatory | There is no language model here by choice. A tool that claimed to draft a deviation report would be found out at the worst possible moment. |
+
+## Not gaps, and worth saying so
+
+Three things read like gaps and should not be funded as such.
+
+- **The distribution-free bound needs 299 results.** That is not a limitation to engineer
+  around; it is the price of assuming no distribution. A one-sided 99% claim at 95%
+  confidence takes 299 samples from the ranking alone, against about ten for the normal
+  factor. The tool reports both so the trade is explicit.
+- **Capability tail figures are withheld on non-normal data**, and still withheld when a
+  Box-Cox transform fails its re-test. That is the feature. On a right-skewed reading the
+  straight normal fit reported 0 PPM against a true 1,000.
+- **Not a validated GxP system.** Everything here is decision support with an audit trail.
+  Changing that is a validation project, not a feature.
+
+## By department
+
+Each list is the tool's own words, as rendered in the panel.
+
+### Particle characterization core (PCC)
+
+Best served of the eleven after the last three builds: attribute agreement for the type call, Gage R&R for the counter, count charts with the clustering measured, capability on a transformed scale, and distribution-free alert levels. The rare-event chart is the one real hole. Image reading is class B and is answered by the PICTS note below.
+
+- **[B]** No image or spectrum reading, which for this group is the biggest limitation: FTIR, Raman, SEM-EDX and flow imaging outputs have to arrive as labels and numbers in columns, because the page reads tables and nothing else.
+- **[B]** No automated particle type classification. The type call stays a human judgement; what the tool does is measure how consistent and how correct that judgement is.
+- **[A]** No rare-event chart, which is what a finding rate in the tenths of a percent actually needs.
+- **[C]** No USP two-tier decision logic: it will not tell you which tier a result falls in, whether it is an excursion, or whether it is reportable.
+- **[A]** No size distribution fitted across the bins - counts per bin are handled as counts, with nothing modelled over the bin structure itself.
+
+
+### Microbiology & environmental monitoring
+
+The same shape as particle characterization and the same first gap. Counted, rare, judged by eye: the tool now covers the first and third, and the rare-event chart is the second.
+
+- **[A]** No rare-event chart, which is the right tool for contamination rates in the tenths of a percent and the single biggest gap for this group.
+- **[B]** No identification or genotyping: an isolate identity has to arrive as a label in a column.
+- **[C]** No compendial decision logic. It will not tell you whether a result is an excursion, an action-level breach or reportable.
+- **[B]** No image reading, so colony counts must be entered as numbers rather than read from a plate photograph.
+
+
+### GMP manufacturing
+
+Well covered for measured data. The gaps are the two chart families it does not have, and both are class A.
+
+- **[B]** No live connection to anything: no historian, no SCADA, no LIMS. Export a file and load it.
+- **[A]** No rare-event chart yet, which is the right tool for a reject rate in the tenths of a percent.
+- **[A]** No CUSUM or EWMA, which beat Nelson rules for detecting a small sustained shift quickly.
+- **[C]** Not a validated GxP system. Everything here is decision support with an audit trail attached.
+
+
+### Facilities & engineering
+
+Drift detection and multivariate monitoring are strong. Reliability work is the thin part, and is self-contained to build.
+
+- **[B]** No connection to a historian, BMS or SCADA. Export a file and load it; nothing here reads a live tag.
+- **[A]** No reliability distributions: no Weibull fitting, no hazard rate, no survival model, so MTBF work is limited to trends and comparisons.
+- **[A]** No rare-event chart, which is what a failure count at a low rate actually needs.
+- **[C]** No qualification or commissioning logic: it will not tell you whether a system is in a qualified state.
+
+
+### Analytical & formulation sciences (AFS)
+
+The strongest fit in the tool: tolerance intervals, power, agreement, shelf life, equivalence. What is missing is a named ICH Q2 set rather than any underlying capability.
+
+- **[B]** No spectra, chromatograms or images. Everything arrives as computed numbers.
+- **[C]** No attribute agreement for more than eight possible calls: a judgement with dozens of categories is closer to a measurement and the method does not apply.
+- **[—]** A distribution-free bound exists now, but it needs 299 results for a one-sided 99% claim at 95% confidence against about ten for the normal factor, so for a typical method-validation dataset the honest answer is still that the claim cannot be supported.
+- **[A]** Linearity, LOD and LOQ are not implemented as named ICH Q2 calculations.
+
+
+### Quality control
+
+Covered for trending, capability and agreement. The gaps are workflow (class C) and the same ICH Q2 set as AFS.
+
+- **[B]** No instrument files. Chromatograms, spectra and plate images have to be reduced to numbers first.
+- **[C]** No OOS workflow, no trending database, no stability scheduling: this computes on a file, it does not manage a programme.
+- **[A]** No ICH Q2 validation package - no linearity, LOD, LOQ or robustness as named calculations.
+- **[—]** The distribution-free bound needs 299 results for a one-sided 99% claim, so a skewed assay with thirty results still gets a refusal - now with the number of results that would change the answer attached to it.
+
+
+### Upstream process development
+
+Drivers, DOE, multivariate monitoring and the campaign loop all land here. The gaps are a different discipline - kinetics and mechanistic models - not missing statistics.
+
+- **[B]** No raw time-series modelling of a single batch: the multivariate chart compares batches to each other, it does not fit kinetics or forecast a trajectory forward.
+- **[C]** No mechanistic models. Nothing here knows Monod, oxygen transfer or metabolic flux; every relationship is learned from your rows.
+- **[B]** Soft sensors and real-time feedback are out of scope. This runs on a desk, on a file, after the batch.
+
+
+### Downstream process development
+
+Trade-off work and mixture designs are well covered. The gaps are chromatogram-level, which is class B.
+
+- **[B]** No chromatogram analysis. Peak integration, tailing and resolution have to arrive as computed numbers; the page does not read traces.
+- **[C]** No mechanistic chromatography modelling: no isotherms, no breakthrough prediction, no column scale-up equations.
+- **[B]** Pooling criteria are modelled against the outcome you supply; the tool cannot see the fractions themselves.
+
+
+### Cell line / strain development
+
+Screening, ranking and the vector tool cover the core work. Imaging and sequence-to-function are class B and out of scope respectively.
+
+- **[B]** No imaging. Colony counts, confluence and morphology have to arrive as numbers in a column; the page reads tables, never pictures.
+- **[C]** No sequence-to-function prediction. The sequence optimizer works on codon usage, GC content and structure, and says nothing about whether a construct will express.
+- **[C]** Single-cell data is out of scope: this is built for one row per clone or per well, not per cell.
+
+
+### MSAT & technology transfer
+
+Comparability, transfer and characterization designs are well covered. One small class A gap.
+
+- **[A]** No process capability modelling across sites in one step: run capability per site and compare, rather than expecting one combined index.
+- **[C]** No automated PPQ or stage-2 continued-verification report format.
+- **[B]** Nothing here reads a batch record. Every input is a table somebody has already assembled.
+
+
+### Quality assurance & regulatory
+
+Evidence, audit trail and investigation support are covered. Every remaining gap is class B or C: the tool should not write documents or decide reportability.
+
+- **[B]** It does not write documents. No deviation report, no CAPA narrative, no technical development report: there is no language model on this page and a tool that claimed otherwise would be found out at the worst possible moment.
+- **[C]** No CAPA or deviation tracking workflow, no electronic signatures, no record management.
+- **[C]** Not a validated GxP system, and the audit trail says so in its own footer.
+- **[C]** No regulatory decision logic: it will not tell you whether something is reportable.
+
+## PICTS: should it be integrated?
+
+**No, and the reason is structural rather than a matter of effort. But its output should be,
+and that is the more valuable half.**
+
+PICTS classifies particle images from flow imaging into morphological types. This page has
+no model in it, reads tables and never pictures, runs with the network off, and declares in
+its own security policy that nothing can be sent anywhere. Embedding an image classifier
+means one of three things, and all three cost more than they return:
+
+1. **Ship a trained model in the page.** That needs a runtime this project deliberately does
+   not carry, and it would make the download a model artefact with its own version, drift
+   and qualification. The classifier's validation status would then depend on which copy of
+   the page somebody opened.
+2. **Call PICTS as a service.** That ends "nothing leaves this browser", which is the single
+   claim the tool is built around and the reason it needs no data agreement to use.
+3. **Re-implement the classifier.** Two classifiers for one decision, drifting apart, with
+   the ugly case being a disagreement nobody can adjudicate.
+
+**What to do instead, and it is better.** PICTS produces a type per particle and therefore
+proportions per sample. That is a table, which is exactly what this tool takes. Three things
+follow immediately, with no new machinery:
+
+- **Qualify PICTS with the attribute agreement mode.** Treat it as one more appraiser
+  alongside your analysts, against a known standard. You get its kappa, its per-class
+  agreement, and where the standard is a two-way call, its miss and false alarm rates
+  separately — which matter asymmetrically, since calling protein "silicone oil" and the
+  reverse have different consequences. The tool already refuses to let perfect
+  self-consistency pass as accuracy, which is the exact failure mode of a deterministic
+  classifier: PICTS agrees with itself perfectly on the same image every time, and that
+  tells you nothing about whether it is right.
+- **Trend its output.** Proportions per lot go on a p-chart; counts per type go on a count
+  chart with the clustering measured. Both are built.
+- **Compare it with manual classification** by two one-sided tests on a margin declared
+  first, with inconclusive available as a verdict — which is where that comparison usually
+  belongs.
+
+That turns this tool into the thing that **measures whether PICTS can be trusted**, rather
+than a second, worse PICTS. It is also the question a reviewer will ask about PICTS first,
+and nothing in your current toolchain answers it.
+
+One caveat to carry into that study: the agreement mode handles up to eight categories, and
+the miss and false alarm rates are defined for a two-way call only. For a four-way type call
+you get kappa, agreement and the per-appraiser comparison against the standard, which is the
+right set — but not those two rates, because with four categories there is no single thing
+being missed.
+
+## After this handover
+
+Every change from here goes through code review. Three things are worth holding to, because
+they are what the test suite enforces today and they are easy to lose:
+
+1. **Every numeric claim is measured**, in `tests/run-tests.js`, on data built so the right
+   answer is known in advance. A "measured" claim with no number in it fails the build.
+2. **Where the tool cannot answer, it says so** rather than returning a plausible number.
+   Several tests exist only to assert that a refusal still happens.
+3. **The privacy lint fails the build** if `fetch`, XHR, WebSocket, `localStorage`, cookies
+   or an `https:` reference appears outside the marked exceptions.
