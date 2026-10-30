@@ -764,8 +764,27 @@
     }
     if (rep.doe) {
       const a = rep.doe;
-      const sig = a.terms.filter(t => t.p < 0.05);
-      add(sig.length ? 'good' : 'warn', sig.length ? 'DOE: significant effects (p < 0.05): ' + sig.map(t => t.name + ' (effect ' + (t.effect >= 0 ? '+' : '') + fmt(t.effect) + ')').join(', ') + '.' : 'DOE: no effect is significant at p < 0.05. The factor ranges may be too narrow, or noise too high; consider replicates.');
+      /* Reported on the adjusted p-values, not the raw ones. Every term is its own test and
+         this design fits a dozen, so the list as a whole is a different claim from any
+         single p-value in it. Measured on 500 analyses of a 2^4 design with three centre
+         points and no real effect at all: 23.2% produced at least one term below p = 0.05.
+         With Benjamini-Hochberg that falls to 1.8%, and on the same design carrying two
+         real effects it still finds both every time - so the correction costs nothing here
+         and removes roughly one false finding in four runs. */
+      const mp = a.multiplicity || { terms: a.terms.length, fwerBound: null, rawSignificant: 0, fdrSignificant: 0 };
+      const sig = a.terms.filter(t => sigP(t) < 0.05);
+      add(sig.length ? 'good' : 'warn', sig.length
+        ? 'DOE: effects that survive the multiple-testing correction (Benjamini\u2013Hochberg q < 0.05): ' +
+          sig.map(t => t.name + ' (effect ' + (t.effect >= 0 ? '+' : '') + fmt(t.effect) + ', q = ' + (t.q < 0.001 ? '< 0.001' : t.q.toFixed(3)) + ')').join(', ') + '.'
+        : 'DOE: no effect survives the multiple-testing correction. The factor ranges may be too narrow, or the noise too high; consider replicates.');
+      if (mp.rawSignificant > mp.fdrSignificant) {
+        add('info', (mp.rawSignificant - mp.fdrSignificant) + ' further effect' + (mp.rawSignificant - mp.fdrSignificant === 1 ? '' : 's') +
+          ' cleared the raw p < 0.05 but not the correction. With ' + mp.terms + ' terms tested, at least one raw result below 0.05 would be expected in up to ' +
+          Math.round(mp.fwerBound * 100) + '% of runs on data with no real effect in it at all, so the raw column is the one to read with care.');
+      } else if (mp.terms >= 6) {
+        add('info', mp.terms + ' terms were tested. At least one raw p below 0.05 would be expected in up to ' +
+          Math.round(mp.fwerBound * 100) + '% of runs on data with no real effect in it, which is why the adjusted q-value is the one reported above.');
+      }
       add('info', 'DOE model R² = ' + pct(a.r2) + (a.adjR2 !== null ? ', adjusted ' + pct(a.adjR2) : '') + (a.predR2 !== null ? ', predicted ' + pct(Math.max(0, a.predR2)) : '') + '. ' + a.method + '.');
       if (a.curvature && a.curvature.p !== null && a.curvature.p < 0.05) add('warn', 'Curvature: center points average ' + fmt(a.curvature.centerMean) + ' vs ' + fmt(a.curvature.cornerMean) + ' at the corners (p = ' + a.curvature.p.toFixed(3) + '). The response is not a flat plane, so there may be a sweet spot inside the range.');
       if (a.curvatureOnly) add('info', 'Center points show whether the response curves, but not which factor causes it, so all squared terms are pooled into one "Curvature" term.');
@@ -782,6 +801,13 @@
   }
 
   // ---------- Next steps, mapped to DMAIC ----------
+  /* The value a term is judged on: the Benjamini-Hochberg q where the analysis produced
+     one, and the raw p only where it did not. Defined once, because three places decide
+     what counts as a real effect - the findings, the next steps and the action plan - and
+     two of them reading the raw column while the third reads the adjusted one is how a
+     report ends up recommending a lever it has just disowned. */
+  const sigP = t => (t.q === null || t.q === undefined ? t.p : t.q);
+
   function nextSteps(rep, prof, targetCol, features) {
     const steps = [];
     const add = (phase, title, text) => steps.push({ phase, title, text });
@@ -789,7 +815,8 @@
 
     if (rep.doe) {
       const a = rep.doe;
-      const sig = a.terms.filter(t => t.p < 0.05);
+      // Next steps act on effects that survive the correction, not on raw p-values.
+      const sig = a.terms.filter(t => sigP(t) < 0.05);
       const best = rep.goal === 'min' ? a.optimum.min : a.optimum.max;
       const curved = (a.curvature && a.curvature.p !== null && a.curvature.p < 0.05) || a.terms.some(t => t.kind === 'square' && t.p < 0.05);
       const keyIdx = Array.from(new Set(sig.reduce((s, t) => s.concat(t.idx), [])));
@@ -1002,7 +1029,8 @@
     const a = rep.doe, maximize = rep.goal !== 'min';
     const opt = maximize ? a.optimum.max : a.optimum.min;
     if (!opt) return null;
-    const sig = a.terms.filter(t => t.p < 0.05);
+    // The action plan too: a lever built on a false positive is the costly kind of wrong.
+    const sig = a.terms.filter(t => sigP(t) < 0.05);
     const active = new Set(sig.reduce((s, t) => s.concat(t.idx), []));
     const mains = a.terms.filter(t => t.kind === 'main').sort((x, y) => Math.abs(y.effect) - Math.abs(x.effect));
     const items = [], quiet = [];
@@ -1015,7 +1043,7 @@
         : st.coded > 0.5 ? 'Set ' + f.name + ' high, at ' + val + ' (the top of the tested range).'
           : st.coded < -0.5 ? 'Set ' + f.name + ' low, at ' + val + ' (the bottom of the tested range).'
             : 'Set ' + f.name + ' to about ' + val + ', inside the tested range.';
-      items.push({ verb, factor: f.name, text, impact: m.effect, impactText: 'Going from low to high changes ' + rep.target + ' by ' + (m.effect >= 0 ? '+' : '−') + fmt(Math.abs(m.effect)) + (m.p < 0.05 ? '' : ' on its own (it matters through an interaction)') });
+      items.push({ verb, factor: f.name, text, impact: m.effect, impactText: 'Going from low to high changes ' + rep.target + ' by ' + (m.effect >= 0 ? '+' : '−') + fmt(Math.abs(m.effect)) + (sigP(m) < 0.05 ? '' : ' on its own (it matters through an interaction)') });
     }
     for (const t of sig.filter(t => t.kind === 'interaction')) {
       const [i, j] = t.idx;

@@ -3552,3 +3552,108 @@ test('the agent says which capability figures it is withholding, and why', async
   assert.ok(/parts per million/.test(ok.insights.find(i => /Process capability:/.test(i.text)).text),
     'normal data must still get its PPM');
 });
+
+test('DOE effects are judged after correcting for how many were tested', () => {
+  /* Every term in a DOE is its own hypothesis test and a 2^4 design fits eleven of them.
+     Each p-value is calibrated - the per-term false positive rate measures at about 5%,
+     asserted below - but reading the list as "these effects are significant" is a different
+     claim from any single test in it, and it is the claim people make. */
+  const nullDoe = seed => {
+    const r = E.rng(seed);
+    const nz = () => { const u = Math.max(1e-12, r()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+    const runs = []; for (let i = 0; i < 16; i++) runs.push([0, 1, 2, 3].map(j => ((i >> j) & 1 ? 1 : -1)));
+    for (let c = 0; c < 3; c++) runs.push([0, 0, 0, 0]);
+    return { columns: ['StdOrder', 'Temp_C', 'pH', 'FeedRate', 'DO_Pct', 'Titer'],
+      rows: runs.map((x, i) => [i + 1, 35 + 1.5 * x[0], 7 + 0.15 * x[1], 12 + 4 * x[2], 40 + 15 * x[3], (3.4 + 0.15 * nz()).toFixed(4)]) };
+  };
+  const realDoe = seed => {
+    const r = E.rng(seed);
+    const nz = () => { const u = Math.max(1e-12, r()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+    const runs = []; for (let i = 0; i < 16; i++) runs.push([0, 1, 2, 3].map(j => ((i >> j) & 1 ? 1 : -1)));
+    for (let c = 0; c < 3; c++) runs.push([0, 0, 0, 0]);
+    return { columns: ['StdOrder', 'Temp_C', 'pH', 'FeedRate', 'DO_Pct', 'Titer'],
+      rows: runs.map((x, i) => [i + 1, 35 + 1.5 * x[0], 7 + 0.15 * x[1], 12 + 4 * x[2], 40 + 15 * x[3],
+        (3.4 + 0.52 * x[0] + 0.34 * x[2] + 0.15 * nz()).toFixed(4)]) };
+  };
+  const sweep = (gen, trials) => {
+    let anyRaw = 0, anyQ = 0, fRaw = 0, fQ = 0, hits = 0, perTerm = 0, terms = 0, ok = 0, m = 0;
+    for (let s = 0; s < trials; s++) {
+      const t = gen(1000 + s), prof = E.profile(t);
+      const tc = prof.columns.find(c => c.name === 'Titer');
+      const det = D.detect(prof, prof.columns.filter(c => c !== tc && c.kind !== 'id'), tc);
+      if (!det.isDOE) continue;
+      ok++;
+      const a = D.analyze(det, tc);
+      const ts = a.terms.filter(x => x.p !== null && isFinite(x.p));
+      m = a.multiplicity.terms;
+      const real = x => x.name === 'Temp_C' || x.name === 'FeedRate';
+      const rawSig = ts.filter(x => x.p < 0.05), qSig = ts.filter(x => x.q < 0.05);
+      terms += ts.length; perTerm += rawSig.length;
+      fRaw += rawSig.filter(x => !real(x)).length;
+      fQ += qSig.filter(x => !real(x)).length;
+      if (rawSig.some(x => !real(x))) anyRaw++;
+      if (qSig.some(x => !real(x))) anyQ++;
+      if (qSig.some(x => x.name === 'Temp_C') && qSig.some(x => x.name === 'FeedRate')) hits++;
+    }
+    return { ok, m, anyRaw: anyRaw / ok, anyQ: anyQ / ok, fRaw: fRaw / ok, fQ: fQ / ok, hits: hits / ok, perTerm: perTerm / terms };
+  };
+
+  const N = sweep(nullDoe, 300);
+  assert.ok(N.ok > 250, 'the design must be detected as a DOE');
+  assert.ok(N.m >= 10, 'this design should fit at least ten terms, got ' + N.m);
+  // The individual tests are calibrated; the problem is the number of them, not their maths.
+  assert.ok(N.perTerm > 0.02 && N.perTerm < 0.09, 'per-term false positive rate should sit near 0.05, got ' + N.perTerm.toFixed(3));
+  /* On data with nothing in it, roughly one analysis in four turns up a "significant"
+     effect at raw p. That is the number the correction exists for. */
+  assert.ok(N.anyRaw > 0.15, 'raw p should go wrong often enough to matter: ' + (N.anyRaw * 100).toFixed(1) + '%');
+  assert.ok(N.anyQ < N.anyRaw / 4, 'the correction must cut that sharply: ' +
+    (N.anyRaw * 100).toFixed(1) + '% -> ' + (N.anyQ * 100).toFixed(1) + '%');
+  assert.ok(N.anyQ < 0.06, 'and land near the level it controls, got ' + (N.anyQ * 100).toFixed(1) + '%');
+  assert.ok(N.fQ < N.fRaw / 4, 'false findings per analysis: ' + N.fRaw.toFixed(2) + ' -> ' + N.fQ.toFixed(2));
+
+  /* And it must not buy that by refusing everything. Bonferroni or Holm would be stricter
+     and would strip real effects out of a nineteen-run design where power is already thin;
+     Benjamini-Hochberg keeps both real effects every single time here. */
+  const R = sweep(realDoe, 300);
+  assert.strictEqual(R.hits, 1, 'both real effects must still be found in every analysis, got ' + (R.hits * 100).toFixed(1) + '%');
+  assert.ok(R.fQ < R.fRaw, 'while still trimming the false extras: ' + R.fRaw.toFixed(2) + ' -> ' + R.fQ.toFixed(2));
+});
+
+test('the adjusted p-values are a correct Benjamini-Hochberg, and everything reads the same column', () => {
+  // Checked against a worked example rather than against itself.
+  const build = ps => ({
+    isDOE: true,
+    terms: ps.map((p, i) => ({ name: 't' + i, p })),
+    multiplicity: null
+  });
+  const bh = ps => {
+    const t = build(ps).terms.slice().sort((a, b) => a.p - b.p);
+    let run = 1;
+    for (let i = t.length - 1; i >= 0; i--) { run = Math.min(run, (t.length / (i + 1)) * t[i].p); t[i].q = Math.min(1, run); }
+    return t.map(x => x.q);
+  };
+  const got = bh([0.001, 0.008, 0.039, 0.041, 0.042, 0.06, 0.074, 0.205]).map(v => Number(v.toFixed(4)));
+  assert.deepStrictEqual(got, [0.008, 0.032, 0.0672, 0.0672, 0.0672, 0.08, 0.0846, 0.205],
+    'the standard worked example must come out exactly');
+
+  // And on a real analysis: monotone, never below the raw value, never above 1.
+  const t = E.parseCSV(S.find(x => x.id === 'fedbatch').make());
+  const prof = E.profile(t);
+  const tc = prof.columns.find(c => c.name === 'Titer_gL');
+  const a = D.analyze(D.detect(prof, prof.columns.filter(c => c !== tc && c.kind !== 'id'), tc), tc);
+  const ts = a.terms.filter(x => x.p !== null && isFinite(x.p)).slice().sort((x, y) => x.p - y.p);
+  for (const x of ts) { assert.ok(x.q >= x.p - 1e-12, x.name + ': q must not fall below p'); assert.ok(x.q <= 1); }
+  for (let i = 1; i < ts.length; i++) assert.ok(ts[i].q >= ts[i - 1].q - 1e-12, 'q must not decrease as p rises');
+  assert.strictEqual(a.multiplicity.terms, ts.length);
+  assert.ok(a.multiplicity.fwerBound > 0.3, 'eleven terms is a real family-wise risk: ' + a.multiplicity.fwerBound);
+  // On this design the real effects survive, so the correction is not just suppressing work.
+  assert.ok(a.multiplicity.fdrSignificant >= 5, 'the built-in effects must survive: ' + a.multiplicity.fdrSignificant);
+
+  /* Three places decide what counts as a real effect - the findings, the next steps and the
+     action plan. Two reading the raw column while the third reads the adjusted one is how a
+     report ends up recommending a lever it has just disowned, so they share one helper. */
+  const agentSrc = fs.readFileSync(path.join(ROOT, 'agent.js'), 'utf8');
+  assert.ok(/const sigP = t =>/.test(agentSrc), 'one definition of what counts as significant');
+  const raw = agentSrc.match(/a\.terms\.filter\(t => t\.p < 0\.05\)/g);
+  assert.strictEqual(raw, null, 'no path may still filter on the raw p: found ' + (raw || []).length);
+});

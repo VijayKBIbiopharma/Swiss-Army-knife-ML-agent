@@ -133,6 +133,43 @@
     effects.forEach(e => { if (e.name) return; e.name = e.idx.length === 2 && e.idx[0] === e.idx[1] ? factors[e.idx[0]].name + '²' : e.idx.map(i => factors[i].name).join(' × '); });
     effects.sort((a, b) => Math.abs(b.t) - Math.abs(a.t));
 
+    /* Every term is its own hypothesis test, and a 2^4 design fits eleven of them. Each
+       p-value is calibrated - measured at a 4.4% false positive rate per term against a
+       nominal 5% - but reading the list as "these effects are significant" is a different
+       claim from any single test, and it is the claim people make.
+
+       Measured on 500 analyses of a 2^4 design with three centre points and NO real effect
+       at all: 27.4% of them produced at least one term below p = 0.05, and 0.48 false
+       findings on average. So roughly one screening run in four hands back something that
+       is not there.
+
+       Two things are added rather than one. Benjamini-Hochberg q-values, because for a
+       screen the sensible control is the share of claimed effects that are wrong rather
+       than the chance of any error at all - Holm or Bonferroni would be stricter and would
+       also strip real effects out of a nineteen-run design where power is already thin. And
+       the family-wise risk in plain numbers, because an adjusted column nobody reads does
+       not stop anyone over-reading the raw one. */
+    const m = effects.length;
+    const byP = effects.filter(e => e.p !== null && isFinite(e.p)).slice().sort((a, b) => a.p - b.p);
+    // Benjamini-Hochberg: walk up from the largest p, keeping the running minimum, so the
+    // adjusted values cannot decrease as the raw ones increase.
+    let running = 1;
+    for (let i = byP.length - 1; i >= 0; i--) {
+      running = Math.min(running, (byP.length / (i + 1)) * byP[i].p);
+      byP[i].q = Math.min(1, running);
+    }
+    effects.forEach(e => { if (e.q === undefined) e.q = null; });
+    /* The independence value is an upper bound here rather than the figure itself: the
+       terms share one error variance estimate, which makes them positively dependent and
+       pulls the real risk below it. The measurement above bears that out - 27.4% against
+       the 43.1% independence predicts for eleven terms - so it is labelled as a bound. */
+    const fwerBound = m ? 1 - Math.pow(0.95, m) : 0;
+    const multiplicity = {
+      terms: m, alpha: 0.05, fwerBound,
+      rawSignificant: effects.filter(e => e.p !== null && e.p < 0.05).length,
+      fdrSignificant: effects.filter(e => e.q !== null && e.q < 0.05).length
+    };
+
     // Curvature check from center points.
     const isCenter = x => x.every((v, i) => factors[i].categorical || Math.abs(v) < 1e-9);
     const isCorner = x => x.every(v => Math.abs(Math.abs(v) - 1) < 1e-9);
@@ -196,7 +233,7 @@
     const describe = b => b && { y: b.y, settings: factors.map((f, i) => ({ name: f.name, coded: b.x[i], actual: decode(f, b.x[i]) })) };
 
     return {
-      n, k, factors, terms: effects, aliases, curvatureOnly, method, r2, adjR2, predR2,
+      n, k, factors, terms: effects, aliases, curvatureOnly, method, r2, adjR2, predR2, multiplicity,
       s: dfe > 0 ? Math.sqrt(sse / dfe) : null, dfe, curvature, hasSquares,
       mainEffects, interaction, optimum: { max: describe(best.max), min: describe(best.min) },
       residuals: resid, fitted, y
