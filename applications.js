@@ -126,6 +126,9 @@
     ['msat', 'MSAT & technology transfer'],
     ['mfg', 'GMP manufacturing'],
     ['qc', 'Quality control'],
+    ['pcc', 'Process & product characterization (PCC)'],
+    ['micro', 'Microbiology & environmental monitoring'],
+    ['fac', 'Facilities & engineering'],
     ['qa', 'Quality assurance & regulatory']
   ];
 
@@ -134,6 +137,29 @@
      data is whatever tool you have selected. */
   const UNITOPS = {
     mammalian: {
+      pcc: [
+        ['Characterization study design', 'Parameter ranges explored as a designed study rather than one factor at a time, so interactions and curvature are estimable instead of assumed away.'],
+        ['Criticality assessment', 'Each attribute ranked on how much the process actually moves it against how much the patient tolerates, from the characterization data rather than from a workshop.'],
+        ['Proven acceptable ranges', 'Ranges set from where the model and its interval still meet specification, with the rows that reach past the evidence flagged rather than quietly included.'],
+        ['Higher-order structure and forced degradation', 'Stress conditions modelled against the structural readouts they move, so a degradation pathway is ranked rather than described anecdotally.'],
+        ['Comparability after a process change', 'Pre-change and post-change lots compared against a margin fixed beforehand, with an explicit inconclusive verdict when the study cannot settle it.'],
+      ],
+      micro: [
+        ['Environmental monitoring (viable)', 'Settle and active air counts charted as counts rather than measurements, with the clustering between rooms and shifts measured instead of assumed away.'],
+        ['Non-viable particle counts', 'Cleanroom particle counts against a limit, with the tail figures computed on a scale where the shape holds rather than from a bell curve the data has not got.'],
+        ['Bioburden and endotoxin', 'In-process bioburden against hold time and material, with limits set from the ranking of past results when the distribution will not support a factor.'],
+        ['Media fill and aseptic process simulation', 'Contamination events as rare-event data, with the false alarm rate of whichever chart is used stated rather than left implicit.'],
+        ['Plate reading and colony counting', 'Reader against reader on the same plates, with agreement beyond chance measured so a disputed count is settled on evidence.'],
+        ['Rapid micro method qualification', 'A rapid method against compendial on the same samples, with the margin fixed first and an inconclusive result reported as inconclusive.'],
+      ],
+      fac: [
+        ['Water systems (WFI, clean steam)', 'Conductivity, TOC and temperature trended with the chart rules that catch a slow drift while every reading is still inside its limit.'],
+        ['HVAC and pressure cascade', 'Differential pressures and air changes against room classification, with a probe drifting out of step with the rest of the suite visible before it leaves range.'],
+        ['Clean utilities and compressed gases', 'Dew point, oil and particle readings trended per outlet, with outlet-to-outlet differences separated from instrument noise.'],
+        ['Equipment reliability and maintenance', 'Time between failures and downtime modelled against usage and service interval, so a maintenance interval is argued from data.'],
+        ['Calibration and instrument drift', 'As-found against as-left readings across services, so an instrument drifting predictably is caught before it fails a calibration.'],
+        ['Single-use and consumable supply', 'Lot-to-lot differences in assemblies and filters separated from process variation, so a supplier change is judged rather than suspected.'],
+      ],
       cld: [
         ['Transfection and selection', 'Pool performance predicted from early growth and titer reads, so weak pools are cut before they take up incubator space.'],
         ['Single-cell cloning', 'Imaging and outgrowth features used to rank clones on survival probability, rather than on a day-14 titer alone.'],
@@ -157,6 +183,9 @@
         ['UF/DF and bulk formulation', 'Transmembrane pressure, concentration factor and diafiltration volumes against aggregation and final concentration accuracy.']
       ],
       afs: [
+        ['Mass spec: intact and subunit mass', 'Measured masses against the sequence prediction, with the modification that accounts for a shift ranked rather than assigned by eye, across many lots at once.'],
+        ['Mass spec: peptide mapping and modifications', 'Oxidation, deamidation and clipping sites tracked as percentages per lot, modelled against the process conditions and hold times that moved them.'],
+        ['Mass spec: host cell protein', 'HCP identities and abundances across purification variants, so a wash or load change is judged on which proteins it actually cleared.'],
         ['Titer and cell counting', 'Assay variability partitioned across analyst, instrument and day, so method noise is not read as a process signal.'],
         ['Purity (SEC, CE-SDS)', 'Aggregate and fragment results trended against process conditions, with specification limits set from measured capability.'],
         ['Charge variants (iCIEF, IEX)', 'Acidic and basic species modelled against culture conditions and harvest timing.'],
@@ -194,6 +223,29 @@
       ]
     },
     microbial: {
+      pcc: [
+        ['Characterization study design', 'Induction, feed and refold parameters explored as one designed study so interactions and curvature are estimable rather than assumed away.'],
+        ['Criticality assessment', 'Attributes ranked on how far the process moves them against how much tolerance exists, taken from characterization runs rather than from opinion.'],
+        ['Proven acceptable ranges', 'Ranges taken from where the fitted model and its interval still meet specification, with extrapolated rows named instead of silently included.'],
+        ['Refold and truncation characterization', 'Refold conditions modelled against correctly folded yield and truncated species, so the trade-off between them is explicit.'],
+        ['Comparability after a strain or process change', 'Old against new compared on a margin fixed first, with inconclusive reported as its own answer rather than read as equivalence.'],
+      ],
+      micro: [
+        ['Environmental monitoring (viable)', 'Air and surface counts charted as counts, with the clustering between rooms, shifts and campaigns measured rather than assumed to be absent.'],
+        ['Non-viable particle counts', 'Room particle counts against a limit, with tail figures taken on a transformed scale rather than from a bell curve that counted data never has.'],
+        ['Bioburden and endotoxin', 'Fermentation and downstream bioburden against hold times, with limits read off the ranking of past results where no distribution fits.'],
+        ['Host strain purity and phage screening', 'Screening outcomes tracked as pass and fail rates with the detection rate of the method itself separated from the incidence.'],
+        ['Plate reading and colony counting', 'Reader against reader on the same plates, so disagreement between technicians is measured instead of argued about.'],
+        ['Rapid micro method qualification', 'A rapid method against compendial, judged on a declared margin, with the sample size needed for a verdict reported up front.'],
+      ],
+      fac: [
+        ['Water systems (WFI, clean steam)', 'Conductivity, TOC and temperature trended with the rules that catch a drift while every individual reading is still within limit.'],
+        ['HVAC and pressure cascade', 'Room pressures and air changes against classification, with one probe drifting out of step with its neighbours caught before it leaves range.'],
+        ['Fermenter utilities and services', 'Chilled water, steam and compressed air readings trended per service, with service-to-service differences separated from sensor noise.'],
+        ['Equipment reliability and maintenance', 'Failures and downtime against usage and service interval, so intervals are set from measured reliability rather than from the manual.'],
+        ['Calibration and instrument drift', 'As-found against as-left across services, so predictable drift is caught before it becomes a failed calibration.'],
+        ['Cleaning and changeover', 'Rinse and swab results against cleaning parameters and changeover time, with limits set from what the data supports.'],
+      ],
       cld: [
         ['Construct and codon design', 'Codon usage matched to the host, restriction sites and repeats designed out, GC held inside the synthesis window.'],
         ['Expression screening', 'Small-scale expression reads modelled against fermenter performance, to learn which screens predict and which mislead.'],
@@ -216,6 +268,9 @@
         ['UF/DF and bulk formulation', 'Concentration and buffer exchange against aggregation and final concentration accuracy.']
       ],
       afs: [
+        ['Mass spec: intact mass and truncation', 'Measured mass against the predicted sequence, with N-terminal processing and truncation tracked per lot rather than described once at the end.'],
+        ['Mass spec: peptide mapping and modifications', 'Oxidation and misincorporation quantified per site, modelled against induction temperature, duration and feed so a spike has a cause to test.'],
+        ['Mass spec: host cell protein', 'E. coli HCP identities and abundances across refold and capture variants, so each change is judged on which contaminants it removed.'],
         ['Purity (RP-HPLC, CE-SDS)', 'Purity and related substances trended against fermentation and refold conditions.'],
         ['Aggregates (SEC)', 'High molecular weight species against refolding and concentration conditions, with method variability separated out first.'],
         ['Host cell protein ELISA', 'Clearance across the train, with assay variability distinguished from real carryover.'],
@@ -257,6 +312,9 @@
   // What the selected technique specifically does for that function.
   const BYFUNCTION = {
     analyze: {
+      pcc: 'The core use here: designed characterization studies, effects judged after correcting for how many were tested, and ranges taken from where the model and its interval still meet specification.',
+      micro: 'Counts charted as counts with their clustering measured, and what moves bioburden or a monitoring excursion ranked with a noise floor beside it.',
+      fac: 'Utility and equipment data turned into the few parameters that predict a failure or an excursion, with a drift caught by the rules a limits-only chart is blind to.',
       cld: 'Rank clones and strains on the screen reads that actually predict later performance, and design the confirmation study.',
       uspd: 'Find which bioreactor or fermenter parameters move titer and quality, then design the experiment that separates the ones history has confounded.',
       dspd: 'Model yield and purity against load, wash and elution conditions, and design the characterisation runs around the optimum.',
@@ -267,6 +325,9 @@
       qa: 'Evidence for trend reports, CAPA effectiveness and annual reviews, drawn from raw data rather than from summaries.'
     },
     stability: {
+      pcc: 'Forced degradation and stressed-condition trends fitted per lot, so a degradation pathway has a rate attached rather than a description.',
+      micro: 'Bioburden and endotoxin against hold time, giving a hold limit read off the confidence limit rather than taken from convention.',
+      fac: 'Filter, membrane and consumable service life from measured performance decline, and water system recovery after sanitisation.',
       cld: 'Fit titer and quality drift over generations, to set a generation limit that can be defended.',
       uspd: 'Hold-time limits for harvest and intermediates, taken from measured degradation rather than convention.',
       dspd: 'Pool and intermediate hold times, resin and membrane life, from trends with confidence limits attached.',
@@ -277,6 +338,9 @@
       qa: 'Shelf-life claims with the extrapolation limits documented and the poolability evidence on file.'
     },
     golden: {
+      pcc: 'Characterization runs scored against the envelope the reference lots traced, so a run that strayed is identified by hour and by sensor.',
+      micro: 'Monitoring across a campaign read as one trajectory, so a room drifting across several sensors at once is visible before any single one alarms.',
+      fac: 'A utility loop or HVAC suite watched as a whole, so a probe falling out of step with its neighbours shows up while its own reading is still in range.',
       cld: 'Screening runs compared against the pattern good clones produced, so an odd one is spotted before it reaches the bioreactor.',
       uspd: 'The core use: every bioreactor or fermenter run scored against the path good batches took, with the sensor to blame named at the hour it drifts.',
       dspd: 'Chromatography and filtration profiles compared run to run, so a column or membrane degrading shows up before the pool fails its test.',
@@ -287,6 +351,9 @@
       qa: 'Campaign review with every batch triaged in one table, and an investigation that starts from the hour and the sensor rather than from the whole record.'
     },
     equivalence: {
+      pcc: 'The comparability verdict itself: pre-change against post-change on a margin fixed beforehand, with inconclusive reported rather than read as sameness.',
+      micro: 'A rapid micro method against compendial, or one incubator or reader against another, with the margin declared first.',
+      fac: 'A replacement instrument, outlet or assembly against the qualified one, judged on a declared margin rather than on a passing glance.',
       cld: 'A new clone or strain shown comparable to the one it replaces, within a margin set in advance.',
       uspd: 'Scale-down model against at-scale, and a process change shown to have done no harm.',
       dspd: 'A second resin lot, an alternative membrane, or a re-sequenced train shown to match the qualified one.',
@@ -297,6 +364,9 @@
       qa: 'Comparability evidence for change control, with the margin fixed before the data was seen.'
     },
     variance: {
+      pcc: 'How much of a characterization result is the method rather than the parameter, which decides whether a range is real or an artefact of the assay.',
+      micro: 'Plate reader against plate reader on the same plates, with agreement beyond chance measured, plus incubator and media lot as variance sources.',
+      fac: 'Probe-to-probe, outlet-to-outlet and technician-to-technician differences separated from the instrument noise underneath them.',
       cld: 'Split clone screening spread into real clone differences and plate or assay noise, so a top performer is not simply a lucky well.',
       uspd: 'Separate vessel, shift and media-lot effects from process variation, and size the replication a development study actually needs.',
       dspd: 'Separate resin lot, column position and operator effects from step-yield variation, so a column is retired on evidence rather than on age.',
@@ -307,6 +377,9 @@
       qa: 'Variation attributed to a named source in trend reports and investigations, with the measurement system qualified so capability is about product rather than assay.'
     },
     limits: {
+      pcc: 'Acceptable ranges the characterization data can actually defend, and the study size needed before the suite is booked.',
+      micro: 'Alert and action levels for counts that no bell curve fits, taken from the ranking of past results when the distribution will not support a factor.',
+      fac: 'Utility and environmental limits the data supports, with the honest answer when no sample size could support the limit being asked for.',
       cld: 'Size a clone screen so the winner is a real winner, and set generation-limit criteria from the data rather than from convention.',
       uspd: 'Size characterisation and scale-down studies honestly, and set in-process action levels from measured capability.',
       dspd: 'Set pool and intermediate acceptance limits from what the train really delivers, and size the runs needed to defend them.',
@@ -317,6 +390,9 @@
       qa: 'Specification limits with the statistical argument attached for filings and inspections, and study protocols with the sample size justified in advance.'
     },
     plasmid: {
+      pcc: 'Not the usual fit: it predicts constructs rather than characterizing them, and is listed so the boundary is visible rather than guessed at.',
+      micro: 'Not applicable to monitoring work. It selects constructs from historical screening data and has nothing to say about a count or an excursion.',
+      fac: 'Not applicable to utilities or equipment. It is a construct-selection tool and is named here so the gap is explicit.',
       cld: 'The core use: rank candidate constructs on expected titer and specific productivity before any of them are built.',
       uspd: 'Carry a construct choice into process conditions, with seed density and expression mode on the same footing as the genetics.',
       dspd: 'Judge whether a construct change moves the feed stream enough to matter downstream before the train is re-developed.',
@@ -327,6 +403,9 @@
       qa: 'A prediction that records what it rested on: which runs, which substitutions, and how far outside the data it was.'
     },
     sequence: {
+      pcc: 'Where a construct is being characterized alongside the protein, it shows which codon changes were made and checks the protein is unchanged.',
+      micro: 'Not applicable to monitoring work, and listed so the boundary is stated rather than left for somebody to discover.',
+      fac: 'Not applicable to facilities work. It optimizes coding sequences and is named here only so the gap is explicit.',
       cld: 'Codon-optimise the construct for the host while removing restriction sites and holding GC inside the synthesis window.',
       uspd: 'Search feed, pH and temperature combinations too numerous to run, returning the trade-off curve rather than a single setpoint.',
       dspd: 'Search refold and elution conditions where yield, aggregate and clearance pull against each other.',
@@ -455,7 +534,7 @@
       gaps: [
         'No spectra, chromatograms or images. Everything arrives as computed numbers.',
         'No attribute agreement for more than eight possible calls: a judgement with dozens of categories is closer to a measurement and the method does not apply.',
-        'No non-parametric tolerance interval yet, so when normality fails the honest answer is currently "this data cannot support that limit" rather than a distribution-free bound.',
+        'A distribution-free bound exists now, but it needs 299 results for a one-sided 99% claim at 95% confidence against about ten for the normal factor, so for a typical method-validation dataset the honest answer is still that the claim cannot be supported.',
         'Linearity, LOD and LOQ are not implemented as named ICH Q2 calculations.'
       ]
     },
@@ -498,9 +577,9 @@
           measured: 'This matters more than the choice of chart: at a dispersion of 3 - ordinary when defects cluster by lot, line or shift - the textbook chart flags about one point in sixteen from a process behaving perfectly, roughly four false signals on a sixty-point chart. Widened for the clustering, that falls to about one in ninety. When the counts really are Poisson the widening comes out at about 1.05, so it costs nothing when it is not needed.',
           limit: 'Rare events are still badly served: at a tenth of a percent reject rate a proportion chart is mostly noise, and the chart that suits it - time or units between events - is not built yet.' },
         { tool: 'analyze', label: 'Capability that withholds what it cannot support',
-          does: 'Cp and Cpk stand whatever the shape and are reported. PPM, Z.bench and sigma level are normal tail probabilities and are withheld when the shape is not there, with what remains named.',
+          does: 'Cp and Cpk stand whatever the shape and are reported. PPM, Z.bench and sigma level are normal tail probabilities, so when the shape is not there they are recomputed on a Box-Cox transformed scale, and withheld outright if the transformed values still fail their normality test.',
           measured: 'On a right-skewed impurity whose limit sits at its true 99.9th percentile, so the real rate is 1,000 PPM by construction: at a skewness of 0.65 the normal figure reads 62 PPM, sixteen times under, and by a skewness of 1.8 it reads 0.',
-          limit: 'Withholding leaves you without a number to report. A transform or a distribution-free capability is not built yet, so for skewed data the defensible answer is currently Cp, Cpk and the observed count out of spec.' },
+          limit: 'A Box-Cox transform now recovers the tail figures where the shape can be fixed, but normality is re-tested on the transformed values and the figures stay withheld when it fails - and no power transform fixes a bimodal reading, which is what two lines or two shifts alternating looks like.' },
         { tool: 'analyze', label: 'What is worth controlling, from the batch record',
           does: 'Historical batches mined for the few parameters that move the result, with a what-if desk and an in-spec badge, so a control strategy is argued from data.',
           limit: 'Correlation from routine production is not a control-strategy justification on its own, and the tool designs the study that would be.' }
@@ -535,7 +614,90 @@
         'No instrument files. Chromatograms, spectra and plate images have to be reduced to numbers first.',
         'No OOS workflow, no trending database, no stability scheduling: this computes on a file, it does not manage a programme.',
         'No ICH Q2 validation package - no linearity, LOD, LOQ or robustness as named calculations.',
-        'No non-parametric tolerance bound, so a skewed assay currently gets a refusal rather than a distribution-free limit.'
+        'The distribution-free bound needs 299 results for a one-sided 99% claim, so a skewed assay with thirty results still gets a refusal - now with the number of results that would change the answer attached to it.'
+      ]
+    },
+    pcc: {
+      headline: 'A characterization study exists to justify ranges, and the two things that quietly invalidate one are parameters that moved together and a list of effects read without correcting for how many were tested.',
+      first: { tool: 'analyze', label: 'Check for confounding before you trust any effect',
+        why: 'A characterization run built from convenient settings, or stacked on earlier development data, routinely carries parameters that moved together. A pairwise correlation will not find the case that bites - three inputs each mildly correlated that jointly determine one another - so the inflation factors are the first thing to read. A coefficient from a confounded design is not a small error; it is an attribution to the wrong parameter, and the range built on it is indefensible.' },
+      steps: [
+        { tool: 'analyze', label: 'Design the study rather than mining the runs',
+          does: 'A definitive screening design takes 3 to 14 parameters in about twice their number of runs, main effects orthogonal to every two-factor interaction, and every parameter at its middle setting so curvature is estimable.',
+          measured: 'Over 500 analyses of a 2⁴ design with no real effect in it at all, 23.2% handed back at least one significant term; Benjamini-Hochberg correction cuts that to 1.8% while still catching real effects every time. A characterization report lists many terms at once, which is exactly the situation that inflates.',
+          limit: 'A screen identifies which parameters matter, not where the optimum sits. Expect a second, smaller design for the ranges themselves.' },
+        { tool: 'analyze', label: 'Ranges from where the interval still holds',
+          does: 'Predictions come with calibrated intervals rather than point estimates, so a proven acceptable range ends where the interval stops meeting specification rather than where the fitted line does.',
+          measured: 'The intervals are split-conformal, built on a slice genuinely held back, and the attainable confidence is capped at nCal/(nCal+1) and reported - so a request for 99% from 30 held-back runs is answered with the ceiling rather than with a number that cannot be supported.',
+          limit: 'Rows reaching past the historical range are flagged rather than silently included, because an interval around an extrapolation is an interval around an assumption.' },
+        { tool: 'variance', label: 'How much of the effect is the assay',
+          does: 'Gage R&R on the characterization readout, judged against the specification window rather than against the lots in the study.',
+          limit: 'Under five distinct categories and the method cannot resolve the differences the study is built to detect, which makes the whole study underpowered no matter how many runs it has.' },
+        { tool: 'equivalence', label: 'Comparability on a margin fixed first',
+          does: 'Pre-change against post-change by two one-sided tests, giving equivalent, a real difference, or inconclusive.',
+          limit: 'A margin chosen after seeing the data is not a test. Declaring it first is what lets the inconclusive answer exist, and underpowered comparability studies belong there rather than passing by default.' }
+      ],
+      gaps: [
+        'No criticality scoring framework. It gives you how much the process moves an attribute; how much the patient tolerates is clinical and comes from elsewhere.',
+        'No structural or biophysical interpretation: HOS and forced-degradation readouts are modelled as numbers, with no knowledge of what a conformational change means.',
+        'No filing-ready characterization report. It produces the numbers and the audit package; the document and its justification stay yours.',
+        'No mechanistic process model, so an extrapolated range is extrapolation, flagged as such rather than supported by theory.'
+      ]
+    },
+    micro: {
+      headline: 'Monitoring data is counted, rare and judged by eye, which breaks all three of the usual defaults: the measurement chart, the bell curve, and percent agreement.',
+      first: { tool: 'analyze', label: 'Put counts on a count chart, with the clustering measured',
+        why: 'An environmental monitoring series on a measurement chart gets the limits wrong, because a count’s spread is not free - a Poisson count’s standard deviation is the square root of its own mean. Worse, monitoring counts cluster by room, shift and campaign, so they are wider than even a Poisson chart allows, and a chart that ignores that fires constantly at a facility behaving normally. Measure the clustering first and the rest of the programme stops chasing its own false alarms.' },
+      steps: [
+        { tool: 'analyze', label: 'Count charts that account for clustering',
+          does: 'c, u and p charts with dispersion measured rather than assumed, and the limits widened when the counts are wider than a Poisson or binomial model allows.',
+          measured: 'Measured over 400 charts of 60 points at a mean of 16: at a dispersion of 3, which is ordinary for counts that cluster, the textbook chart flags one point in sixteen from a process behaving perfectly - about four false signals per chart - against one in ninety-four once widened. On genuinely Poisson counts the widening comes out at ×1.05, so it costs nothing when it is not needed.',
+          limit: 'Rare events are still badly served. At a contamination rate of a tenth of a percent a proportion chart is mostly noise, and the chart that suits it - units or days between events - is not built yet.' },
+        { tool: 'variance', label: 'Attribute agreement on plate reading',
+          does: 'Reader against themselves, reader against reader, and each reader against a known standard, with kappa beside every agreement percentage and miss and false alarm rates reported separately.',
+          measured: 'Why the percentage alone will not do: at a 10% positive rate, a reader who calls everything negative scores 90% agreement, a kappa of exactly 0, and a 100% miss rate. The percentage reads as an excellent reader.',
+          limit: 'Build the qualification set close to half positive, however unrepresentative that feels. A set matching real monitoring rates cannot measure a miss rate, because there is almost nothing to miss.' },
+        { tool: 'limits', label: 'Alert and action levels with no distribution assumed',
+          does: 'Where counts fit no bell curve, a bound taken from the ranking of past results alone, which holds whatever the shape, plus the normal-theory factor beside it so the trade is visible.',
+          measured: 'What it costs is sample size, and the cost is steep: a one-sided 99% claim at 95% confidence needs 299 results from the ranking alone, against about ten for the normal factor. The tool reports both the bound and the number of results needed, rather than picking for you.',
+          limit: 'Below the required count it refuses rather than producing a number, and states the confidence the data actually reaches - 30 results reach 26%, not 95%.' },
+        { tool: 'equivalence', label: 'A rapid method against compendial',
+          does: 'Two one-sided tests on a declared margin, paired when the same samples went through both, with inconclusive as its own verdict and the sample size that would settle it.',
+          limit: 'Recovery and detection limits are method validation questions this does not answer; it compares results you already have.' }
+      ],
+      gaps: [
+        'No rare-event chart, which is the right tool for contamination rates in the tenths of a percent and the single biggest gap for this group.',
+        'No identification or genotyping: an isolate identity has to arrive as a label in a column.',
+        'No compendial decision logic. It will not tell you whether a result is an excursion, an action-level breach or reportable.',
+        'No image reading, so colony counts must be entered as numbers rather than read from a plate photograph.'
+      ]
+    },
+    fac: {
+      headline: 'Utility and equipment failures almost never announce themselves with a reading outside its limit; they announce themselves as a drift, or as one probe disagreeing with its neighbours.',
+      first: { tool: 'analyze', label: 'Run the full Nelson rule set on the utility trend',
+        why: 'A limits-only chart is blind to the thing that actually happens to a water system or an HVAC suite: a slow shift where every individual reading stays comfortably inside its limit. Rules two to eight exist for exactly that, and the difference is not marginal - on a 0.9 sigma shift the limits-only chart raises one signal and the full set raises twenty-five. Turn them on before building anything more elaborate.' },
+      steps: [
+        { tool: 'analyze', label: 'The drift rules, with their price stated',
+          does: 'All eight rules with zones, selectable, and the false alarm rate reported beside the signals so the sensitivity is a decision rather than a surprise.',
+          measured: 'The three-sigma rule alone raises a false alarm about once every 367 points; the full set about once every 50. On a fifty-point chart that is roughly one false signal from a system with nothing wrong with it, which is worth knowing before an engineer is sent to investigate it.',
+          limit: 'Built for measurements. Cleanroom particle counts and failure counts belong on a count chart instead.' },
+        { tool: 'analyze', label: 'Capability on readings that are not bell-shaped',
+          does: 'Cleanroom particle counts and TOC are bounded at zero with a long tail, so Cp and Cpk are reported as the shape-free ratios they are, and the tail figures come from a Box-Cox transformed scale with normality re-tested on the transformed values.',
+          measured: 'On a right-skewed reading whose limit sits at its true 99.9th percentile, so the real rate is 1,000 PPM by construction, the straight normal fit reports 0 PPM - no risk at all - while the transformed fit reports about 1,300. A transform that still fails its re-test leaves the figures withheld rather than reported.',
+          limit: 'No power transform fixes a bimodal reading, which is what two pumps or two shifts alternating looks like. There the honest output stays Cp, Cpk and the observed count.' },
+        { tool: 'golden', label: 'One probe out of step with the suite',
+          does: 'A utility loop or HVAC suite scored as a whole, so the case where sensors stop agreeing with each other shows up while every individual reading is still in range.',
+          measured: 'Alarm limits are calibrated on reference periods held out of the model that scored them, so 99% means a period the model had never seen.',
+          limit: 'Needs several periods you were genuinely happy with, nominated by somebody who knows. Three is the minimum and ten or more makes the envelope mean something.' },
+        { tool: 'variance', label: 'Probe, outlet and technician as named sources',
+          does: 'The spread split across probe, outlet, shift and technician, with Tukey naming which pairs genuinely differ rather than which look different.',
+          limit: 'Needs repeat readings per source. One reading per outlet cannot separate outlet differences from the instrument underneath them.' }
+      ],
+      gaps: [
+        'No connection to a historian, BMS or SCADA. Export a file and load it; nothing here reads a live tag.',
+        'No reliability distributions: no Weibull fitting, no hazard rate, no survival model, so MTBF work is limited to trends and comparisons.',
+        'No rare-event chart, which is what a failure count at a low rate actually needs.',
+        'No qualification or commissioning logic: it will not tell you whether a system is in a qualified state.'
       ]
     },
     qa: {

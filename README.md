@@ -147,6 +147,18 @@ Drop in a CSV &mdash; or a JSON export from a LIMS or an instrument, as a list o
 
     Still missing for counted work, and said rather than left to be discovered: no **rare-event chart** (units or days between events), which is the right tool at a reject rate in the tenths of a percent and which a proportion chart cannot replace; no CUSUM or EWMA; and no non-normal capability or distribution-free tolerance bound, so for skewed data the defensible answer remains Cp, Cpk and the observed count out of spec.
 
+32. **Three more functions, and the two ways out of a failed normality test.**
+
+    **Eleven functions, not eight.** Facilities &amp; engineering, microbiology &amp; environmental monitoring, and process &amp; product characterization (PCC) join the list, each with unit operations for both modalities, a line per technique, and a full playbook. AFS gained mass spec: intact and subunit mass, peptide mapping and modifications, and host cell protein. GMP manufacturing, MSAT, AFS and downstream PD were already there &mdash; the four-item list people were seeing is the separate *Start from my job* panel, which carries workbenches rather than functions.
+
+    Two of the new three exist mainly because their data breaks the usual defaults. Microbiology is **counted, rare and judged by eye**, which breaks the measurement chart, the bell curve and percent agreement all at once. Facilities data **drifts** rather than exceeding a limit, which is what the extra control-chart rules are for, and cleanroom particle counts are bounded at zero with a long tail, which is what the next item is for.
+
+    **Capability on data that is not bell-shaped (Box-Cox).** Withholding the tail figures when the shape is wrong is correct, and it is still a dead end: a QC group that has to write a specification this week is left with Cp, Cpk and a count. So where the shape can be fixed, it is: Box-Cox picks the power that maximises the profile likelihood, the specification limits are transformed the same way, and the tail is computed there. The discipline that makes it honest is that **normality is tested again on the transformed values** and the figures stay withheld if the transform did not work. Measured on a right-skewed reading whose limit sits at its true 99.9th percentile, so the real rate is **1,000 PPM by construction**: the straight normal fit reports **0 PPM** &mdash; no risk at all &mdash; and the transformed fit reports about **1,300**, with &lambda; landing on 0, the log, as it should for lognormal data. On a bimodal reading the transform is fitted, fails its re-test, and the figures stay withheld: no power of a two-humped variable is bell-shaped, and a transform that failed is not a licence to report. Data that passed its original test is never offered a transform at all, so there are never two sets of tail figures to pick the friendlier one from.
+
+    **A tolerance bound that assumes no distribution.** Sort the results and the share of the population below the j-th one follows a Beta distribution that depends only on n &mdash; skewed, bimodal, bounded at zero, it does not matter, because only the ranking is used. What it costs is sample size, and the cost is steep: a one-sided 99% claim at 95% confidence needs **299** results from the ranking alone, against about ten for the normal-theory factor; two-sided needs **473**; a 95% claim needs **59**. All three match the published values exactly. Coverage is verified empirically on three shapes that break the normal factor &mdash; lognormal, exponential and uniform &mdash; by asking how often the bound really does sit above the population's 99th percentile. Below the required count it refuses and states the confidence the data actually reaches: **thirty results reach 26%, not 95%**, with the 299 attached so the answer is actionable rather than just negative.
+
+    Both are reported beside the normal-theory answer rather than instead of it, so the trade &mdash; assume a shape and need ten results, or assume nothing and need 299 &mdash; is made with open eyes. Three playbook gaps that claimed this work did not exist were corrected in the same change, since they had become false.
+
 Ways to share results, all built in the browser:
 - **Save as PDF**: an A4 report (action plan, what-if scenarios, every chart with its "how to read this" note, the DOE run sheet, the models in plain words, a glossary, and an audit trail).
 - **Download Excel (.xlsx)**: every number behind the report, one sheet per topic (summary, audit trail, columns and roles, models, drivers, action plan, capability, control chart, desirability, DOE effects, what-if scenarios, DOE run sheet, data analyzed). Numbers stay numbers.
@@ -196,7 +208,7 @@ node --test tests/run-tests.js
 | `advisor-eval.js` | 129 labelled phrasings, in a tuned set and a held-out set, used to measure the routing |
 | `advisor-ui.js` | Ask box, ranked recommendations with evidence, and the live accuracy panel |
 | `doe.js` | DOE detection and analysis; factorial, fractional, Plackett-Burman, response-surface, definitive screening and mixture designs; Scheff&eacute; blending model |
-| `spc.js` | Six Sigma statistics: capability, I-MR with the full Nelson set, c/u/p count charts with overdispersion, box plots, Taguchi S/N, DPMO |
+| `spc.js` | Six Sigma statistics: capability with a Box-Cox path for skewed data, I-MR with the full Nelson set, c/u/p count charts with overdispersion, box plots, Taguchi S/N, DPMO |
 | `merge.js` | Joining two files on a key, with replicate averaging |
 | `audit.js` | SHA-256, zip and Excel writers, audit trail and results workbook |
 | `applications.js` | Where each technique is used, by modality, function and unit operation, plus a playbook per function |
@@ -208,7 +220,7 @@ node --test tests/run-tests.js
 | `tost-ui.js` | Method-transfer panel: interval-against-margin chart, result strip, report |
 | `variance.js` | Variance components, one-way ANOVA, Tukey&ndash;Kramer and the studentized range, crossed Gage R&R, attribute agreement with kappa |
 | `variance-ui.js` | Variance panel: source-share bar, group strip, ANOVA and component tables, report |
-| `tolerance.js` | Exact tolerance factors, non-central t, Anderson&ndash;Darling, power and sample size |
+| `tolerance.js` | Exact tolerance factors, distribution-free bounds from order statistics, non-central t, Anderson&ndash;Darling, power and sample size |
 | `tolerance-ui.js` | Limits panel: interval against specification, power curve, study-size table, report |
 | `stab.js` | Shelf-life panel: input, poolability tables, trend chart, Q1E report |
 | `codon.js` | Genetic code, host codon-usage tables, CAI, GC windows, 5' folding, restriction sites |

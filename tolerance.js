@@ -301,8 +301,103 @@
     return out;
   }
 
+
+  /* ---------- A tolerance bound that assumes no distribution at all ----------
+
+     The factors above lean hard on normality, and the Anderson-Darling test above exists
+     because of it. But a failed test leaves a QC group with nothing to report, which is an
+     honest dead end and still a dead end: "this data cannot support that limit" does not
+     help somebody who has to write a specification this week.
+
+     Order statistics give the way out. If you sort the results and quote the largest one as
+     the limit, the share of the population below it is not unknown - it follows a Beta
+     distribution that depends only on n, whatever the measurements themselves are
+     distributed like. Skewed, bimodal, bounded at zero, it does not matter, because the
+     only thing used is the ranking.
+
+     What it costs is sample size, and the cost is steep. The coverage below the j-th
+     smallest of n results is Beta(j, n-j+1), so the confidence that it sits above the
+     p-quantile is a binomial tail:
+
+         gamma = P(Binomial(n, p) <= j-1)
+
+     Take the largest observation, j = n, and that collapses to 1 - p^n. For 99% coverage at
+     95% confidence this needs n >= 299, against about 10 for the normal-theory factor. That
+     is the real trade: the normal factor buys a limit from 10 results by assuming a shape,
+     and this one assumes nothing and asks for 299. Both numbers are reported so the choice
+     is made with open eyes rather than by whichever test happened to pass. */
+
+  // P(Binomial(n, p) <= k), summed in log space so large n does not overflow.
+  function binomCdf(k, n, p) {
+    if (k < 0) return 0;
+    if (k >= n) return 1;
+    if (p <= 0) return 1;
+    if (p >= 1) return 0;
+    let lc = 0, total = 0;
+    const lp = Math.log(p), lq = Math.log1p(-p);
+    for (let i = 0; i <= k; i++) {
+      if (i > 0) lc += Math.log((n - i + 1) / i);
+      total += Math.exp(lc + i * lp + (n - i) * lq);
+    }
+    return Math.min(1, total);
+  }
+
+  /* The smallest n whose most extreme observations can carry the claim at all.
+     One-sided uses the single most extreme value; two-sided uses the min and the max, whose
+     joint coverage is 1 - p^n - n(1-p)p^(n-1). */
+  function nonParametricN(p, conf, sided) {
+    const reach = n => (sided === 2
+      ? 1 - Math.pow(p, n) - n * (1 - p) * Math.pow(p, n - 1)
+      : 1 - Math.pow(p, n));
+    let n = 2;
+    while (n < 200000 && reach(n) < conf) n++;
+    return n >= 200000 ? null : n;
+  }
+
+  /* A bound from the ranking alone. Returns the most extreme usable order statistic, how
+     much confidence it actually achieves, and - when the data cannot reach the claim - how
+     many results would. */
+  function nonParametric(values, p, conf, sided) {
+    const xs = (values || []).map(Number).filter(v => isFinite(v)).sort((a, b) => a - b);
+    const n = xs.length;
+    const need = nonParametricN(p, conf, sided);
+    const out = { n, p, conf, sided, nNeeded: need, lower: null, upper: null, rank: null, achieved: null, achievable: false, distributionFree: true };
+    if (n < 2) { out.note = 'Two results cannot bound anything without assuming a shape.'; return out; }
+    if (sided === 2) {
+      // Depth k from each end: coverage between x(k) and x(n+1-k) is Beta(n+1-2k, 2k).
+      for (let k = Math.floor(n / 2); k >= 1; k--) {
+        const g = binomCdf(n - 2 * k, n, p);
+        if (g >= conf) {
+          out.rank = k; out.achieved = g; out.achievable = true;
+          out.lower = xs[k - 1]; out.upper = xs[n - k];
+          break;
+        }
+      }
+      if (!out.achievable) out.achieved = 1 - Math.pow(p, n) - n * (1 - p) * Math.pow(p, n - 1);
+    } else {
+      for (let j = n; j >= 1; j--) {
+        const g = binomCdf(j - 1, n, p);
+        if (g >= conf) {
+          out.rank = n - j + 1; out.achieved = g;
+          out.achievable = true;
+          out.upper = xs[j - 1];
+          out.lower = xs[n - j];   // the mirror bound, for a lower one-sided claim
+          break;
+        }
+      }
+      if (!out.achievable) out.achieved = 1 - Math.pow(p, n);
+    }
+    if (!out.achievable) {
+      out.note = 'With ' + n + ' result' + (n === 1 ? '' : 's') + ', the most extreme value reaches only ' +
+        (out.achieved * 100).toFixed(1) + '% confidence of covering ' + (p * 100).toFixed(1) + '% of production' +
+        (need ? ', and ' + need + ' results would be needed for ' + Math.round(conf * 100) + '%' : '') +
+        '. No distribution was assumed, so this is the floor rather than a modelling choice.';
+    }
+    return out;
+  }
+
   root.MLTolerance = {
-    toleranceFactor, toleranceInterval, andersonDarling, nctCdf, wPdf, wBounds, integrateW, simpson, centreAllowance, twoSidedCoverage,
+    toleranceFactor, toleranceInterval, andersonDarling, nonParametric, nonParametricN, binomCdf, nctCdf, wPdf, wBounds, integrateW, simpson, centreAllowance, twoSidedCoverage,
     powerOneSample, powerTwoSample, powerTost,
     sampleSizeOneSample, sampleSizeTwoSample, sampleSizeTost, powerCurve
   };

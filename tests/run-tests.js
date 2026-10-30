@@ -4432,3 +4432,138 @@ test('every function has a playbook with an order, a measured figure and its gap
   assert.ok(/own test suite/.test(app), 'the panel must say the figures are measured by the test suite rather than quoted');
   assert.ok(/Where it stops/.test(app), 'the panel must print the limits, not just carry them in the data file');
 });
+
+/* Withholding the tail figures when the shape is wrong is correct, and it is still a dead
+   end: a QC group that has to write a specification this week is left with Cp, Cpk and a
+   count. Two ways out, both measured here - transform to a scale where the shape is normal,
+   or drop the distribution entirely and pay for it in sample size. */
+test('a Box-Cox transform recovers the tail figures that skew destroys, and refuses when it cannot', () => {
+  const nz = r => { let u = 0, v = 0; while (!u) u = r(); while (!v) v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  /* A right-skewed impurity, which is what impurities, aggregates and particulates actually
+     look like. The limit is placed at the TRUE 99.9th percentile, so the real out-of-spec
+     rate is 1,000 PPM by construction and any estimate can be scored against it. */
+  const mu = Math.log(0.5), sg = 0.55;
+  const usl = Math.exp(mu + sg * (-SPC.normInv(0.001)));
+  let raw = 0, bc = 0, usable = 0, lambdas = [];
+  const trials = 150;
+  for (let t = 0; t < trials; t++) {
+    const r = E.rng(400 + t);
+    const y = E.range(300).map(() => Math.exp(mu + sg * nz(r)));
+    const c = SPC.capability(y, { usl }, false);
+    raw += c.ppm;
+    assert.strictEqual(c.tailsUsable, false, 'lognormal data must fail the normality test');
+    assert.ok(c.nonNormal, 'and the transform must then be offered');
+    if (c.nonNormal.usable) { usable++; bc += c.nonNormal.ppm; lambdas.push(c.nonNormal.lambda); }
+  }
+  const rawPpm = raw / trials, bcPpm = bc / Math.max(1, usable);
+  /* The normal fit on raw skewed data does not merely err, it reports no risk at all: a
+     tail probability from the wrong distribution is wrong by orders of magnitude, and here
+     it rounds to zero against a true 1,000. */
+  assert.ok(rawPpm < 50, 'the raw normal fit should collapse to near zero, got ' + Math.round(rawPpm));
+  assert.ok(usable / trials > 0.9, 'the transform should work on lognormal data nearly always, got ' + Math.round(100 * usable / trials) + '%');
+  // And the transformed estimate lands on the right order of magnitude.
+  assert.ok(bcPpm > 300 && bcPpm < 4000, 'transformed estimate should be near the true 1,000 PPM, got ' + Math.round(bcPpm));
+  // Measured: 0 PPM raw, 1,322 PPM transformed, against a true 1,000. Lambda lands on 0, the log.
+  const medLam = lambdas.sort((a, b) => a - b)[Math.floor(lambdas.length / 2)];
+  assert.ok(Math.abs(medLam) < 0.15, 'lambda should land on the log for lognormal data, got ' + medLam);
+
+  /* The discipline that makes it honest: normality is tested AGAIN after transforming, and
+     a transform that did not work is not a licence to report. No power of a two-humped
+     variable is bell-shaped, so this must stay withheld. */
+  const r2 = E.rng(9);
+  const bimodal = E.range(300).map((_, i) => (i % 2 ? 2 + 0.15 * nz(r2) : 8 + 0.15 * nz(r2)));
+  const bm = SPC.capability(bimodal, { usl: 9 }, false);
+  assert.strictEqual(bm.tailsUsable, false);
+  assert.strictEqual(bm.nonNormal.usable, false, 'a transform must not rescue a bimodal distribution');
+  assert.ok(/not a licence to report/.test(bm.nonNormal.why));
+
+  // Data that passed its normality test is not offered a transform at all, so there are
+  // never two sets of tail figures to pick the friendlier one from.
+  const r3 = E.rng(21);
+  const normal = SPC.capability(E.range(200).map(() => 100 + 2 * nz(r3)), { lsl: 94, usl: 106 }, false);
+  assert.strictEqual(normal.tailsUsable, true);
+  assert.strictEqual(normal.nonNormal, null, 'no competing figures when the raw data is fine');
+
+  // Honest refusals rather than a silent shift.
+  const withZero = SPC.capability(E.range(40).map((_, i) => (i === 0 ? 0 : i / 10)), { usl: 5 }, false);
+  if (withZero.nonNormal) assert.ok(/above zero/.test(withZero.nonNormal.why), 'zero values must be refused with a reason');
+  const lowLsl = SPC.nonNormalTail(E.range(40).map(i => 1 + i / 10), 0, 10);
+  assert.strictEqual(lowLsl.usable, false);
+  assert.ok(/at or below zero/.test(lowLsl.why));
+});
+
+test('a distribution-free tolerance bound assumes nothing, and says what that costs in samples', () => {
+  /* The classic sample sizes, which are a property of the arithmetic rather than of any
+     dataset, so they are exact and worth pinning. 299 for a one-sided 99% claim at 95%
+     confidence is the number that surprises people: the normal-theory factor does it on
+     about ten results by assuming a shape. */
+  assert.strictEqual(TOL.nonParametricN(0.99, 0.95, 1), 299);
+  assert.strictEqual(TOL.nonParametricN(0.99, 0.95, 2), 473);
+  assert.strictEqual(TOL.nonParametricN(0.95, 0.95, 1), 59);
+  assert.strictEqual(TOL.nonParametricN(0.90, 0.95, 1), 29);
+
+  // The binomial tail behind it, checked against a hand-computable case.
+  assert.ok(Math.abs(TOL.binomCdf(0, 10, 0.5) - Math.pow(0.5, 10)) < 1e-12);
+  assert.ok(Math.abs(TOL.binomCdf(10, 10, 0.5) - 1) < 1e-12);
+  assert.ok(Math.abs(TOL.binomCdf(5, 10, 0.5) - 0.623046875) < 1e-9);
+
+  /* The claim that matters: the coverage holds whatever the measurements are distributed
+     like, because only the ranking is used. Checked on three shapes that break the normal
+     factor - a long right tail, an exponential, and a bounded uniform - by asking how often
+     the bound really does sit above the population's 99th percentile. */
+  const nz = r => { let u = 0, v = 0; while (!u) u = r(); while (!v) v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const shapes = {
+    lognormal: { draw: r => Math.exp(0.6 * nz(r)), q99: Math.exp(0.6 * (-SPC.normInv(0.01))) },
+    exponential: { draw: r => -Math.log(Math.max(1e-12, r())), q99: -Math.log(0.01) },
+    uniform: { draw: r => r() * 10, q99: 9.9 }
+  };
+  for (const [name, sh] of Object.entries(shapes)) {
+    let held = 0, trials = 400;
+    for (let t = 0; t < trials; t++) {
+      const r = E.rng(9000 + t);
+      const xs = E.range(299).map(() => sh.draw(r));
+      const b = TOL.nonParametric(xs, 0.99, 0.95, 1);
+      assert.strictEqual(b.achievable, true, name + ': 299 results must reach the claim');
+      if (b.upper >= sh.q99) held++;
+    }
+    const cover = held / trials;
+    /* The bound is built to hold at least 95% of the time. It is conservative by
+       construction - the achieved confidence at n=299 is a shade over 95% - so the
+       measured rate sits above the nominal, never below it. */
+    assert.ok(cover >= 0.93, name + ': coverage fell to ' + (cover * 100).toFixed(1) + '%, below the 95% claimed');
+    assert.ok(cover <= 1.0, name + ': ' + (cover * 100).toFixed(1) + '%');
+  }
+
+  /* What it does on a realistic QC dataset, which is the honest bad news: thirty results
+     cannot carry a 99% claim without assuming a shape, and the tool says how many would
+     rather than quietly producing a number. */
+  const r = E.rng(5);
+  const small = TOL.nonParametric(E.range(30).map(() => Math.exp(0.5 * nz(r))), 0.99, 0.95, 1);
+  assert.strictEqual(small.achievable, false);
+  assert.strictEqual(small.nNeeded, 299);
+  assert.ok(small.achieved < 0.3, 'thirty results reach only ' + (small.achieved * 100).toFixed(1) + '%');
+  assert.ok(/No distribution was assumed/.test(small.note), small.note);
+
+  // A looser claim the same thirty results CAN carry, so the answer is not always no.
+  const r6 = E.rng(6);
+  const looser = TOL.nonParametric(E.range(30).map(() => Math.exp(0.5 * nz(r6))), 0.90, 0.95, 1);
+  assert.strictEqual(looser.achievable, true);
+  assert.ok(looser.upper !== null && looser.rank >= 1);
+
+  /* Two-sided uses both ends, and the interval must actually bracket. The generator is
+     built once on purpose: seeding inside the map gave 500 identical values, and the bound
+     correctly collapsed to a single point - which is the right answer for constant data and
+     a broken test. */
+  const r7 = E.rng(7);
+  const two = TOL.nonParametric(E.range(500).map(() => 50 + 5 * nz(r7)), 0.99, 0.95, 2);
+  assert.strictEqual(two.achievable, true);
+  assert.ok(two.lower < two.upper, 'the two-sided interval must bracket: ' + two.lower + ' to ' + two.upper);
+  assert.ok(two.achieved >= 0.95);
+  // Constant data is not a failure of the method: the bound is that constant, both ends.
+  const flat = TOL.nonParametric(E.range(500).map(() => 7), 0.99, 0.95, 2);
+  assert.strictEqual(flat.lower, 7);
+  assert.strictEqual(flat.upper, 7);
+
+  // Nothing can be bounded from one result, and it says so rather than returning it.
+  assert.strictEqual(TOL.nonParametric([1], 0.99, 0.95, 1).achievable, false);
+});

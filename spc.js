@@ -16,6 +16,86 @@
 
   const num = v => v !== null && v !== undefined && v !== '' && isFinite(Number(v));
 
+
+  /* ---------- Capability when the data is not bell-shaped ----------
+
+     Withholding the tail figures, which is what happens above when Anderson-Darling fails,
+     is correct and is still a dead end: a QC group that has to write a specification this
+     week is left with Cp, Cpk and a count. There is a standard way out that does not
+     require pretending - transform the measurements to a scale where the shape IS normal,
+     transform the specification limits the same way, and compute the tail there.
+
+     Box-Cox picks the power that makes the transformed data as normal as possible, by
+     maximising the profile likelihood over lambda. The crucial discipline is that
+     normality is then TESTED AGAIN on the transformed values, and the figures are still
+     withheld if the transform did not fix it. A transform that failed is not a licence to
+     report; impurity data with a hard floor at zero and a long right tail is usually fixed
+     by lambda near 0, which is the log, and a bimodal distribution is not fixed by any
+     lambda at all, because no power of a two-humped variable is bell-shaped.
+
+     The transform is monotone increasing for every lambda, so the limits keep their order
+     and the probability below a limit is preserved exactly - which is what makes the tail
+     figure in the transformed space the right answer in the original one. */
+  function boxCoxLambda(values) {
+    const xs = values.filter(v => isFinite(v) && v > 0);
+    const n = xs.length;
+    if (n < 8 || n !== values.length) return null;
+    const sumLog = xs.reduce((a, x) => a + Math.log(x), 0);
+    const at = lam => {
+      const ys = Math.abs(lam) < 1e-9 ? xs.map(Math.log) : xs.map(x => (Math.pow(x, lam) - 1) / lam);
+      const m = mean(ys);
+      let v = 0;
+      for (const y of ys) v += (y - m) * (y - m);
+      v /= n;
+      if (!(v > 0)) return -Infinity;
+      return -(n / 2) * Math.log(v) + (lam - 1) * sumLog;
+    };
+    let best = null, bestLL = -Infinity;
+    for (let lam = -5; lam <= 5.0001; lam += 0.01) {
+      const ll = at(lam);
+      if (ll > bestLL) { bestLL = ll; best = lam; }
+    }
+    if (best === null) return null;
+    return { lambda: Math.round(best * 100) / 100, loglik: bestLL };
+  }
+  const bcApply = (x, lam) => (Math.abs(lam) < 1e-9 ? Math.log(x) : (Math.pow(x, lam) - 1) / lam);
+
+  /* Returns the tail figures computed on the transformed scale, or an honest reason why
+     there are none. Called by capability when the raw data fails its normality test. */
+  function nonNormalTail(y, lsl, usl) {
+    if (y.some(v => !(v > 0))) {
+      return { usable: false, why: 'Box-Cox needs every result above zero, and this data contains zero or negative values. A shift would make it apply, but the size of the shift is a judgement the tool should not make for you.' };
+    }
+    const bc = boxCoxLambda(y);
+    if (!bc) return { usable: false, why: 'Not enough results to fit a transform worth trusting.' };
+    const lam = bc.lambda;
+    if (lsl !== null && !(lsl > 0)) {
+      return { usable: false, lambda: lam, why: 'The lower specification limit is at or below zero, which the transform cannot carry, so a two-sided tail figure is not available on this scale.' };
+    }
+    const t = y.map(v => bcApply(v, lam));
+    const TOL = tolerance();
+    const ad = TOL && TOL.andersonDarling ? TOL.andersonDarling(t) : null;
+    const normalNow = ad ? ad.normal : null;
+    const m = mean(t), s = sd(t);
+    const tl = lsl !== null ? bcApply(lsl, lam) : null;
+    const tu = usl !== null ? bcApply(usl, lam) : null;
+    const pBelow = tl !== null && s > 0 ? normCdf((tl - m) / s) : 0;
+    const pAbove = tu !== null && s > 0 ? 1 - normCdf((tu - m) / s) : 0;
+    const pOut = pBelow + pAbove;
+    const zBench = pOut <= 0 || pOut >= 1 ? null : -normInv(pOut);
+    return {
+      usable: normalNow === true,
+      lambda: lam, label: lam === 0 ? 'log' : lam === 1 ? 'none needed' : 'x^' + lam,
+      normality: ad ? { stat: ad.adjusted, p: ad.p, normal: ad.normal, note: ad.note || null } : null,
+      pBelow, pAbove, ppm: pOut * 1e6, zBench, sigmaLevel: zBench === null ? null : zBench + 1.5,
+      why: normalNow === true
+        ? 'A Box-Cox transform at lambda ' + lam + ' brings this data to a shape the normal tail figures can be read from, and normality was re-tested on the transformed values rather than assumed. Cp and Cpk stay as computed on your actual measurements, since they are ratios and need no shape.'
+        : normalNow === false
+          ? 'A Box-Cox transform at lambda ' + lam + ' was fitted and the transformed values still fail the normality test, so the tail figures stay withheld. No power of a two-humped or mixed distribution is bell-shaped, and a transform that did not work is not a licence to report.'
+          : 'The transform was fitted but normality could not be tested on the result.'
+    };
+  }
+
   /* Capability. y in time order; spec = { lsl, usl, target } (any may be missing);
      timeOrdered: within-subgroup sigma comes from the average moving range, which only
      means something when rows are in production order. */
@@ -81,6 +161,10 @@
       // Normality of the results, and therefore whether the tail figures are usable.
       normality: ad ? { stat: ad.adjusted, p: ad.p, normal: ad.normal, note: ad.note || null } : null,
       tailsUsable,
+      /* Only fitted when the raw data failed. On data that passed, a transform would be
+         solving a problem that is not there, and reporting two sets of tail figures invites
+         picking the friendlier one. */
+      nonNormal: tailsUsable === false ? nonNormalTail(y, lsl, usl) : null,
       verdict: key === null || key === undefined ? null : key >= 1.67 ? 'excellent' : key >= 1.33 ? 'capable' : key >= 1 ? 'marginal' : 'not capable',
       centeredCpk: lsl !== null && usl !== null && (sW || sO) ? (usl - lsl) / (6 * (sW || sO)) : null,
       sigmaFor133: lsl !== null && usl !== null ? (usl - lsl) / 8 : null
@@ -353,6 +437,6 @@
     };
   }
 
-  root.MLSpc = { normCdf, normInv, capability, imr, countChart, box, snRatio, taguchi, attribute };
+  root.MLSpc = { normCdf, normInv, capability, imr, countChart, boxCoxLambda, nonNormalTail, box, snRatio, taguchi, attribute };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLSpc;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
