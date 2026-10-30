@@ -387,7 +387,12 @@
     }
     if (rep.spc && rep.spc.capability) {
       const c = rep.spc.capability, k = c.Cpk !== null ? c.Cpk : c.Ppk;
-      if (k !== null) tiles.push(tile('Process capability', (c.Cpk !== null ? 'Cpk ' : 'Ppk ') + k.toFixed(2), c.verdict + ' · ' + fmt(c.ppm, 0) + ' PPM expected out of spec'));
+      /* The index stands whatever the shape; the PPM beside it does not, so on data that
+         fails the normality test the tile shows what was actually observed instead. */
+      if (k !== null) tiles.push(tile('Process capability', (c.Cpk !== null ? 'Cpk ' : 'Ppk ') + k.toFixed(2),
+        c.verdict + ' · ' + (c.tailsUsable === false
+          ? c.observedOut + ' of ' + c.n + ' rows observed out of spec'
+          : fmt(c.ppm, 0) + ' PPM expected out of spec')));
     } else if (rep.spc && rep.spc.attribute) {
       const a = rep.spc.attribute;
       tiles.push(tile('Sigma level', a.sigmaLevel.toFixed(1) + ' σ', fmt(a.dpmo, 0) + ' defects per million · yield ' + pct(a.yield)));
@@ -468,7 +473,14 @@
         card('Process capability', 'Against ' + [c.lsl !== null ? 'LSL ' + fmt(c.lsl) : '', c.usl !== null ? 'USL ' + fmt(c.usl) : '', c.target !== null ? 'target ' + fmt(c.target) : ''].filter(Boolean).join(', ') + '. <span class="verdict ' + v + '">' + h(c.verdict) + '</span>' + (s.designed ? '<br>Designed experiment: this spread was created on purpose, so read these as illustration only.' : ''),
           '<div class="table-scroll"><table class="spc-table"><tbody>' + row('Rows', c.n.toLocaleString()) + row('Mean', fmt(c.mean)) + row('Std. deviation, within (short term)', c.sdWithin === null ? null : fmt(c.sdWithin)) + row('Std. deviation, overall (long term)', fmt(c.sdOverall)) +
           row('Cp', f2(c.Cp)) + row('Cpk', f2(c.Cpk)) + row('Pp', f2(c.Pp)) + row('Ppk', f2(c.Ppk)) + row('Cpm (Taguchi, vs target)', f2(c.Cpm)) + row('Z.bench', f2(c.zBench)) +
-          row('Expected out of spec (PPM)', fmt(c.ppm, 0)) + row('Observed out of spec', c.observedOut + ' of ' + c.n + ' (' + pct(c.observedPct) + ')') + row('Sigma level (short term, +1.5 shift)', f2(c.sigmaLevel)) +
+          row('Expected out of spec (PPM)', c.tailsUsable === false
+            ? '<span class="flagged-note">withheld: these results are not bell-shaped</span>' : fmt(c.ppm, 0)) +
+          row('Observed out of spec', c.observedOut + ' of ' + c.n + ' (' + pct(c.observedPct) + ')') +
+          row('Sigma level (short term, +1.5 shift)', c.tailsUsable === false
+            ? '<span class="flagged-note">withheld</span>' : f2(c.sigmaLevel)) +
+          row('Results are bell-shaped', c.normality === null || c.normality.p === null
+            ? 'not tested (' + ((c.normality && c.normality.note) || 'too few results') + ')'
+            : (c.normality.normal ? 'no evidence against it' : 'no &mdash; Anderson&ndash;Darling p ' + (c.normality.p < 0.001 ? '&lt; 0.001' : c.normality.p.toFixed(3)))) +
           row('Taguchi loss vs a unit at the spec limit', c.loss === null ? null : pct(c.loss)) + '</tbody></table></div>' + (c.sdWithin === null ? '<p class="hint">Rows are not in time order, so short-term Cp and Cpk are skipped; Pp and Ppk use the overall spread.</p>' : ''), 'capability') +
         card('Distribution against the spec', 'Red bars fall outside the spec. The curve is the bell shape the capability numbers assume.', histHtml, 'histogram'),
         'block-grid');

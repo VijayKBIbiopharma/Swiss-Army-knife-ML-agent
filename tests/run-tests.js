@@ -3459,3 +3459,96 @@ test('the data is shown as a table before the model runs', () => {
   // And clearing the data clears the preview with it, or deleted data stays on screen.
   assert.ok(/data-preview'\)\.innerHTML = ''/.test(app), 'deleting the data must remove the preview');
 });
+
+test('capability withholds the tail figures when the data is not bell-shaped', () => {
+  /* Cp and Cpk are ratios of distances to spread and stand whatever the shape. The expected
+     PPM, Z.bench and sigma level are different: every one is a normal tail probability, and
+     a tail probability from the wrong distribution is not approximately right. This measures
+     how wrong, because the size of the error is the whole argument for withholding it. */
+  const logn = (n, seed, sg) => {
+    const r = E.rng(seed), out = [];
+    const nz = () => { const u = Math.max(1e-12, r()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+    for (let i = 0; i < n; i++) out.push(Math.exp(nz() * sg));
+    return out;
+  };
+  const Z999 = 3.090232306;   // the 99.9th percentile of a standard normal
+
+  /* A right-skewed impurity with the limit placed at its TRUE 99.9th percentile, so the
+     real out-of-spec rate is 1,000 PPM by construction and every error below is the normal
+     assumption's alone. */
+  const errors = [];
+  for (const sg of [0.15, 0.25, 0.4, 0.6]) {
+    const c = SPC.capability(logn(4000, 7, sg), { usl: Math.exp(Z999 * sg) }, false);
+    errors.push({ sg, skew: c.skew, ppm: c.ppm, under: 1000 / Math.max(c.ppm, 1e-12), usable: c.tailsUsable });
+    assert.strictEqual(c.tailsUsable, false, 'a lognormal at shape ' + sg + ' must fail the normality test');
+  }
+  // Even the mildest skew here understates the real rate by more than tenfold.
+  assert.ok(errors[0].under > 10, 'at skewness ' + errors[0].skew.toFixed(2) + ' the normal figure was only ' +
+    errors[0].under.toFixed(1) + 'x under; the point of the check is that this is large');
+  // And it gets worse fast, which is why "approximate" was the wrong word for it.
+  assert.ok(errors[3].under > 1000, 'by shape 0.6 it should be off by orders of magnitude, got ' + errors[3].under.toFixed(0) + 'x');
+  for (let i = 1; i < errors.length; i++) {
+    assert.ok(errors[i].under > errors[i - 1].under, 'the error must grow with the skew');
+  }
+
+  /* The rule this replaced fired on a skewness above 1. At the mildest shape above the
+     skewness is below that, so the old rule stayed silent through an error of more than
+     tenfold - the mild right skew impurities and aggregates actually have. */
+  assert.ok(Math.abs(errors[0].skew) < 1,
+    'the first case must be one the old skew>1 rule missed, skew was ' + errors[0].skew.toFixed(2));
+
+  // Genuinely normal data must not be caught by this, or the warning is noise.
+  const r = E.rng(3);
+  const nz = () => { const u = Math.max(1e-12, r()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+  const normal = E.range(500).map(() => 10 + nz());
+  const cn = SPC.capability(normal, { lsl: 7, usl: 13 }, false);
+  assert.strictEqual(cn.tailsUsable, true, 'normal data must keep its tail figures');
+  assert.ok(cn.ppm >= 0 && isFinite(cn.ppm));
+  assert.ok(cn.normality.p > 0.05);
+
+  /* Too few rows is reported as untested rather than as a pass. A silent pass on five
+     results would be the worst of the three outcomes: an unchecked assumption presented as
+     a checked one. */
+  const tiny = SPC.capability([1, 2, 3, 4, 5], { usl: 6 }, false);
+  assert.strictEqual(tiny.tailsUsable, null);
+  assert.ok(/Too few/.test(tiny.normality.note));
+
+  // Cp and Cpk survive either way: they are ratios of distances, not tail probabilities.
+  const skewed = SPC.capability(logn(4000, 7, 0.6), { lsl: 0.1, usl: Math.exp(Z999 * 0.6) }, false);
+  assert.ok(isFinite(skewed.Ppk) && skewed.Ppk !== null, 'Ppk is not a tail probability and must still be given');
+  assert.ok(isFinite(skewed.observedPct), 'and the observed rate needs no distribution at all');
+});
+
+test('the agent says which capability figures it is withholding, and why', async () => {
+  const logn = (n, seed, sg) => {
+    const r = E.rng(seed), out = [];
+    const nz = () => { const u = Math.max(1e-12, r()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+    for (let i = 0; i < n; i++) out.push(Math.exp(nz() * sg));
+    return out;
+  };
+  const build = (vals) => {
+    const r = E.rng(5), rows = [];
+    for (let i = 0; i < vals.length; i++) rows.push(['B' + i, (5 + r() * 3).toFixed(2), ['A', 'B'][Math.floor(r() * 2)], vals[i].toFixed(4)]);
+    return { columns: ['BatchID', 'Temp', 'Line', 'Impurity_Pct'], rows };
+  };
+  const usl = Math.exp(3.090232306 * 0.3);
+  const rep = await A.run(build(logn(200, 7, 0.3)), { target: 'Impurity_Pct', sixSigma: { usl: Number(usl.toFixed(4)) } });
+  assert.strictEqual(rep.spc.capability.tailsUsable, false);
+  const text = rep.insights.map(i => i.text).join(' ');
+  assert.ok(/not bell-shaped/.test(text), 'it must say so plainly');
+  assert.ok(/not reported|withheld/.test(text), 'and say the tail figures are withheld rather than labelling them approximate');
+  // The headline must not quote a PPM it has just disowned.
+  const headline = rep.insights.find(i => /Process capability:/.test(i.text)).text;
+  assert.ok(!/parts per million/.test(headline), 'the capability line must not quote PPM here: ' + headline);
+  assert.ok(/Observed: \d+ of \d+/.test(headline), 'it must quote the observed count instead');
+  // What remains has to be named, or the warning leaves the reader with nothing.
+  assert.ok(/Cp and Cpk/.test(text) && /tolerance interval/.test(text), 'it must say what still stands and what to use instead');
+
+  // On normal data the figures come back, or the check is just a blanket refusal.
+  const r2 = E.rng(11);
+  const nz2 = () => { const u = Math.max(1e-12, r2()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r2()); };
+  const ok = await A.run(build(E.range(200).map(() => 10 + nz2())), { target: 'Impurity_Pct', sixSigma: { lsl: 6, usl: 14 } });
+  assert.strictEqual(ok.spc.capability.tailsUsable, true);
+  assert.ok(/parts per million/.test(ok.insights.find(i => /Process capability:/.test(i.text)).text),
+    'normal data must still get its PPM');
+});

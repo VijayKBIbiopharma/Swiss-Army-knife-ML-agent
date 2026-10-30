@@ -9,6 +9,10 @@
 
   // Shared numerics: the engine carries the accurate normal CDF and its inverse.
   const { normCdf, normInv } = E;
+  /* Resolved when used, so load order cannot bite: the capability block needs the normality
+     test that the tolerance tool already carries, and reimplementing Anderson-Darling here
+     to avoid the dependency would be two versions of one thing waiting to disagree. */
+  const tolerance = () => root.MLTolerance || (typeof require !== 'undefined' ? require('./tolerance.js') : null);
 
   const num = v => v !== null && v !== undefined && v !== '' && isFinite(Number(v));
 
@@ -42,6 +46,30 @@
       if (delta > 0 && isFinite(delta)) loss = mean(y.map(v => (v - T) ** 2)) / (delta * delta);
     }
     const s3 = y.reduce((a, v) => a + ((v - m) / (sO || 1)) ** 3, 0) / n;
+
+    /* Whether the PPM and sigma figures above mean anything.
+
+       Cp and Cpk are ratios of distances to spread; they are what they are whatever the
+       shape. The expected PPM, Z.bench and sigma level are different: every one of them is
+       a normal tail probability, and a tail probability from the wrong distribution is not
+       approximately right, it is wrong by orders of magnitude.
+
+       Measured on a right-skewed (lognormal) impurity with the limit at its true 99.9th
+       percentile, so the real rate is 1,000 PPM: at a skewness of 0.50 the normal figure
+       reads 80 PPM, twelve times under; at 0.85 it reads 9 PPM, a hundred times under; by
+       1.47 it is eight thousand times under. The warning this replaced only fired above a
+       skewness of 1, so it stayed silent through the first two - the mild right skew that
+       impurities, aggregates and particulates actually have.
+
+       So the test is a real one rather than a skew threshold, and the observed count is
+       carried beside the estimate, because that one needs no distribution at all. */
+    const TOL = tolerance();
+    const ad = TOL && TOL.andersonDarling ? TOL.andersonDarling(y) : null;
+    const tailsUsable = !ad || ad.normal === null ? null : ad.normal;
+    /* How far apart the two answers are. The expected count is what the normal fit implies
+       for these n rows; the observed count is what actually happened. When they disagree,
+       the observed one is the evidence and the other is an assumption. */
+    const expectedOut = pOut * n;
     const key = w.Cpk ?? o.Ppk ?? null;
     return {
       n, mean: m, sdOverall: sO, sdWithin: sW, lsl, usl, target: T, mrBar,
@@ -49,6 +77,10 @@
       Cp: w.Cp ?? null, Cpk: w.Cpk ?? null, Cpu: w.Cpu ?? null, Cpl: w.Cpl ?? null, Pp: o.Pp ?? null, Ppk: o.Ppk ?? null, Cpm: cpm,
       pBelow, pAbove, ppm: pOut * 1e6, zBench, sigmaLevel: zBench === null ? null : zBench + 1.5,
       observedOut, observedPct: observedOut / n, loss, skew: s3,
+      expectedOut,
+      // Normality of the results, and therefore whether the tail figures are usable.
+      normality: ad ? { stat: ad.adjusted, p: ad.p, normal: ad.normal, note: ad.note || null } : null,
+      tailsUsable,
       verdict: key === null || key === undefined ? null : key >= 1.67 ? 'excellent' : key >= 1.33 ? 'capable' : key >= 1 ? 'marginal' : 'not capable',
       centeredCpk: lsl !== null && usl !== null && (sW || sO) ? (usl - lsl) / (6 * (sW || sO)) : null,
       sigmaFor133: lsl !== null && usl !== null ? (usl - lsl) / 8 : null

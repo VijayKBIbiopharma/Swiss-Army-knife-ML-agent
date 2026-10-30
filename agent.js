@@ -670,10 +670,36 @@
     if (c && s.designed) add('warn', 'This is a designed experiment: its spread comes from changing the factors on purpose, so the capability numbers below describe the experiment, not your everyday process. Run Six Sigma mode on normal production data for true capability.');
     if (c) {
       const idx = c.Cpk !== null ? 'Cpk = ' + c.Cpk.toFixed(2) : 'Ppk = ' + (c.Ppk !== null ? c.Ppk.toFixed(2) : '–');
-      add(c.verdict === 'capable' || c.verdict === 'excellent' ? 'good' : 'warn', 'Process capability: ' + idx + ' (' + c.verdict + '). Expected ' + fmt(c.ppm, 0) + ' parts per million out of spec (Z.bench ' + c.zBench.toFixed(2) + ', about ' + c.sigmaLevel.toFixed(1) + ' sigma). Observed: ' + c.observedOut + ' of ' + c.n + ' rows out of spec.');
+      /* Cp and Cpk are ratios of distances to spread and stand whatever the shape. The PPM,
+         Z.bench and sigma level are normal tail probabilities, and a tail probability from
+         the wrong distribution is not approximately right - it is wrong by orders of
+         magnitude. So they are quoted only when the data supports them, and the observed
+         count, which needs no distribution at all, is always quoted beside them. */
+      const tails = c.tailsUsable !== false
+        ? 'Expected ' + fmt(c.ppm, 0) + ' parts per million out of spec (Z.bench ' + c.zBench.toFixed(2) + ', about ' + c.sigmaLevel.toFixed(1) + ' sigma). '
+        : '';
+      add(c.verdict === 'capable' || c.verdict === 'excellent' ? 'good' : 'warn', 'Process capability: ' + idx + ' (' + c.verdict + '). ' + tails + 'Observed: ' + c.observedOut + ' of ' + c.n + ' rows out of spec.');
       if (c.centeredCpk !== null && c.Cpk !== null && c.centeredCpk - c.Cpk > 0.2) add('info', 'The process is off center: the mean is ' + fmt(c.mean) + ' but the middle of the spec is ' + fmt((c.lsl + c.usl) / 2) + '. Centering it would lift Cpk from ' + c.Cpk.toFixed(2) + ' to ' + c.centeredCpk.toFixed(2) + ' without reducing variation.');
       if (c.centeredCpk !== null && c.centeredCpk < 1.33) add('warn', 'Even perfectly centered, the spread is too wide for Cpk 1.33: the standard deviation needs to come down from ' + fmt(c.sdWithin || c.sdOverall) + ' to about ' + fmt(c.sigmaFor133) + '.');
-      if (Math.abs(c.skew) > 1) add('info', 'The data is skewed (skewness ' + c.skew.toFixed(1) + '). Capability numbers assume a bell-shaped spread, so treat them as approximate.');
+      /* This used to fire on a skewness above 1 and call the result "approximate". Measured
+         on a right-skewed impurity with the limit at its true 99.9th percentile, so the real
+         rate is 1,000 PPM: at a skewness of 0.65 the normal figure reads 62 PPM, sixteen
+         times under, and the old rule said nothing at all. "Approximate" was the wrong word
+         for it as well. The test is a real one now, and the figures it invalidates are
+         withheld rather than labelled. */
+      if (c.tailsUsable === false) {
+        add('warn', 'These results are not bell-shaped (Anderson\u2013Darling p ' + (c.normality.p < 0.001 ? '< 0.001' : c.normality.p.toFixed(3)) +
+          (Math.abs(c.skew) > 0.4 ? ', skewness ' + c.skew.toFixed(1) : '') + '), so the expected PPM, Z.bench and sigma level are not reported: every one of them is a normal tail probability, ' +
+          'and on skewed data those are wrong by factors of tens to thousands rather than by a little. ' +
+          'What stands is Cp and Cpk, which are ratios of distances and do not care about shape, and the observed ' +
+          c.observedOut + ' of ' + c.n + ' rows out of spec, which needs no distribution at all. ' +
+          'For a defensible figure on data this shape, use a tolerance interval or transform the results first.');
+      } else if (c.tailsUsable === null) {
+        add('info', 'Too few results to test whether they are bell-shaped, so the expected PPM and sigma level rest on an assumption nobody has checked. The observed ' +
+          c.observedOut + ' of ' + c.n + ' rows out of spec does not.');
+      } else if (Math.abs(c.skew) > 0.8) {
+        add('info', 'The results pass a normality test but lean one way (skewness ' + c.skew.toFixed(1) + '), and the tail figures are the part that is sensitive to that. The observed count is the one to lead with.');
+      }
       if (c.loss !== null) add('info', 'Taguchi quality loss: the average unit carries ' + pct(c.loss) + ' of the loss of a unit sitting right at the spec limit. Every step away from the target costs something, even inside spec.');
     } else if (s.stats) add('info', 'Six Sigma mode: no spec limits were given, so Cp and Cpk are skipped. The control chart, box plots and robustness analysis still apply.');
     if (s.imr) {
