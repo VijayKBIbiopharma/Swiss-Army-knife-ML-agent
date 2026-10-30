@@ -4783,3 +4783,70 @@ test('the gap evaluation quotes the tool rather than describing it, and covers e
   assert.ok(/nothing leaves this browser/.test(doc) || /nothing can be sent anywhere/.test(doc),
     'and the answer must rest on the guarantee, not on taste');
 });
+
+/* Two failures that a unit test cannot see but a user meets immediately, both of which I
+   shipped into this file's own history before catching them in a browser:
+
+     1. howTo(key) reads X.READ[key] and dereferences it. An unknown key throws, and because
+        the render is inside a try/catch the whole results section comes back empty with a
+        one-line message. A new card with a new help key is exactly when this happens.
+     2. rep.spc.capability only exists when specification limits were given. Reaching through
+        it unguarded took out the entire Six Sigma section for anybody who left them blank -
+        which is the documented default, since the panel says the limits are optional.
+
+   Neither is caught by testing the statistics, because neither is in the statistics. */
+test('every help key the page asks for exists, and the optional blocks are reached safely', () => {
+  const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  const X = require(path.join(ROOT, 'explain.js'));
+
+  /* The keys arrive two ways: howTo('x') directly, and as card()'s fourth argument. The
+     second needs the call split properly, because the third argument is a long HTML
+     expression full of brackets and quotes - a regex over it finds the wrong string. */
+  const keys = Array.from(app.matchAll(/howTo\(\s*'([^']+)'/g)).map(m => m[1]);
+  const argsOf = (src, at) => {
+    let i = at, depth = 0, quote = null, arg = '', out = [];
+    for (; i < src.length; i++) {
+      const ch = src[i], prev = src[i - 1];
+      if (quote) { arg += ch; if (ch === quote && prev !== '\\') quote = null; continue; }
+      if (ch === "'" || ch === '"' || ch === '`') { quote = ch; arg += ch; continue; }
+      if (ch === '(' || ch === '[' || ch === '{') depth++;
+      if (ch === ')' || ch === ']' || ch === '}') { depth--; if (depth === 0) { out.push(arg); return out; } }
+      if (ch === ',' && depth === 1) { out.push(arg); arg = ''; continue; }
+      arg += ch;
+    }
+    return out;
+  };
+  for (const m of app.matchAll(/\bcard\(/g)) {
+    const args = argsOf(app, m.index + 4);
+    const fourth = (args[3] || '').trim();
+    const lit = fourth.match(/^'([a-zA-Z][\w-]*)'$/);
+    if (lit) keys.push(lit[1]);
+  }
+  assert.ok(keys.length > 10, 'expected the page to ask for a good few help topics, found ' + keys.length);
+  // And the page must survive a key that is missing anyway, rather than blanking the section.
+  assert.ok(/if \(!r\) return ''/.test(app), 'howTo must degrade to no help box rather than throwing');
+  for (const k of new Set(keys)) {
+    assert.ok(X.READ[k], 'app.js asks for help topic "' + k + '", which explain.js does not have. ' +
+      'howTo dereferences it, so this throws and empties the whole results section.');
+    const r = X.READ[k];
+    assert.ok(Array.isArray(r) && r.length === 3, k + ': a help entry is [text, analogy, learn link]');
+    assert.ok(r[0].length > 60 && r[1].length > 20, k + ': the text or the analogy is too thin to help');
+  }
+
+  /* Anything on the report that is only sometimes present must be reached through a guard.
+     These are the fields that depend on a setting the user may not have filled in. */
+  const optional = ['capability', 'counts', 'imr', 'taguchi', 'boxes', 'attribute'];
+  for (const field of optional) {
+    // A bare `s.<field>.` with no preceding guard in the same expression is the bug shape.
+    const bad = new RegExp('(?<![&|?]\\\\s{0,3})\\\\bs\\\\.' + field + '\\\\.', 'g');
+    const hits = Array.from(app.matchAll(bad)).map(m => m.index);
+    for (const at of hits) {
+      const line = app.slice(app.lastIndexOf('\n', at) + 1, app.indexOf('\n', at));
+      assert.ok(/if \(s\.|s\.\w+ &&|\? |: |\|\|/.test(line),
+        'app.js dereferences s.' + field + ' without a guard on this line, and it is not always present:\n  ' + line.trim());
+    }
+  }
+  // And the specific one that broke: the transform result hangs off capability.
+  assert.ok(/c && c\.nonNormal/.test(app),
+    'the Box-Cox result must be reached through a guard on capability, which only exists when spec limits were given');
+});

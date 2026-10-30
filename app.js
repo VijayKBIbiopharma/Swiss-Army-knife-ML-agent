@@ -71,6 +71,13 @@
     $('target').innerHTML = usable.map(c => '<option value="' + h(c.name) + '"' + (c.name === guess ? ' selected' : '') + '>' + h(c.name) + '</option>').join('') +
       '<option value="__none__"' + (guess === '__none__' ? ' selected' : '') + '>Nothing: find groups and patterns (unsupervised)</option>';
     $('task').value = 'auto';
+    /* Only numeric columns can say how many units were looked at, and the target itself
+       cannot be its own denominator. */
+    if ($('count-units')) {
+      const num = prof.columns.filter(c => c.kind === 'numeric' && c.name !== guess);
+      $('count-units').innerHTML = '<option value="">\u2014 not counted data \u2014</option>' +
+        num.map(c => '<option value="' + h(c.name) + '">' + h(c.name) + '</option>').join('');
+    }
     renderProfile();
     const pv = state.table.rows.slice(0, 8);
     $('preview').innerHTML = '<thead><tr>' + state.table.columns.map(c => '<th>' + h(c) + '</th>').join('') + '</tr></thead><tbody>' +
@@ -272,7 +279,7 @@
     if ([lsl, usl, target].some(x => x !== null && !isFinite(x))) throw new Error('Spec limits must be numbers.');
     if (lsl !== null && usl !== null && lsl >= usl) throw new Error('The lower spec limit must be below the upper spec limit.');
     if (target !== null && ((lsl !== null && target < lsl) || (usl !== null && target > usl))) throw new Error('The target value must sit between the spec limits.');
-    return { lsl, usl, target, timeOrdered: $('time-ordered').checked };
+    return { lsl, usl, target, timeOrdered: $('time-ordered').checked, unitsColumn: $('count-units') ? $('count-units').value || null : null };
   }
 
   // ---------- Run ----------
@@ -318,6 +325,11 @@
   function learnLink(topic, text) { return '<a class="learn-link" href="learn.html#' + topic + '" target="_blank" rel="noopener noreferrer">' + h(text || 'Learn how this works') + ' ↗</a>'; }
   function howTo(key, extra) {
     const r = X.READ[key];
+    /* A key with no entry used to throw here, and because the whole results render sits in
+       a try/catch that emptied the entire section over a missing help box. A missing box is
+       a missing box; the build asserts the key exists, and the page degrades rather than
+       going blank if one ever slips through. */
+    if (!r) return '';
     return '<details class="howto"><summary>How to read this</summary><p>' + h(r[0]) + (extra ? ' ' + h(extra) : '') + '</p><p class="analogy">' + h(r[1]) + '</p><p>' + learnLink(r[2]) + '</p></details>';
   }
   function tile(label, val, sub, hero, badge) { return '<div class="tile' + (hero ? ' hero-tile' : '') + '"><div class="lbl">' + h(label) + '</div><div class="val">' + h(val) + '</div><div class="sub">' + h(sub || '') + '</div>' + (badge || '') + '</div>'; }
@@ -470,6 +482,10 @@
       return;
     }
     const c = s.capability, st = s.stats;
+    /* Capability only exists when specification limits were given; the control chart, box
+       plots and the rest do not need them. Reaching through it unguarded took out the whole
+       Six Sigma section for anybody who left the limits blank. */
+    const nn = c && c.nonNormal ? c.nonNormal : null;
     const histHtml = '<div class="spc-hist"></div>';
     if (c) {
       const v = c.verdict === 'not capable' ? 'not' : c.verdict;
@@ -482,10 +498,16 @@
           row('Observed out of spec', c.observedOut + ' of ' + c.n + ' (' + pct(c.observedPct) + ')') +
           row('Sigma level (short term, +1.5 shift)', c.tailsUsable === false
             ? '<span class="flagged-note">withheld</span>' : f2(c.sigmaLevel)) +
+          /* Withholding is right and is still a dead end on its own. Where a transform
+             recovers the shape, the figures come back on that scale - and only when
+             normality was re-tested on the transformed values and passed. */
+          (nn && nn.usable ? row('PPM, on a ' + h(nn.label) + ' scale', '<b>' + fmt(nn.ppm, 0) + '</b>') +
+            row('Sigma level, same scale', f2(nn.sigmaLevel)) : '') +
           row('Results are bell-shaped', c.normality === null || c.normality.p === null
             ? 'not tested (' + ((c.normality && c.normality.note) || 'too few results') + ')'
             : (c.normality.normal ? 'no evidence against it' : 'no &mdash; Anderson&ndash;Darling p ' + (c.normality.p < 0.001 ? '&lt; 0.001' : c.normality.p.toFixed(3)))) +
-          row('Taguchi loss vs a unit at the spec limit', c.loss === null ? null : pct(c.loss)) + '</tbody></table></div>' + (c.sdWithin === null ? '<p class="hint">Rows are not in time order, so short-term Cp and Cpk are skipped; Pp and Ppk use the overall spread.</p>' : ''), 'capability') +
+          row('Taguchi loss vs a unit at the spec limit', c.loss === null ? null : pct(c.loss)) + '</tbody></table></div>' + (c.sdWithin === null ? '<p class="hint">Rows are not in time order, so short-term Cp and Cpk are skipped; Pp and Ppk use the overall spread.</p>' : '') +
+          (nn ? '<p class="hint">' + h(nn.why) + '</p>' : ''), 'capability') +
         card('Distribution against the spec', 'Red bars fall outside the spec. The curve is the bell shape the capability numbers assume.', histHtml, 'histogram'),
         'block-grid');
     } else {
@@ -502,6 +524,54 @@
       const label = i => 'Row ' + m.rowNums[i];
       C.controlChart(el.querySelector('.cc-i'), m.y, { cl: m.cl, ucl: m.ucl, lcl: m.lcl, flags: m.flags, rowLabel: label, yLabel: rep.target, label: 'Individuals chart' });
       C.controlChart(el.querySelector('.cc-mr'), m.mr, { cl: m.mrBar, ucl: m.mrUcl, lcl: null, flags: m.mr.map((v, i) => (v !== null && v > m.mrUcl ? ['jump between points'] : [])), rowLabel: label, yLabel: 'Moving range', height: 170, label: 'Moving range chart' });
+    }
+    /* The chart counted data actually belongs on. Both limit sets are drawn - the textbook
+       ones and the ones widened for clustering - because the difference between them is the
+       interesting part, and a reader who only sees the widened chart cannot tell how much of
+       the calm was the correction. */
+    if (s.counts && s.counts.centre > 0) {
+      const q = s.counts;
+      const kindName = { c: 'c-chart (counts)', u: 'u-chart (per unit)', p: 'p-chart (proportion defective)' }[q.kind] || q.kind;
+      const useWide = q.use !== q.kind;
+      const lo = useWide ? q.laney.lower : q.lower, hi = useWide ? q.laney.upper : q.upper;
+      const sigs = useWide ? q.laney.signals : q.signals;
+      const el = append(blocks, card('Count chart \u2014 ' + kindName,
+        'Your result is whole and never negative, so it is counted data and this is the chart for it. ' +
+        (q.unitsColumn ? 'Limits move with "' + h(q.unitsColumn) + '", so the chart is drawn standardised: each point as its distance from the centre in its own standard deviations. ' : '') +
+        (sigs.length ? sigs.length + ' signal' + (sigs.length > 1 ? 's' : '') + ' in red.' : 'No points outside the limits.'),
+        '<div class="cc-count"></div>' +
+        '<p class="hint">' + h(q.why) + '</p>' +
+        (q.unitsNote ? '<p class="hint flagged-note">' + h(q.unitsNote) + '</p>' : '') +
+        '<div class="table-scroll"><table class="spc-table"><tbody>' +
+        row('Chart', kindName) + row('Centre line', fmt(q.centre)) +
+        row('Dispersion measured', f2(q.dispersion) + (q.overdispersed ? ' \u2014 wider than the model allows' : ' \u2014 as the model expects')) +
+        row('Limits widened by', '\u00d7' + f2(q.factor)) +
+        row('Signals, textbook limits', q.signals.length) +
+        row('Signals, widened limits', q.laney.signals.length) +
+        row('Chart to read', useWide ? 'the widened one' : 'the textbook one') +
+        '</tbody></table></div>', 'countChart'));
+      const label = i => 'Row ' + (q.rowNums ? q.rowNums[i] : i + 1);
+      const flags = q.plotted.map((v, i) => (v > hi[i] ? ['above the limit'] : v < lo[i] ? ['below the limit'] : []));
+      /* A c-chart's limits are one pair of numbers and draw as two straight lines. A u or p
+         chart's limits move with how many units each point covered, which the chart drawer
+         cannot show as a single line - so those are plotted standardised instead: each point
+         as its distance from the centre in its own standard deviations, against one pair of
+         limits that then applies to every point. The axis label says which is being shown,
+         because the two are not the same picture. */
+      const flat = hi.every(v => Math.abs(v - hi[0]) < 1e-12) && lo.every(v => Math.abs(v - lo[0]) < 1e-12);
+      if (flat) {
+        C.controlChart(el.querySelector('.cc-count'), q.plotted, {
+          cl: q.centre, ucl: hi[0], lcl: lo[0], flags, rowLabel: label,
+          yLabel: q.kind === 'p' ? 'Proportion' : q.kind === 'u' ? 'Per unit' : rep.target, label: kindName
+        });
+      } else {
+        const z = q.plotted.map((v, i) => (v - q.centre) / q.sigma[i]);
+        const lim = 3 * (useWide ? q.factor : 1);
+        C.controlChart(el.querySelector('.cc-count'), z, {
+          cl: 0, ucl: lim, lcl: -lim, flags, rowLabel: label,
+          yLabel: 'Standard deviations from the centre line', label: kindName + ', standardised'
+        });
+      }
     }
     if (s.boxes) {
       const el = append(blocks, card('Box plots of ' + rep.target, 'Overall' + (s.boxes.by.length ? ', and split by ' + h(s.boxes.by.map(b => b.name).join(', ')) : '') + '. Shifted boxes change the average; wider boxes mean more variation.',

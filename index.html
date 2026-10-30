@@ -153,7 +153,9 @@
           <label>Upper spec limit (USL) <input type="number" id="usl" step="any" inputmode="decimal"></label>
           <label>Target value <input type="number" id="spec-target" step="any" inputmode="decimal"></label>
           <label class="check"><input type="checkbox" id="time-ordered" checked> Rows are in time order</label>
+          <label>Units inspected per row <select id="count-units"><option value="">&mdash; not counted data &mdash;</option></select></label>
         </div>
+        <p class="hint" id="count-hint">If the result is a count &mdash; particles, rejects, deviations &mdash; it goes on a count chart rather than the measurement chart, because a count&rsquo;s spread is fixed by its own mean. Naming the column that says how many units were looked at turns it into a chart whose limits move with that number.</p>
         <p class="error" id="spc-error" role="alert" hidden></p>
       </div>
       <details class="multi" id="multi">

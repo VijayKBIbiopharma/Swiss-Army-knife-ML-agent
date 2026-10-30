@@ -651,6 +651,25 @@
         out.imr = S.imr(y.slice(keep));
         out.imr.rowNums = rows.slice(keep).map(r => r + 2);
         out.imr.trimmed = keep;
+        /* Counted data on a measurement chart gets the limits wrong, because a count's
+           spread is not free: a Poisson count's standard deviation is the square root of
+           its own mean. So when the target is whole and never negative, the right chart is
+           computed beside the I-MR one rather than instead of it, and the panel says which
+           to read. A column naming how many units were looked at turns it into a u or p
+           chart, whose limits move with that number. */
+        const counted = y.length >= 8 && y.every(v => v >= 0 && v === Math.round(v));
+        if (counted) {
+          const uCol = o.unitsColumn ? prof.columns.find(c => c.name === o.unitsColumn && c.kind === 'numeric') : null;
+          const units = uCol ? rows.slice(keep).map(r => uCol.values[r]) : null;
+          const usable = units && units.every(v => v !== null && v > 0);
+          try {
+            const opt = usable ? { units, kind: y.slice(keep).every((v, i) => v <= units[i]) ? 'p' : 'u' } : {};
+            out.counts = S.countChart(y.slice(keep), opt);
+            out.counts.rowNums = rows.slice(keep).map(r => r + 2);
+            out.counts.unitsColumn = usable ? uCol.name : null;
+            if (o.unitsColumn && !usable) out.counts.unitsNote = 'The column "' + o.unitsColumn + '" could not be used as the number of units looked at - it has blanks, zeros or negatives - so a c-chart was drawn instead, which assumes every point had the same opportunity.';
+          } catch (err) { out.countsError = err.message; }
+        }
       }
       // Box plots by the most important columns that have a handful of levels.
       const order = (rep.importance && rep.importance.length ? rep.importance.map(v => v.name) : features.map(c => c.name));

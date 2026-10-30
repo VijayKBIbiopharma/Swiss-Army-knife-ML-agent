@@ -144,10 +144,23 @@
       (r.usedOfSpec !== null ? tile('Spec window used', pc(r.usedOfSpec), r.usedOfSpec > 1 ? 'wider than the specification' : 'headroom left')
         : tile('Normality', nd.p === null ? 'not tested' : nd.normal ? 'no evidence against' : 'doubtful', nd.p === null ? 'too few results' : 'Anderson–Darling p ' + pFmt(nd.p)));
 
+    /* The distribution-free answer, beside the normal-theory one. It is the honest fallback
+       when the shape fails its test, and the cost of it - sample size - is the whole story,
+       so the number of results it would need is given whether it succeeded or not. */
+    const np = r.np;
+    const npBlock = !np ? '' : '<h4>The same claim, assuming no distribution</h4>' +
+      '<p class="hint">Taken from the ranking of the results alone, so it holds whatever shape the data has. Only the order is used, never the mean or the spread.</p>' +
+      (np.achievable
+        ? '<p><b>' + (np.sided === 1 ? (r.bound === 'lower' ? '\u2265 ' + f3(np.lower) : '\u2264 ' + f3(np.upper)) : f3(np.lower) + ' to ' + f3(np.upper)) + '</b> \u2014 ' +
+          'covering ' + covered + ' of production with ' + Math.round(np.achieved * 100) + '% confidence, from ' + np.n + ' results and no assumption about their shape. ' +
+          'The normal-theory limit above is tighter because it assumes one.</p>'
+        : '<p class="flagged-note">Not reachable from ' + np.n + ' result' + (np.n === 1 ? '' : 's') + '.</p>' +
+          '<p>' + h(np.note || '') + ' The normal-theory limit above is the only one this data supports, and it is only as good as the bell shape it assumes.</p>');
+
     const notes = [];
     notes.push('A tolerance interval is not a confidence interval. A confidence interval is about where the mean sits and shrinks towards nothing as you add data; this is about where the individual results sit, and it settles towards the real spread of the process rather than towards zero.');
     notes.push('With ' + r.n + ' results the factor is ' + f3(r.k) + '. If the standard deviation were known exactly it would be ' + f3(r.limitingK) + '. That gap is the price of not knowing sigma, and it is why mean ± 3s is optimistic on a small study: here it would give ' + f3(r.naive.lower) + ' to ' + f3(r.naive.upper) + ', which is ' + pc((r.naive.upper - r.naive.lower) / (r.upper !== null && r.lower !== null ? r.upper - r.lower : NaN)) + ' of the width this calculation says you need.');
-    if (nd.p !== null && !nd.normal) notes.push('The results do not look normal (Anderson–Darling p ' + pFmt(nd.p) + '), and this interval assumes they are. That assumption bites hardest exactly where a specification lives — in the tails — so treat these limits as provisional. A transformation, or a distribution-free interval, would be the honest route; a skewed attribute such as an impurity often works better on a log scale.');
+    if (nd.p !== null && !nd.normal) notes.push('The results do not look normal (Anderson–Darling p ' + pFmt(nd.p) + '), and this interval assumes they are. That assumption bites hardest exactly where a specification lives — in the tails — so treat these limits as provisional. The distribution-free bound below needs no shape at all, and is the honest route when this test fails - at the price of sample size. A transformation is the other; a skewed attribute such as an impurity often works better on a log scale.');
     else if (nd.p === null) notes.push('Normality was not tested: ' + (nd.note || 'too few results.') + ' The interval assumes a normal distribution, and on this little data that assumption is doing much of the work.');
     else notes.push('No evidence against normality (Anderson–Darling p ' + pFmt(nd.p) + '). That is not proof of it: on ' + r.n + ' results the test can only catch obvious departures, and the tails are where it matters.');
     if (r.n < 10) notes.push('With only ' + r.n + ' results, any limit set this way will be wide. That is the arithmetic being honest about how little is known, not a fault to work around — and it is why specifications set on three batches are so often broken later.');
@@ -170,6 +183,7 @@
         .map(([a, b]) => '<tr><td>' + h(a) + '</td><td class="num-cell">' + h(b) + '</td></tr>').join('') +
       '</tbody></table></div>' +
       (r.needed ? '<p class="hint"><b>How many results would it take?</b> About ' + r.needed + ' in total, assuming the mean and spread stay as they are. The factor falls as the study grows, so the interval tightens even though the process does not change.</p>' : '') +
+      npBlock +
       '<h4>What this rests on</h4><ul class="insights">' + notes.map(n => '<li class="info">' + n + '</li>').join('') + '</ul>' +
       '<div class="row-actions"><button class="btn primary" type="button" id="tl-csv">Download the report (.csv)</button></div>' +
       '<p class="hint">Decision support, not a validated specification-setting system. A specification is a regulatory commitment: this gives you the statistical part of the argument, not the whole of it.</p></div>';
@@ -248,6 +262,16 @@
       ['Lower tolerance limit', r.lower === null ? '' : r.lower],
       ['Upper tolerance limit', r.upper === null ? '' : r.upper],
       ['Lowest result', r.min], ['Highest result', r.max], []];
+    // The distribution-free answer travels with the report, or the trade is lost on export.
+    if (r.np) {
+      L.push(['Assuming no distribution', 'Value'],
+        ['Reachable from this many results', r.np.achievable ? 'Yes' : 'No'],
+        ['Confidence actually reached', r.np.achieved === null ? '' : r.np.achieved],
+        ['Results needed for the stated confidence', r.np.nNeeded === null ? '' : r.np.nNeeded],
+        ['Lower bound', r.np.lower === null ? '' : r.np.lower],
+        ['Upper bound', r.np.upper === null ? '' : r.np.upper],
+        ['Basis', q('Order statistics only: no distribution assumed')], []);
+    }
     if (r.lsl !== null || r.usl !== null) {
       L.push(['Specification check', 'Value']);
       if (r.lsl !== null) L.push(['Lower spec limit', r.lsl], ['Lower limit supported', r.insideLower ? 'yes' : 'no']);
@@ -342,7 +366,15 @@
     // The factor is an integration and a root-find, so the button is released on the next
     // frame rather than locking the page while it runs.
     setTimeout(() => {
-      try { renderSpec(T.toleranceInterval(got.values, opt)); $('tl-out').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      try {
+        const res = T.toleranceInterval(got.values, opt);
+        /* The same claim made without assuming any distribution, computed every time rather
+           than only when normality fails - the trade between the two is the interesting part
+           and it is invisible if only one of them is ever shown. */
+        try { res.np = T.nonParametric(got.values, res.p, res.conf, res.sided); } catch (err) { res.np = null; }
+        renderSpec(res);
+        $('tl-out').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
       catch (e) { fail(e.message); }
       finally { btn.disabled = false; btn.textContent = 'Work out the limits'; }
     }, 10);
