@@ -126,7 +126,7 @@
     ['msat', 'MSAT & technology transfer'],
     ['mfg', 'GMP manufacturing'],
     ['qc', 'Quality control'],
-    ['pcc', 'Process & product characterization (PCC)'],
+    ['pcc', 'Particle Core (PCC)'],
     ['micro', 'Microbiology & environmental monitoring'],
     ['fac', 'Facilities & engineering'],
     ['qa', 'Quality assurance & regulatory']
@@ -138,11 +138,13 @@
   const UNITOPS = {
     mammalian: {
       pcc: [
-        ['Characterization study design', 'Parameter ranges explored as a designed study rather than one factor at a time, so interactions and curvature are estimable instead of assumed away.'],
-        ['Criticality assessment', 'Each attribute ranked on how much the process actually moves it against how much the patient tolerates, from the characterization data rather than from a workshop.'],
-        ['Proven acceptable ranges', 'Ranges set from where the model and its interval still meet specification, with the rows that reach past the evidence flagged rather than quietly included.'],
-        ['Higher-order structure and forced degradation', 'Stress conditions modelled against the structural readouts they move, so a degradation pathway is ranked rather than described anecdotally.'],
-        ['Comparability after a process change', 'Pre-change and post-change lots compared against a margin fixed beforehand, with an explicit inconclusive verdict when the study cannot settle it.'],
+        ['Visible particle inspection', 'Reject rates per lot and per inspector, with agreement between inspectors measured rather than assumed, so a rate change is attributed to the line or to the people.'],
+        ['Subvisible counts (light obscuration)', 'Counts per container by size bin against the limit, charted as counts and with the tail figures taken on a scale where the shape actually holds.'],
+        ['Flow imaging and morphology classes', 'Proteinaceous against silicone oil against fibre, tracked as shares per lot and modelled against the process step that moved them.'],
+        ['Particle identification (FTIR, Raman, SEM-EDX)', 'Material classes entered as labels and trended by lot, line and campaign, so a recurring source is separated from a one-off finding.'],
+        ['Container closure and glass delamination', 'Lamellae and delamination counts against vial lot, depyrogenation and fill conditions, with the container as a named variance source.'],
+        ['Aggregation on stability', 'Subvisible growth against time and condition, with shelf life read off the confidence limit rather than the fitted line.'],
+        ['Line and environmental contribution', 'Fibre and foreign-matter counts against gowning, line speed and room monitoring, with the clustering by shift measured instead of averaged away.'],
       ],
       micro: [
         ['Environmental monitoring (viable)', 'Settle and active air counts charted as counts rather than measurements, with the clustering between rooms and shifts measured instead of assumed away.'],
@@ -224,11 +226,13 @@
     },
     microbial: {
       pcc: [
-        ['Characterization study design', 'Induction, feed and refold parameters explored as one designed study so interactions and curvature are estimable rather than assumed away.'],
-        ['Criticality assessment', 'Attributes ranked on how far the process moves them against how much tolerance exists, taken from characterization runs rather than from opinion.'],
-        ['Proven acceptable ranges', 'Ranges taken from where the fitted model and its interval still meet specification, with extrapolated rows named instead of silently included.'],
-        ['Refold and truncation characterization', 'Refold conditions modelled against correctly folded yield and truncated species, so the trade-off between them is explicit.'],
-        ['Comparability after a strain or process change', 'Old against new compared on a margin fixed first, with inconclusive reported as its own answer rather than read as equivalence.'],
+        ['Visible particle inspection', 'Reject rates per lot and per inspector, with inspector-to-inspector agreement measured, so a change in rate is attributed to the product or to the judgement.'],
+        ['Subvisible counts (light obscuration)', 'Counts per container by size bin against the limit, treated as counts rather than measurements and with the shape tested before any tail figure is quoted.'],
+        ['Refold and aggregate-derived particles', 'Aggregate and precipitate counts against refold conditions, concentration and hold time, so the trade against correctly folded yield is explicit.'],
+        ['Host cell debris and lysis carryover', 'Particulate load against lysis and clarification settings, so a downstream particle problem is traced to the step that created it.'],
+        ['Particle identification (FTIR, Raman, SEM-EDX)', 'Material classes entered as labels and trended by lot and campaign, separating a recurring source from an isolated finding.'],
+        ['Aggregation on stability', 'Subvisible growth against time and storage condition, with the limit met at the confidence bound rather than at the trend line.'],
+        ['Line and environmental contribution', 'Fibre and foreign-matter counts against gowning, line speed and room monitoring, with shift-to-shift clustering measured rather than averaged away.'],
       ],
       micro: [
         ['Environmental monitoring (viable)', 'Air and surface counts charted as counts, with the clustering between rooms, shifts and campaigns measured rather than assumed to be absent.'],
@@ -312,7 +316,7 @@
   // What the selected technique specifically does for that function.
   const BYFUNCTION = {
     analyze: {
-      pcc: 'The core use here: designed characterization studies, effects judged after correcting for how many were tested, and ranges taken from where the model and its interval still meet specification.',
+      pcc: 'Counts charted as counts with their clustering measured, what moves particle load ranked with a noise floor beside it, and the designed study that separates stopper, siliconisation, agitation and hold time.',
       micro: 'Counts charted as counts with their clustering measured, and what moves bioburden or a monitoring excursion ranked with a noise floor beside it.',
       fac: 'Utility and equipment data turned into the few parameters that predict a failure or an excursion, with a drift caught by the rules a limits-only chart is blind to.',
       cld: 'Rank clones and strains on the screen reads that actually predict later performance, and design the confirmation study.',
@@ -325,7 +329,7 @@
       qa: 'Evidence for trend reports, CAPA effectiveness and annual reviews, drawn from raw data rather than from summaries.'
     },
     stability: {
-      pcc: 'Forced degradation and stressed-condition trends fitted per lot, so a degradation pathway has a rate attached rather than a description.',
+      pcc: 'Subvisible growth against time and condition, which is how aggregation and delamination actually present, with the limit met at the confidence bound rather than at the trend line.',
       micro: 'Bioburden and endotoxin against hold time, giving a hold limit read off the confidence limit rather than taken from convention.',
       fac: 'Filter, membrane and consumable service life from measured performance decline, and water system recovery after sanitisation.',
       cld: 'Fit titer and quality drift over generations, to set a generation limit that can be defended.',
@@ -338,7 +342,7 @@
       qa: 'Shelf-life claims with the extrapolation limits documented and the poolability evidence on file.'
     },
     golden: {
-      pcc: 'Characterization runs scored against the envelope the reference lots traced, so a run that strayed is identified by hour and by sensor.',
+      pcc: 'A filling or lyophilisation campaign scored against the runs you were happy with, naming the hour a drift began and the sensor furthest out of step.',
       micro: 'Monitoring across a campaign read as one trajectory, so a room drifting across several sensors at once is visible before any single one alarms.',
       fac: 'A utility loop or HVAC suite watched as a whole, so a probe falling out of step with its neighbours shows up while its own reading is still in range.',
       cld: 'Screening runs compared against the pattern good clones produced, so an odd one is spotted before it reaches the bioreactor.',
@@ -351,7 +355,7 @@
       qa: 'Campaign review with every batch triaged in one table, and an investigation that starts from the hour and the sensor rather than from the whole record.'
     },
     equivalence: {
-      pcc: 'The comparability verdict itself: pre-change against post-change on a margin fixed beforehand, with inconclusive reported rather than read as sameness.',
+      pcc: 'One particle counter against another, or lab against lab, on a margin fixed beforehand - with inconclusive reported as its own answer, which is where counter comparisons usually land.',
       micro: 'A rapid micro method against compendial, or one incubator or reader against another, with the margin declared first.',
       fac: 'A replacement instrument, outlet or assembly against the qualified one, judged on a declared margin rather than on a passing glance.',
       cld: 'A new clone or strain shown comparable to the one it replaces, within a margin set in advance.',
@@ -364,7 +368,7 @@
       qa: 'Comparability evidence for change control, with the margin fixed before the data was seen.'
     },
     variance: {
-      pcc: 'How much of a characterization result is the method rather than the parameter, which decides whether a range is real or an artefact of the assay.',
+      pcc: 'The first thing to run here: attribute agreement for the visible inspection, which is a judgement, and Gage R&R for the counter, which is a measurement. They are different methods and only one of them fits each.',
       micro: 'Plate reader against plate reader on the same plates, with agreement beyond chance measured, plus incubator and media lot as variance sources.',
       fac: 'Probe-to-probe, outlet-to-outlet and technician-to-technician differences separated from the instrument noise underneath them.',
       cld: 'Split clone screening spread into real clone differences and plate or assay noise, so a top performer is not simply a lucky well.',
@@ -377,7 +381,7 @@
       qa: 'Variation attributed to a named source in trend reports and investigations, with the measurement system qualified so capability is about product rather than assay.'
     },
     limits: {
-      pcc: 'Acceptable ranges the characterization data can actually defend, and the study size needed before the suite is booked.',
+      pcc: 'Alert and action levels for counts that no bell curve fits, taken from the ranking of past results alone where the distribution will not support a factor, with the sample size that needs stated.',
       micro: 'Alert and action levels for counts that no bell curve fits, taken from the ranking of past results when the distribution will not support a factor.',
       fac: 'Utility and environmental limits the data supports, with the honest answer when no sample size could support the limit being asked for.',
       cld: 'Size a clone screen so the winner is a real winner, and set generation-limit criteria from the data rather than from convention.',
@@ -390,7 +394,7 @@
       qa: 'Specification limits with the statistical argument attached for filings and inspections, and study protocols with the sample size justified in advance.'
     },
     plasmid: {
-      pcc: 'Not the usual fit: it predicts constructs rather than characterizing them, and is listed so the boundary is visible rather than guessed at.',
+      pcc: 'Not applicable to particulate work. It selects constructs from historical screening data, and is named here so the boundary is explicit rather than discovered.',
       micro: 'Not applicable to monitoring work. It selects constructs from historical screening data and has nothing to say about a count or an excursion.',
       fac: 'Not applicable to utilities or equipment. It is a construct-selection tool and is named here so the gap is explicit.',
       cld: 'The core use: rank candidate constructs on expected titer and specific productivity before any of them are built.',
@@ -403,7 +407,7 @@
       qa: 'A prediction that records what it rested on: which runs, which substitutions, and how far outside the data it was.'
     },
     sequence: {
-      pcc: 'Where a construct is being characterized alongside the protein, it shows which codon changes were made and checks the protein is unchanged.',
+      pcc: 'Not applicable to particulate work. It optimizes coding sequences, and is listed only so the gap is stated rather than left for somebody to find.',
       micro: 'Not applicable to monitoring work, and listed so the boundary is stated rather than left for somebody to discover.',
       fac: 'Not applicable to facilities work. It optimizes coding sequences and is named here only so the gap is explicit.',
       cld: 'Codon-optimise the construct for the host while removing restriction sites and holding GC inside the synthesis window.',
@@ -618,30 +622,40 @@
       ]
     },
     pcc: {
-      headline: 'A characterization study exists to justify ranges, and the two things that quietly invalidate one are parameters that moved together and a list of effects read without correcting for how many were tested.',
-      first: { tool: 'analyze', label: 'Check for confounding before you trust any effect',
-        why: 'A characterization run built from convenient settings, or stacked on earlier development data, routinely carries parameters that moved together. A pairwise correlation will not find the case that bites - three inputs each mildly correlated that jointly determine one another - so the inflation factors are the first thing to read. A coefficient from a confounded design is not a small error; it is an attribution to the wrong parameter, and the range built on it is indefensible.' },
+      headline: 'Particle data is counted, rare and judged by eye, which breaks the three defaults at once: the measurement chart, the bell curve, and percent agreement.',
+      first: { tool: 'variance', label: 'Qualify the judgement before chasing the process',
+        why: 'Visible inspection is a human pass or fail, so there is no variance to take and Gage R&R does not apply at all - attribute agreement does. Run it first, because every number downstream takes the inspection at face value: a reject rate, a trend, a line comparison. And the failure mode is not noise, it is bias. An inspector who passes everything looks excellent on agreement and catches nothing, and no amount of modelling downstream recovers from that.' },
       steps: [
-        { tool: 'analyze', label: 'Design the study rather than mining the runs',
-          does: 'A definitive screening design takes 3 to 14 parameters in about twice their number of runs, main effects orthogonal to every two-factor interaction, and every parameter at its middle setting so curvature is estimable.',
-          measured: 'Over 500 analyses of a 2⁴ design with no real effect in it at all, 23.2% handed back at least one significant term; Benjamini-Hochberg correction cuts that to 1.8% while still catching real effects every time. A characterization report lists many terms at once, which is exactly the situation that inflates.',
-          limit: 'A screen identifies which parameters matter, not where the optimum sits. Expect a second, smaller design for the ranges themselves.' },
-        { tool: 'analyze', label: 'Ranges from where the interval still holds',
-          does: 'Predictions come with calibrated intervals rather than point estimates, so a proven acceptable range ends where the interval stops meeting specification rather than where the fitted line does.',
-          measured: 'The intervals are split-conformal, built on a slice genuinely held back, and the attainable confidence is capped at nCal/(nCal+1) and reported - so a request for 99% from 30 held-back runs is answered with the ceiling rather than with a number that cannot be supported.',
-          limit: 'Rows reaching past the historical range are flagged rather than silently included, because an interval around an extrapolation is an interval around an assumption.' },
-        { tool: 'variance', label: 'How much of the effect is the assay',
-          does: 'Gage R&R on the characterization readout, judged against the specification window rather than against the lots in the study.',
-          limit: 'Under five distinct categories and the method cannot resolve the differences the study is built to detect, which makes the whole study underpowered no matter how many runs it has.' },
-        { tool: 'equivalence', label: 'Comparability on a margin fixed first',
-          does: 'Pre-change against post-change by two one-sided tests, giving equivalent, a real difference, or inconclusive.',
-          limit: 'A margin chosen after seeing the data is not a test. Declaring it first is what lets the inconclusive answer exist, and underpowered comparability studies belong there rather than passing by default.' }
+        { tool: 'variance', label: 'Attribute agreement on the inspection',
+          does: 'Inspector against themselves, inspector against inspector, and each one against a known standard, with kappa beside every agreement percentage and the miss rate reported separately from the false alarm rate.',
+          measured: 'Why the percentage alone will not do: at a 10% defect rate an inspector who passes every vial scores 90% agreement, a kappa of exactly 0, and a 100% miss rate. One of those numbers reads as an excellent inspector.',
+          limit: 'Build the qualification set close to half defective, however unrepresentative that feels. A set matching real reject rates cannot measure a miss rate, because there is almost nothing to miss.' },
+        { tool: 'analyze', label: 'Count charts, with the clustering measured',
+          does: 'Counts per container or per lot charted as counts, with dispersion measured rather than assumed and the limits widened when particles cluster by vial lot, line or shift - which they almost always do.',
+          measured: 'At a dispersion of 3, ordinary for particle counts, the textbook chart flags one point in sixteen from a line behaving perfectly, about four false signals on a sixty-point chart, against one in ninety-four once widened. On genuinely Poisson counts the widening is x1.05, so it costs nothing when it is not needed.',
+          limit: 'Rare events remain badly served. At a reject rate in the tenths of a percent a proportion chart is mostly noise, and the chart that suits it - containers or days between events - is not built yet.' },
+        { tool: 'analyze', label: 'Capability without pretending the shape is normal',
+          does: 'Subvisible counts are bounded at zero with a long right tail, so Cp and Cpk are reported as the shape-free ratios they are, and the tail figures are recomputed on a Box-Cox transformed scale with normality re-tested on the transformed values.',
+          measured: 'On a right-skewed count whose limit sits at its true 99.9th percentile, so the real rate is 1,000 PPM by construction, the straight normal fit reports 0 PPM - no risk at all - and the transformed fit about 1,300. A transform that still fails its re-test leaves the figures withheld.',
+          limit: 'No power transform fixes a bimodal distribution, which is what two filling lines or two stopper lots alternating looks like. There the honest output stays Cp, Cpk and the observed count out of spec.' },
+        { tool: 'limits', label: 'Alert and action levels that assume no distribution',
+          does: 'A bound taken from the ranking of past results alone, which holds whatever the shape, reported beside the normal-theory factor so the trade between them is visible rather than decided by whichever test happened to pass.',
+          measured: 'The cost is sample size and it is steep: a one-sided 99% claim at 95% confidence needs 299 results from the ranking alone against about ten for the normal factor, and thirty results reach only 26% confidence, not 95%.',
+          limit: 'Below the required count it refuses and states what the data actually reaches, with the number of results that would change the answer attached, rather than producing a limit nobody can defend.' },
+        { tool: 'analyze', label: 'What is actually driving the load, and the study that proves it',
+          does: 'Stopper lot, siliconisation, line speed, filter lot, hold time and shift ranked with error bars and a shuffled-target noise floor, then a definitive screening design that separates the ones history confounded.',
+          measured: 'Effects are judged after correcting for how many were tested: over 500 analyses of a design with no real effect in it at all, 23.2% handed back at least one significant term, and the correction cuts that to 1.8% while still catching real effects every time.',
+          limit: 'An investigation log cannot separate parameters that always moved together, and the tool names the confounding rather than resolving it. Resolving it is what the design is for.' },
+        { tool: 'equivalence', label: 'One counter against another',
+          does: 'Light obscuration against flow imaging, or lab against lab, by two one-sided tests on a margin fixed beforehand, paired when the same containers went through both.',
+          limit: 'Inconclusive is a real answer and the usual one for counter comparisons; the tool reports how many containers per method would settle it rather than letting the study pass by default.' }
       ],
       gaps: [
-        'No criticality scoring framework. It gives you how much the process moves an attribute; how much the patient tolerates is clinical and comes from elsewhere.',
-        'No structural or biophysical interpretation: HOS and forced-degradation readouts are modelled as numbers, with no knowledge of what a conformational change means.',
-        'No filing-ready characterization report. It produces the numbers and the audit package; the document and its justification stay yours.',
-        'No mechanistic process model, so an extrapolated range is extrapolation, flagged as such rather than supported by theory.'
+        'No image or spectrum reading. FTIR, Raman and SEM-EDX identifications have to arrive as labels in a column; the page does not read a spectrum or a particle image.',
+        'No rare-event chart, which is the single biggest gap for this group: at a tenth of a percent reject rate the charts that exist here are mostly noise.',
+        'No USP two-tier decision logic. It will not tell you which tier a result falls in, whether it is an excursion, or whether it is reportable.',
+        'No particle size distribution modelling: counts per bin are handled as counts, with nothing fitted across the bins themselves.',
+        'It cannot write the investigation. There is no language model here, so what it produces is the evidence and the audit package, not the report.'
       ]
     },
     micro: {
