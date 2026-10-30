@@ -852,3 +852,26 @@ ol.ops li span { grid-column: 2; grid-row: 2; font-size: .83rem; line-height: 1.
 .legacy-tool > summary b { color: var(--ink); margin-right: 8px; }
 .legacy-tool > summary .hint { display: block; margin-top: 2px; }
 .legacy-tool[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+
+/* ---------- Department playbook ---------- */
+.playbook { margin: 14px 0 0; border: 1px solid var(--line); border-radius: 10px; background: var(--card-2, var(--card)); }
+.playbook > summary { padding: 11px 14px; cursor: pointer; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.playbook > summary .hint { margin: 0; }
+.pb-body { padding: 0 14px 14px; }
+.pb-headline { font-size: 1.02rem; line-height: 1.5; margin: 0 0 12px; }
+.pb-first { border-left: 3px solid var(--accent); padding: 2px 0 2px 12px; margin: 0 0 14px; }
+.pb-first h4, .pb-head { margin: 0 0 6px; font-size: 0.93rem; letter-spacing: 0.01em; }
+.pb-head { margin-top: 16px; }
+.pb-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.pb-step { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.pb-step p { margin: 6px 0 0; }
+.pb-step-head { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.pb-num { display: inline-grid; place-items: center; min-width: 1.45rem; height: 1.45rem; border-radius: 50%;
+  background: var(--accent); color: var(--accent-ink, #fff); font-size: 0.8rem; font-weight: 600; }
+.pb-tool { font-size: 0.78rem; opacity: 0.75; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
+.pb-measured, .pb-limit { font-size: 0.9rem; line-height: 1.45; }
+.pb-measured { color: var(--ok-ink, inherit); }
+.pb-limit { opacity: 0.85; }
+.pb-gaps { margin: 0; padding-left: 1.1rem; display: grid; gap: 5px; }
+.pb-gaps li { line-height: 1.45; }
+@media (max-width: 620px) { .pb-body { padding: 0 10px 12px; } .pb-step { padding: 9px 10px; } }

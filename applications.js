@@ -338,11 +338,240 @@
     }
   };
 
+
+  /* ---------- One playbook per function, in the order the work actually goes ----------
+
+     The panels above answer "what is this technique used for". They do not answer the
+     question somebody actually arrives with, which is "I run this group, what do I do first,
+     what will it buy me, and where will it let me down". That needs three things the lists
+     above deliberately leave out: an ORDER, because doing capability before qualifying the
+     assay produces a confident number about the assay; the MEASURED cost of getting each
+     step wrong, because a warning with a number attached gets acted on and a warning without
+     one gets argued with; and the GAPS, named out loud, because a group that finds the third
+     limitation by itself stops believing the first two.
+
+     Every figure quoted below is measured by this repository's own test suite on data built
+     so the right answer is known in advance, not taken from a textbook. Where the tool
+     cannot do something, that is written down rather than softened. */
+  const PLAYBOOKS = {
+    cld: {
+      headline: 'Rank clones on the screen reads that actually predict, and stop paying incubator rent on pools that were never going to make it.',
+      first: { tool: 'variance', label: 'Variance components on the screening assay',
+        why: 'A clone ranking is only as good as the assay that produced it. Split the spread across plate, day and analyst first: if repeat wells on the same clone scatter as widely as different clones do, the top of your ranking is the luck of the plate and no amount of modelling fixes it.' },
+      steps: [
+        { tool: 'analyze', label: 'Which early reads predict the late ones',
+          does: 'Model day-14 titer and quality against the small-scale reads you take in week one, with importance ranked, error bars on the ranking, and a shuffled-target noise floor alongside so a read carrying no evidence is named as carrying none rather than appearing low on a list.',
+          limit: 'A screen that was never varied cannot be assessed. If every pool got the same feed, the data cannot say what the feed does.' },
+        { tool: 'analyze', label: 'Clone and strain identity as a real input',
+          does: 'Forty-eight strains or a backbone catalogue are carried as how common each level is and how the result averaged for it, so every level is modelled as itself.',
+          measured: 'Against collapsing to the twelve commonest levels: R² 0.70 against 0.49 over eight datasets of 200 runs across 40 strains. A fifth of the achievable fit was in the levels one-hot was throwing away.',
+          limit: 'A level run only a handful of times gets an average that is mostly the overall average by design. The panel names those levels and states the weight, so a small difference between two rarely-run clones is not read as evidence.' },
+        { tool: 'plasmid', label: 'Pick the construct for a programme not yet started',
+          does: 'Every historical construct, the parts it was built from and the protein it was for, turned into a run sheet per incoming programme with a calibrated interval on each prediction.',
+          measured: 'Wells go where they are worth most: measured over 4,000 simulated 48-well sheets from 36 candidates, the top 8 built 6 times each identifies the truly best vector 61.4% of the time against 36.4% for building all 36 once.',
+          limit: 'If every historical run is the same molecule, it refuses to predict a different one rather than returning a confident number with a narrow band.' },
+        { tool: 'stability', label: 'Generation limits from measured drift',
+          does: 'Titer and quality against generation number, with the confidence limit deciding where the limit sits rather than convention.',
+          limit: 'Needs enough generations sampled to see a trend; three points cannot distinguish drift from scatter.' }
+      ],
+      gaps: [
+        'No imaging. Colony counts, confluence and morphology have to arrive as numbers in a column; the page reads tables, never pictures.',
+        'No sequence-to-function prediction. The sequence optimizer works on codon usage, GC content and structure, and says nothing about whether a construct will express.',
+        'Single-cell data is out of scope: this is built for one row per clone or per well, not per cell.'
+      ]
+    },
+    uspd: {
+      headline: 'Separate what the bioreactor is doing from what the assay is doing, then design the run that settles the rest.',
+      first: { tool: 'variance', label: 'Gage R&R on the attribute you are chasing',
+        why: 'Before attributing a 0.3 g/L difference to a feed strategy, find out what the assay does on the same sample twice. If the measurement owns a third of the spread, a third of every conclusion below is about the measurement. Fewer than five distinct categories and the method cannot support a control chart on individual runs at all.' },
+      steps: [
+        { tool: 'analyze', label: 'What moves titer and quality',
+          does: 'A run log - parameters set, result obtained - becomes a ranked list of drivers with whiskers, a what-if desk with calibrated bands, and the DOE that resolves what history confounded.',
+          measured: 'Variance inflation catches what a pairwise correlation cannot: on a worked case where one parameter is the sum of two others, the largest pairwise correlation is 0.696 - nothing trips a 0.9 threshold - while every inflation factor lands between 16 and 32.',
+          limit: 'Observational run logs cannot separate parameters that always moved together. The tool names the confounding rather than resolving it.' },
+        { tool: 'analyze', label: 'The screen that resolves it',
+          does: 'A definitive screening design takes 3 to 14 factors in about twice their number of runs, with main effects orthogonal to every two-factor interaction and curvature estimable, so the screen can tell you the optimum is inside your range.',
+          measured: 'Effects are judged after correcting for how many were tested: over 500 analyses of a 2⁴ design with no real effect in it at all, 23.2% handed back at least one significant term. Benjamini-Hochberg cuts that to 1.8% while still catching real effects every time.',
+          limit: 'A screen tells you which factors matter, not the optimum. Expect a second, smaller design to find settings.' },
+        { tool: 'golden', label: 'Watch a running batch against the ones that worked',
+          does: 'Sensor traces across a campaign, scored against the path the good runs took, naming the hour a drift began and the sensor furthest out of step.',
+          measured: 'Alarm limits are calibrated on reference batches held out of the model that scored them, so 99% means a batch the model had never seen.',
+          limit: 'Needs several batches you were genuinely happy with. Three is the bare minimum and ten or more makes the envelope mean something.' },
+        { tool: 'analyze', label: 'Close the loop and know when to stop',
+          does: 'Each round of results stacks onto the last by column name, the model refits, and the projection says what another round would buy before you book the suite.',
+          limit: 'The projection is fitted from your own data and clamped so it can never promise better than today’s measurement. It is a forecast, not a guarantee.' }
+      ],
+      gaps: [
+        'No raw time-series modelling of a single batch: the multivariate chart compares batches to each other, it does not fit kinetics or forecast a trajectory forward.',
+        'No mechanistic models. Nothing here knows Monod, oxygen transfer or metabolic flux; every relationship is learned from your rows.',
+        'Soft sensors and real-time feedback are out of scope. This runs on a desk, on a file, after the batch.'
+      ]
+    },
+    dspd: {
+      headline: 'Two results pulling against each other is the normal case downstream, and the tool is built to trade them off explicitly rather than optimise one and hope.',
+      first: { tool: 'variance', label: 'Variance components across resin lot, column and analyst',
+        why: 'Purity moving between resin lots is the classic downstream question, and it has three candidate answers - the resin, the column history, the assay. Splitting the spread names which before anyone writes a resin complaint.' },
+      steps: [
+        { tool: 'analyze', label: 'Yield and purity against load, wash and elution',
+          does: 'Both results modelled at once with a desirability trade-off: say what is acceptable for each, and the best compromise is found rather than argued about.',
+          limit: 'A compromise is only as honest as the acceptability ranges you set, and those are a judgement the tool cannot make for you.' },
+        { tool: 'analyze', label: 'Mixture designs for buffers and formulations',
+          does: 'Components that are shares of one blend cannot move independently, so simplex lattice, simplex centroid and extreme-vertices designs handle them, fitted with a Scheffé blending model that correctly has no intercept.',
+          limit: 'Where component limits mean a pure-component blend was never formulable, it says so rather than quoting an extrapolated coefficient as a prediction.' },
+        { tool: 'stability', label: 'Resin lifetime and hold times',
+          does: 'Step yield against cycle number, or an intermediate against hold hours, with shelf life read off where the confidence limit meets the limit you must hold.',
+          measured: 'The guideline extrapolation cap is applied: at most twice the data in hand, never more than 12 months past it.',
+          limit: 'Needs the degradation to be visible in the window you sampled.' },
+        { tool: 'equivalence', label: 'A second resin lot or a new supplier',
+          does: 'Two one-sided tests against a margin you fix beforehand, giving three answers rather than two. The third is the one people misreport: inconclusive, rather than "no significant difference, therefore the same", and for an inconclusive result it says how many runs per side would settle it.',
+          limit: 'The margin is yours to justify. A margin chosen after seeing the data is not a test.' }
+      ],
+      gaps: [
+        'No chromatogram analysis. Peak integration, tailing and resolution have to arrive as computed numbers; the page does not read traces.',
+        'No mechanistic chromatography modelling: no isotherms, no breakthrough prediction, no column scale-up equations.',
+        'Pooling criteria are modelled against the outcome you supply; the tool cannot see the fractions themselves.'
+      ]
+    },
+    afs: {
+      headline: 'This is where the tool is strongest, because almost every question an analytical and formulation group has is a question about distributions and limits.',
+      first: { tool: 'variance', label: 'Gage R&R, then attribute agreement if the call is a judgement',
+        why: 'Two different methods for two different things. A number read off an instrument goes through Gage R&R. A pass/fail judgement - a visual inspection, a plate read, a defect grade - has no variance to take, and goes through attribute agreement instead, which is the one most groups are missing.' },
+      steps: [
+        { tool: 'variance', label: 'Attribute agreement for judgement calls',
+          does: 'Whether appraisers agree with themselves, with each other and with the truth, with kappa beside every agreement percentage and the miss rate reported separately from the false alarm rate.',
+          measured: 'The reason kappa is there: with a 10% defect rate, an inspector who simply passes every unit scores 90% agreement and a kappa of exactly 0, with a 100% miss rate. The percentage alone reads as an excellent inspector.',
+          limit: 'Build the study close to half defective, however unrepresentative that feels. A production-like set of a few percent defective cannot support a miss rate, because there is almost nothing to miss.' },
+        { tool: 'limits', label: 'Specifications the data can actually defend',
+          does: 'A tolerance interval covering a stated share of production with stated confidence, and run backwards, the study size needed before instrument time is booked.',
+          measured: 'On ten results, covering 99% needs a factor of about 4.4, not 3 - which is why hand-set limits are routinely too tight. Normality is tested rather than assumed, because a specification is a claim about the tails.',
+          limit: 'When the data cannot support your limit it says whether more results would fix it or whether no sample size ever could. The second answer saves the most time and is the least welcome.' },
+        { tool: 'stability', label: 'Shelf life and formulation ranking',
+          does: 'Degradation fitted per batch, the two poolability tests run, expiry read off where the one-sided confidence limit meets specification, and candidate formulations ranked on rate rather than on endpoint.',
+          limit: 'Accelerated-to-real-time agreement is reported, not assumed. The tool will not extrapolate a 40 °C rate onto a 5 °C claim for you.' },
+        { tool: 'equivalence', label: 'Method transfer and bridging',
+          does: 'Development against receiving QC, instrument against instrument, two labs whose files share neither column names nor row order, matched as pairs when both carry a sample identifier.',
+          limit: 'Paired or unpaired changes the answer; the tool asks which you have rather than guessing.' }
+      ],
+      gaps: [
+        'No spectra, chromatograms or images. Everything arrives as computed numbers.',
+        'No attribute agreement for more than eight possible calls: a judgement with dozens of categories is closer to a measurement and the method does not apply.',
+        'No non-parametric tolerance interval yet, so when normality fails the honest answer is currently "this data cannot support that limit" rather than a distribution-free bound.',
+        'Linearity, LOD and LOQ are not implemented as named ICH Q2 calculations.'
+      ]
+    },
+    msat: {
+      headline: 'Comparability is a claim about equivalence, not about significance, and the difference decides whether a transfer passes.',
+      first: { tool: 'equivalence', label: 'Fix the margin before you look at the data',
+        why: 'A transfer judged on "no significant difference" can pass on a study too small to see anything. Declaring the margin first turns it into a question the data can answer - and lets the inconclusive answer exist, which is where underpowered transfers actually sit.' },
+      steps: [
+        { tool: 'golden', label: 'Receiving site against sending site, trajectory by trajectory',
+          does: 'The qualified line becomes the envelope; the new line is scored against it, with the hour and the sensor named when it strays.',
+          limit: 'Compares shapes of runs, not causes. It tells you where they diverged, not why.' },
+        { tool: 'analyze', label: 'What the scale or site change actually moved',
+          does: 'Site and scale as inputs alongside the parameters, so a difference is attributed rather than assumed, with confounding named where the two moved together.',
+          measured: 'The inflation factors are validated against the identity VIF = 1/(1 \u2212 r\u00b2) rather than against themselves: at a correlation of 0.95, theory says 10.26 and the tool measures 10.10.',
+          limit: 'Two sites that differ in nine ways at once cannot be told apart by any amount of arithmetic - that is a study design problem and the tool says so. Exact collinearity is reported as inseparable rather than as a number in the billions, which is the honest output of the arithmetic and useless to everybody.' },
+        { tool: 'limits', label: 'Size the comparability study before booking it',
+          does: 'Power and sample size for equivalence, a two-group difference or one group against a target, with the curve and a table of what each study size buys. The calculations are exact and t-based rather than the normal approximation, which quietly overstates power at development sample sizes.',
+          limit: 'Power depends on the spread you assume. Use a measured one, and the tool reports which it used.' },
+        { tool: 'analyze', label: 'The characterisation design a filing needs',
+          does: 'Full or fractional factorial, definitive screening, central composite or Box-Behnken, with the run sheet and a column to write results into.',
+          limit: 'Design generation is not design justification: the risk assessment behind the factor list stays yours.' }
+      ],
+      gaps: [
+        'No process capability modelling across sites in one step: run capability per site and compare, rather than expecting one combined index.',
+        'No automated PPQ or stage-2 continued-verification report format.',
+        'Nothing here reads a batch record. Every input is a table somebody has already assembled.'
+      ]
+    },
+    mfg: {
+      headline: 'The chronic failure on the floor is a rate drifting while every single batch stays inside its limits, and that is specifically what the extra control-chart rules are for.',
+      first: { tool: 'analyze', label: 'Six Sigma mode on the attribute that is hurting',
+        why: 'Capability and a control chart on the same attribute, in one pass, with the normality question settled rather than skipped - because the figures people quote most, PPM and sigma level, are the ones that break when the shape is wrong.' },
+      steps: [
+        { tool: 'analyze', label: 'The full Nelson rule set, with its price stated',
+          does: 'All eight rules, not the three a limits-only chart runs: a shifted or drifting process with every point inside the lines is exactly what rules two to eight exist to catch.',
+          measured: 'On a 0.9 sigma shift the limits-only chart raises one signal and the full set raises twenty-five. The cost is measured too: the three-sigma rule alone raises a false alarm about once every 367 points, the full set about once every 50, so on a fifty-point chart expect roughly one false signal from a process with nothing wrong with it. The number is reported beside the signals and the rule set is a choice.',
+          limit: 'Built for measurements. Counted data - rejects, particles, deviations - belongs on a count chart instead.' },
+        { tool: 'analyze', label: 'Count charts for things you count',
+          does: 'c, u and p charts, with dispersion measured rather than assumed and the limits widened when the counts are wider than a Poisson or binomial model allows.',
+          measured: 'This matters more than the choice of chart: at a dispersion of 3 - ordinary when defects cluster by lot, line or shift - the textbook chart flags about one point in sixteen from a process behaving perfectly, roughly four false signals on a sixty-point chart. Widened for the clustering, that falls to about one in ninety. When the counts really are Poisson the widening comes out at about 1.05, so it costs nothing when it is not needed.',
+          limit: 'Rare events are still badly served: at a tenth of a percent reject rate a proportion chart is mostly noise, and the chart that suits it - time or units between events - is not built yet.' },
+        { tool: 'analyze', label: 'Capability that withholds what it cannot support',
+          does: 'Cp and Cpk stand whatever the shape and are reported. PPM, Z.bench and sigma level are normal tail probabilities and are withheld when the shape is not there, with what remains named.',
+          measured: 'On a right-skewed impurity whose limit sits at its true 99.9th percentile, so the real rate is 1,000 PPM by construction: at a skewness of 0.65 the normal figure reads 62 PPM, sixteen times under, and by a skewness of 1.8 it reads 0.',
+          limit: 'Withholding leaves you without a number to report. A transform or a distribution-free capability is not built yet, so for skewed data the defensible answer is currently Cp, Cpk and the observed count out of spec.' },
+        { tool: 'analyze', label: 'What is worth controlling, from the batch record',
+          does: 'Historical batches mined for the few parameters that move the result, with a what-if desk and an in-spec badge, so a control strategy is argued from data.',
+          limit: 'Correlation from routine production is not a control-strategy justification on its own, and the tool designs the study that would be.' }
+      ],
+      gaps: [
+        'No live connection to anything: no historian, no SCADA, no LIMS. Export a file and load it.',
+        'No rare-event chart yet, which is the right tool for a reject rate in the tenths of a percent.',
+        'No CUSUM or EWMA, which beat Nelson rules for detecting a small sustained shift quickly.',
+        'Not a validated GxP system. Everything here is decision support with an audit trail attached.'
+      ]
+    },
+    qc: {
+      headline: 'The question underneath nearly every QC argument is whether the result moved or the method did, and that is answerable rather than arguable.',
+      first: { tool: 'variance', label: 'Qualify the method before you trend its output',
+        why: 'A trend report built on an unqualified assay reports the assay. Gage R&R for a measured result, attribute agreement for a pass/fail call, and the distinct-categories figure tells you whether individual results can carry a control chart at all - under five, and the chart shows the measurement moving, not the process.' },
+      steps: [
+        { tool: 'analyze', label: 'Assay noise against real process shifts',
+          does: 'Six Sigma mode gives capability against specification and a control chart with the full rule set, so a drift is distinguished from scatter with the false-alarm rate stated.',
+          limit: 'Rows must be in run order for the within-subgroup estimate to mean anything, and the tool asks rather than assuming.' },
+        { tool: 'variance', label: 'Attribute agreement for inspection and plate reads',
+          does: 'Appraiser against themselves, against each other and against a known standard, with kappa, bootstrapped intervals, and miss and false alarm rates kept separate.',
+          measured: 'Percent agreement alone is the trap: at a 10% defect rate, passing everything scores 90% agreement, kappa 0 and a 100% miss rate.',
+          limit: 'Without a known value it can only say whether people agree, not whether they are right. Two analysts trained the same wrong way agree perfectly.' },
+        { tool: 'equivalence', label: 'Instrument against instrument, analyst against analyst',
+          does: 'TOST with the margin fixed first, paired when the same samples were run twice, and an explicit inconclusive verdict.',
+          limit: 'An inconclusive result is a real result. The tool reports how many more results would settle it rather than letting the study pass by default.' },
+        { tool: 'limits', label: 'Specifications and study sizes',
+          does: 'What the data supports as a limit, and how many results a planned study needs, with normality tested rather than assumed.',
+          limit: 'A limit the data cannot support is sometimes unsupportable at any sample size, and that answer is given plainly.' }
+      ],
+      gaps: [
+        'No instrument files. Chromatograms, spectra and plate images have to be reduced to numbers first.',
+        'No OOS workflow, no trending database, no stability scheduling: this computes on a file, it does not manage a programme.',
+        'No ICH Q2 validation package - no linearity, LOD, LOQ or robustness as named calculations.',
+        'No non-parametric tolerance bound, so a skewed assay currently gets a refusal rather than a distribution-free limit.'
+      ]
+    },
+    qa: {
+      headline: 'The tool cannot write your document, and will not pretend to: what it does is produce the numbers a document needs, with the fingerprints a reviewer will ask for.',
+      first: { tool: 'analyze', label: 'Run it once with the audit package exported',
+        why: 'Every analysis exports with each input file’s SHA-256 fingerprint, size and shape, the join, the target, the settings, every column set aside and why, the leakage check, the validation scheme, the models compared, the selection rule and the seed. That package is what makes a number in a report traceable, and it is produced in the same click as the number.' },
+      steps: [
+        { tool: 'analyze', label: 'Deviation investigation support',
+          does: 'The deviating batches against the population, which recorded parameters distinguish them, and a control chart dating the onset rather than the discovery. A shuffled-target noise floor runs alongside, so a parameter with nothing behind it is reported as having nothing behind it instead of appearing low on a ranked list and reading as a weak lead.',
+          limit: 'It cannot establish cause from routine production data, and says so. What it produces is a ranked, evidenced starting point and the design that would settle it.' },
+        { tool: 'golden', label: 'Date the onset, name the sensor',
+          does: 'The hour a batch left the path good batches took, the sensors that moved together, and whether that pattern ever appeared in a batch you released.',
+          limit: 'Needs the reference batches nominated by somebody who knows which runs were good. The tool cannot decide that for you.' },
+        { tool: 'analyze', label: 'CAPA effectiveness, honestly measured',
+          does: 'Before and after as an equivalence or difference question with the margin fixed first, and the control chart showing whether the rate actually moved or the chart is just newer.',
+          measured: 'The multiplicity correction matters here: test enough attributes after a change and something looks significant. Over 500 analyses of a design with no real effect in it, 23.2% produced at least one false finding; the correction cuts that to 1.8%.',
+          limit: 'Effectiveness checks need enough post-change data to see the effect you claimed. The tool will say the study is too small rather than passing it.' },
+        { tool: 'analyze', label: 'Annual product quality review material',
+          does: 'Capability, stability trends and control charts for the year, built from raw data rather than from last year’s summary, exported as a workbook where numbers stay numbers.',
+          limit: 'Formatting and narrative are yours. There is no language model here, by deliberate choice.' }
+      ],
+      gaps: [
+        'It does not write documents. No deviation report, no CAPA narrative, no technical development report: there is no language model on this page and a tool that claimed otherwise would be found out at the worst possible moment.',
+        'No CAPA or deviation tracking workflow, no electronic signatures, no record management.',
+        'Not a validated GxP system, and the audit trail says so in its own footer.',
+        'No regulatory decision logic: it will not tell you whether something is reportable.'
+      ]
+    }
+  };
+
   root.MLApplications = APPLICATIONS;
   root.MLApplications.MODALITIES = MODALITIES;
   root.MLApplications.FUNCTIONS = FUNCTIONS;
   root.MLApplications.UNITOPS = UNITOPS;
   root.MLApplications.BYFUNCTION = BYFUNCTION;
+  root.MLApplications.PLAYBOOKS = PLAYBOOKS;
 
   if (typeof module !== 'undefined' && module.exports) module.exports = APPLICATIONS;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

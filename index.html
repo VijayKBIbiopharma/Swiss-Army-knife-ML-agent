@@ -568,6 +568,7 @@
           <select id="vc-mode">
             <option value="components" selected>Where is the variation coming from? (variance components)</option>
             <option value="grr">Can my measurement system see it? (Gage R&amp;R)</option>
+            <option value="agree">Do people agree on a pass or fail call? (attribute agreement)</option>
           </select>
         </label>
       </div>
@@ -593,6 +594,13 @@
           <label>Operator or instrument <select id="vc-operator"></select></label>
           <label>Result column <select id="vc-grr-value"></select></label>
         </div>
+        <div class="controls" id="vc-map-agree" hidden>
+          <label>Sample or vial <select id="vc-a-part"></select></label>
+          <label>Appraiser or inspector <select id="vc-a-operator"></select></label>
+          <label>The call they made <select id="vc-a-rating"></select></label>
+          <label>Known value, if you have one <select id="vc-a-standard"></select></label>
+        </div>
+        <p class="hint" id="vc-agree-note" hidden>Without a known value this says whether people agree with each other; it cannot say whether they are right. With one it also gives each appraiser&rsquo;s miss rate and false alarm rate, which is what an inspection qualification actually turns on.</p>
         <div class="controls" id="vc-spec" hidden>
           <label>Lower spec limit (optional) <input id="vc-lsl" type="text" inputmode="decimal" placeholder="e.g. 95"></label>
           <label>Upper spec limit (optional) <input id="vc-usl" type="text" inputmode="decimal" placeholder="e.g. 105"></label>

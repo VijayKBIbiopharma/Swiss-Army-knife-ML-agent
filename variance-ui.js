@@ -30,7 +30,8 @@
   // ---------- what each mode is for, and what it needs ----------
   const MODE_DESC = {
     components: 'Splits a total spread into between-group and within-group variation, says what share each owns, and names which groups genuinely differ rather than looking different by chance.',
-    grr: 'Splits what you observe into repeatability, reproducibility and real part-to-part differences, and judges whether the measurement system is fit to make the decisions you make with it.'
+    grr: 'Splits what you observe into repeatability, reproducibility and real part-to-part differences, and judges whether the measurement system is fit to make the decisions you make with it.',
+    agree: 'For a judgement rather than a measurement: whether appraisers agree with themselves, with each other, and with the truth. Reports kappa beside the agreement percentage, because when the defect is rare an appraiser who passes everything scores high on the percentage and nothing on kappa.'
   };
   const SHAPES = {
     components: '<p class="hint">One row per measurement: which group it came from, and the number. Several measurements per group is what makes the split possible &mdash; with one each, there is nothing to compare the between-group spread against.</p>' +
@@ -46,10 +47,19 @@
       '<tr><td>S-02</td><td>Analyst 1</td><td>95.1</td></tr>' +
       '<tr class="dim"><td colspan="3">&hellip; every sample measured by every analyst, the same number of times</td></tr></tbody></table></div>' +
       '<p class="hint">The usual study is 10 samples, 3 operators, 2 or 3 repeats, and the design must be complete and balanced. Pick samples that span the range you really see in production: a study run on ten near-identical samples will fail whatever the instrument does, because there is nothing for the method to resolve.</p>'
+    ,
+    agree: '<p class="hint">One row per look. Every appraiser judges every sample, more than once, and the calls are words rather than numbers &mdash; accept or reject, pass or fail. A known value per sample is optional but changes what can be answered.</p>' +
+      '<div class="table-scroll"><table class="shape-table"><thead><tr><th>Vial</th><th>Inspector</th><th>Call</th><th>Known</th></tr></thead><tbody>' +
+      '<tr><td>V-01</td><td>Ana</td><td>accept</td><td>accept</td></tr><tr><td>V-01</td><td>Ana</td><td>accept</td><td>accept</td></tr>' +
+      '<tr><td>V-01</td><td>Ben</td><td>reject</td><td>accept</td></tr>' +
+      '<tr><td>V-02</td><td>Ana</td><td>reject</td><td>reject</td></tr>' +
+      '<tr class="dim"><td colspan="4">&hellip; every sample judged by every inspector, twice or more</td></tr></tbody></table></div>' +
+      '<p class="hint">Build the sample set close to half good and half defective, however unrepresentative that feels. A set matching real production &mdash; a few percent defective &mdash; cannot support a miss rate: there is almost nothing to miss, and the appraiser who passes every vial comes out looking excellent.</p>'
   };
   const EXAMPLES = {
     components: [['vc-ex1', 'Example: one supplier lot is the problem'], ['vc-ex2', 'Example: the lots are fine, the assay is noisy'], ['vc-ex3', 'Example: analyst-to-analyst drift']],
-    grr: [['vc-ex1', 'Example: a method fit for release'], ['vc-ex2', 'Example: one analyst out of step'], ['vc-ex3', 'Example: the instrument cannot resolve it']]
+    grr: [['vc-ex1', 'Example: a method fit for release'], ['vc-ex2', 'Example: one analyst out of step'], ['vc-ex3', 'Example: the instrument cannot resolve it']],
+    agree: [['vc-ex1', 'Example: inspectors fit to qualify'], ['vc-ex2', 'Example: the rubber stamp'], ['vc-ex3', 'Example: one inspector over-rejects']]
   };
 
   // ---------- reading the data ----------
@@ -57,6 +67,8 @@
   const PART = /sample|specimen|part|vial|lot|batch|aliquot|^id|id$/i;
   const OPER = /analyst|operator|instrument|system|device|gauge|technician|appraiser|column|lab/i;
   const VALUE = /result|value|assay|purity|potency|conc|content|titer|titre|measure|area|response|reading|%/i;
+  const CALL = /call|rating|rated|judge|judgement|judgment|decision|disposition|verdict|accept|reject|pass|fail|result|grade|inspection/i;
+  const TRUTH = /standard|known|truth|true|reference|master|expected|actual|gold|answer/i;
 
   function loadText(text) {
     let t;
@@ -74,6 +86,21 @@
     const part = others.find(c => PART.test(c)) || others[0] || value;
     opt('vc-part', t.columns, part);
     opt('vc-operator', t.columns, others.find(c => c !== part && OPER.test(c)) || others.find(c => c !== part) || part);
+    /* The agreement study's columns are all text, so the numeric guesses above are no help.
+       The call is picked from the low-cardinality text columns, since a column holding two
+       or three distinct words is what a judgement looks like. */
+    const textCols = prof.columns.filter(c => c.kind !== 'numeric');
+    const callish = textCols.filter(c => c.unique >= 2 && c.unique <= 8).map(c => c.name);
+    const aPart = t.columns.find(c => PART.test(c)) || t.columns[0];
+    const aOper = t.columns.find(c => c !== aPart && OPER.test(c)) || t.columns.find(c => c !== aPart) || aPart;
+    const aCall = callish.find(c => c !== aPart && c !== aOper && CALL.test(c) && !TRUTH.test(c)) ||
+      callish.find(c => c !== aPart && c !== aOper && !TRUTH.test(c)) || t.columns.find(c => c !== aPart && c !== aOper) || aPart;
+    const aTruth = t.columns.find(c => TRUTH.test(c) && c !== aCall);
+    opt('vc-a-part', t.columns, aPart);
+    opt('vc-a-operator', t.columns, aOper);
+    opt('vc-a-rating', t.columns, aCall);
+    $('vc-a-standard').innerHTML = '<option value="">\u2014 none, judge agreement only \u2014</option>' +
+      t.columns.map(c => '<option' + (c === aTruth ? ' selected' : '') + '>' + h(c) + '</option>').join('');
     $('vc-settings').hidden = false;
     $('vc-error').hidden = true;
     describe();
@@ -93,6 +120,21 @@
         out.push({ group: String(r[gi]).trim(), value });
       });
       if (!out.length) throw new Error('No numeric results found in "' + $('vc-value').value + '".');
+      return { rows: out, skipped };
+    }
+    if (mode() === 'agree') {
+      const ai = col('vc-a-part'), bi = col('vc-a-operator'), ci = col('vc-a-rating');
+      const si = $('vc-a-standard').value ? table.columns.indexOf($('vc-a-standard').value) : -1;
+      if (ai < 0 || bi < 0 || ci < 0) throw new Error('Pick a sample column, an appraiser column and the column holding the call.');
+      if (ai === bi || ai === ci || bi === ci) throw new Error('The sample, appraiser and call columns must all be different.');
+      if (si >= 0 && (si === ai || si === bi || si === ci)) throw new Error('The known value must be a column of its own, not one already used.');
+      const out = []; let skipped = 0;
+      table.rows.forEach(r => {
+        const rating = String(r[ci] === undefined ? '' : r[ci]).trim();
+        if (rating === '') { skipped++; return; }
+        out.push({ part: String(r[ai]).trim(), operator: String(r[bi]).trim(), rating, standard: si >= 0 ? String(r[si] === undefined ? '' : r[si]).trim() : '' });
+      });
+      if (!out.length) throw new Error('No calls found in "' + $('vc-a-rating').value + '".');
       return { rows: out, skipped };
     }
     const pi = col('vc-part'), oi = col('vc-operator'), vi = col('vc-grr-value');
@@ -119,6 +161,14 @@
         $('vc-read').textContent = rows.length + ' measurements across ' + g.length + ' group' + (g.length === 1 ? '' : 's') +
           ' (' + g.slice(0, 6).map(x => x).join(', ') + (g.length > 6 ? '…' : '') + '), ' +
           (lo === hi ? lo + ' each' : lo + ' to ' + hi + ' each') + '.' + tail;
+      } else if (mode() === 'agree') {
+        const p = new Set(rows.map(r => r.part)), o = new Set(rows.map(r => r.operator)), c = new Set(rows.map(r => r.rating));
+        const withStd = rows.filter(r => r.standard !== '').length;
+        const cells = p.size * o.size;
+        $('vc-read').textContent = rows.length + ' calls: ' + p.size + ' sample' + (p.size === 1 ? '' : 's') + ' \u00d7 ' + o.size + ' appraiser' + (o.size === 1 ? '' : 's') +
+          (cells ? ', ' + (rows.length / cells === Math.round(rows.length / cells) ? (rows.length / cells) + ' look' + (rows.length / cells === 1 ? '' : 's') + ' each' : 'unevenly repeated') : '') +
+          '. Calls used: ' + Array.from(c).slice(0, 6).join(', ') + (c.size > 6 ? '\u2026' : '') +
+          (withStd ? '. Known value on ' + (withStd === rows.length ? 'every row' : withStd + ' of ' + rows.length + ' rows') + '.' : '. No known value, so accuracy cannot be judged.') + tail;
       } else {
         const p = new Set(rows.map(r => r.part)), o = new Set(rows.map(r => r.operator));
         const cells = p.size * o.size;
@@ -334,6 +384,99 @@
     $('vc-csv').addEventListener('click', () => download('gage-rr.csv', csvGrr(r, rows), 'text/csv'));
   }
 
+  function renderAgree(r, rows) {
+    const k3 = v => (v === null || v === undefined || !isFinite(v) ? '–' : Number(v).toFixed(3));
+    const ci = (lo, hi) => (lo === null || hi === null || !isFinite(lo) || !isFinite(hi) ? '–' : k3(lo) + ' to ' + k3(hi));
+    const vcls = v => (v === 'acceptable' ? 'capable' : v === 'marginal' ? 'marginal' : 'not');
+    const cls = vcls(r.verdict);
+    const badge = r.verdict === 'acceptable' ? 'FIT TO QUALIFY' : r.verdict === 'marginal' ? 'BORDERLINE' : 'NOT FIT';
+
+    const tiles = tile('Appraisal system', r.verdict === 'acceptable' ? 'Fit' : r.verdict === 'marginal' ? 'Borderline' : 'Not fit', 'on the weakest kappa in the study', true) +
+      tile('Worst kappa', k3(r.worstKappa), 'agreement above chance (0.90 is the usual bar)') +
+      tile('Study', r.parts + ' × ' + r.operators.length + ' × ' + r.repeats, 'samples × appraisers × looks') +
+      (r.allVsStandard
+        ? tile('All correct', pct(r.allVsStandard.pct * 100), 'samples every appraiser called right every time')
+        : tile('All agreed', pct((r.betweenAppraisers.pct || 0) * 100), 'samples every appraiser called the same way'));
+
+    /* Percent agreement and kappa side by side, on purpose. The gap between the two columns
+       is the finding whenever the defect is rare. */
+    const within = '<h4>Each appraiser against themselves</h4>' +
+      '<p class="hint">Whether a second look at the same sample gets the same call. Repeatability for a judgement.</p>' +
+      '<div class="table-scroll"><table><thead><tr><th>Appraiser</th><th class="num-cell">Samples</th><th class="num-cell">Agreed with self</th><th class="num-cell">Kappa</th><th class="num-cell">95% interval</th><th>Verdict</th></tr></thead><tbody>' +
+      r.withinAppraiser.map(w => '<tr><td>' + h(w.operator) + '</td><td class="num-cell">' + (w.n || '–') + '</td><td class="num-cell">' +
+        (w.pct === null ? '–' : pct(w.pct * 100)) + '</td><td class="num-cell">' + k3(w.kappa) + '</td><td class="num-cell">' + ci(w.lo, w.hi) + '</td>' +
+        '<td><span class="verdict ' + vcls(w.verdict) + '">' + h(w.verdict) + '</span>' + (w.why ? ' <span class="hint">' + h(w.why) + '</span>' : '') + '</td></tr>').join('') +
+      '</tbody></table></div>';
+
+    const standard = !r.hasStandard ? '' : '<h4>Each appraiser against the known value</h4>' +
+      '<p class="hint">Accuracy, not just consistency. The last two columns matter more than any single figure here, and they are not interchangeable: a miss reaches the patient, a false alarm costs yield.</p>' +
+      '<div class="table-scroll"><table><thead><tr><th>Appraiser</th><th class="num-cell">Calls</th><th class="num-cell">Agreed</th><th class="num-cell">Kappa</th><th class="num-cell">95% interval</th>' +
+      (r.binary ? '<th class="num-cell">Missed a real ' + h(String(r.defect)) + '</th><th class="num-cell">False alarm</th>' : '') + '<th>Verdict</th></tr></thead><tbody>' +
+      r.vsStandard.map(v => '<tr><td>' + h(v.operator) + '</td><td class="num-cell">' + v.n + '</td><td class="num-cell">' + pct(v.pct * 100) + '</td>' +
+        '<td class="num-cell">' + k3(v.kappa) + '</td><td class="num-cell">' + ci(v.lo, v.hi) + '</td>' +
+        (r.binary ? '<td class="num-cell">' + (v.miss === null ? '–' : pct(v.miss * 100) + ' of ' + v.defectsSeen) + '</td><td class="num-cell">' + (v.falseAlarm === null ? '–' : pct(v.falseAlarm * 100) + ' of ' + v.goodsSeen) + '</td>' : '') +
+        '<td><span class="verdict ' + vcls(v.verdict) + '">' + h(v.verdict) + '</span></td></tr>').join('') +
+      '</tbody></table></div>';
+
+    const b = r.betweenAppraisers;
+    const between = '<h4>Appraiser against appraiser</h4><p class="hint">' +
+      (b.kappa === null ? h(b.why || 'Not computable for this study.')
+        : 'Every appraiser called the same way on <b>' + pct(b.pct * 100) + '</b> of samples, kappa <b>' + k3(b.kappa) + '</b> (' + ci(b.lo, b.hi) + '), ' + h(b.verdict) + '. Disagreement between people usually means a step of the inspection is open to interpretation, and retraining one person will not fix it.') + '</p>';
+
+    const notes = r.notes.slice();
+    notes.push('Kappa is agreement above what calling at the same rates by chance would give: 1 is perfect, 0 is no better than guessing. The 0.90 and 0.70 cuts used for the verdicts are the measurement-systems convention rather than a regulatory limit, so a borderline study is an argument to have, not a box to tick.');
+    notes.push('The 95% intervals are bootstrapped by resampling samples, not individual calls, 600 times. The ratings within one sample are the thing being measured, so resampling them would break the very dependence the study exists to capture.');
+    if (!r.hasStandard) notes.push('No known value was given, so nothing here says whether the appraisers are right — only whether they agree. Two inspectors trained the same wrong way agree perfectly. Add a column holding the truth for the samples and the miss and false alarm rates follow.');
+    if (!r.balanced) notes.push('Unbalanced studies weight whoever made the most calls. A complete design — every appraiser, every sample, the same number of looks — is worth the extra plates.');
+
+    $('vc-out').innerHTML = '<div class="verdict-card ' + cls + '"><div class="verdict-badge">' + badge + '</div>' +
+      '<div class="tiles">' + tiles + '</div>' +
+      within + standard + between +
+      '<div id="vc-kbars"></div>' +
+      '<h4>Worth knowing</h4><ul class="notes">' + notes.map(n => '<li>' + n + '</li>').join('') + '</ul>' +
+      '<div class="row-actions"><button class="btn primary" type="button" id="vc-csv">Download the report (.csv)</button></div>' +
+      '<p class="hint">Decision support, not a validated inspection-qualification package. Confirm against your protocol and have the arithmetic checked independently.</p></div>';
+
+    const bars = (r.hasStandard ? r.vsStandard : r.withinAppraiser).filter(x => x.kappa !== null && isFinite(x.kappa))
+      .map(x => ({ label: x.operator, value: x.kappa * 100, text: k3(x.kappa), cls: x.kappa >= 0.9 ? 'hi' : '' }));
+    if (bars.length) CH.hbar($('vc-kbars'), bars, { min: 0, max: 100, label: 'Kappa by appraiser, ×100 (90 is the usual bar)' });
+    $('vc-csv').addEventListener('click', () => download('attribute-agreement.csv', csvAgree(r, rows), 'text/csv'));
+  }
+
+  function csvAgree(r, rows) {
+    const L = head('Attribute agreement analysis');
+    L.push(['Samples', r.parts], ['Appraisers', r.operators.length], ['Looks per appraiser per sample', r.repeats],
+      ['Balanced', r.balanced ? 'Yes' : 'No'], ['Calls seen', q(r.categories.join(' / '))],
+      ['Known value given', r.hasStandard ? 'Yes' : 'No'], ['Defect level', q(r.defect || 'n/a')],
+      ['Share truly defective', r.prevalence === null ? '' : r.prevalence], ['Worst kappa', r.worstKappa], ['Verdict', q(r.verdict)], []);
+    L.push(['Each appraiser against themselves'], ['Appraiser', 'Samples', 'Agreed with self', 'Kappa', 'Lower 95%', 'Upper 95%', 'Verdict']);
+    r.withinAppraiser.forEach(w => L.push([q(w.operator), w.n, w.pct, w.kappa, w.lo, w.hi, q(w.verdict)]));
+    L.push([]);
+    if (r.hasStandard) {
+      L.push(['Each appraiser against the known value'], ['Appraiser', 'Calls', 'Agreed', 'Kappa', 'Lower 95%', 'Upper 95%', 'Missed a real defect', 'Defects seen', 'False alarm rate', 'Good units seen', 'Verdict']);
+      r.vsStandard.forEach(v => L.push([q(v.operator), v.n, v.pct, v.kappa, v.lo, v.hi, v.miss, v.defectsSeen, v.falseAlarm, v.goodsSeen, q(v.verdict)]));
+      L.push([]);
+      L.push(['Every appraiser correct every look', r.allVsStandard.agreed + ' of ' + r.allVsStandard.n, r.allVsStandard.pct], []);
+    }
+    const b = r.betweenAppraisers;
+    L.push(['Appraiser against appraiser'], ['Samples', b.n], ['All called the same', b.pct], ['Kappa', b.kappa], ['Lower 95%', b.lo], ['Upper 95%', b.hi], ['Verdict', q(b.verdict)], []);
+    L.push(['Worth knowing']);
+    r.notes.forEach(n => L.push([q(n)]));
+    L.push([], ['Ratings used']);
+    L.push(['Sample', 'Appraiser', 'Call', 'Known value']);
+    rows.forEach(x => L.push([q(x.part), q(x.operator), q(x.rating), q(x.standard || '')]));
+    return L.map(line => line.join(',')).join('\n');
+  }
+
+  const summaryAgree = r => ({
+    kind: 'agree', when: new Date().toISOString(),
+    columns: { part: $('vc-a-part').value, operator: $('vc-a-operator').value, rating: $('vc-a-rating').value, standard: $('vc-a-standard').value || null },
+    parts: r.parts, operators: r.operators, repeats: r.repeats, balanced: r.balanced,
+    categories: r.categories, defect: r.defect, hasStandard: r.hasStandard, prevalence: r.prevalence,
+    withinAppraiser: r.withinAppraiser, vsStandard: r.vsStandard, betweenAppraisers: r.betweenAppraisers,
+    allVsStandard: r.allVsStandard, worstKappa: r.worstKappa, verdict: r.verdict, notes: r.notes
+  });
+
   // ---------- reports ----------
   const q = v => '"' + String(v).replace(/"/g, '""') + '"';
   function head(title) {
@@ -399,9 +542,32 @@
   /* Built here rather than taken from a real study, so each one illustrates exactly one
      situation and the write-up can be checked against what was injected. */
   function example(kind) {
-    const seeds = { components: { vc1: 7, vc2: 19, vc3: 41 }, grr: { vc1: 3, vc2: 23, vc3: 57 } };
+    const seeds = { components: { vc1: 7, vc2: 19, vc3: 41 }, grr: { vc1: 3, vc2: 23, vc3: 57 }, agree: { vc1: 13, vc2: 31, vc3: 61 } };
     const r = E.rng(seeds[mode()]['vc' + kind]);
     const N = () => { const u = Math.max(1e-12, r()); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+    if (mode() === 'agree') {
+      /* A visual inspection qualification set: 24 vials, half of them seeded with a real
+         particle, three inspectors, two looks each. Half and half on purpose - a set built
+         to match production, at a few percent defective, cannot measure a miss rate. */
+      const vials = E.range(24).map(i => ({ id: 'V-' + String(i + 1).padStart(2, '0'), truth: i % 2 === 0 ? 'reject' : 'accept' }));
+      const build = call => {
+        const lines = ['Vial,Inspector,Call,Known'];
+        for (const v of vials) for (const who of ['Ana', 'Ben', 'Cara']) for (const look of [1, 2]) {
+          lines.push([v.id, who, call(v, who, look), v.truth].join(','));
+        }
+        return lines.join('\n');
+      };
+      // Fit to qualify: everyone sees nearly everything, with the odd honest slip.
+      if (kind === 1) return build((v, who, look) => (r() < 0.04 ? (v.truth === 'reject' ? 'accept' : 'reject') : v.truth));
+      /* The rubber stamp. Cara passes every vial without looking. Against a production-like
+         set she would score in the high nineties; here the miss rate gives her away. */
+      if (kind === 2) return build((v, who) => (who === 'Cara' ? 'accept' : (r() < 0.05 ? (v.truth === 'reject' ? 'accept' : 'reject') : v.truth)));
+      // Ben rejects anything he is unsure of: no misses at all, and a yield problem.
+      return build((v, who) => {
+        if (who === 'Ben') return (v.truth === 'reject' || r() < 0.35 ? 'reject' : 'accept');
+        return (r() < 0.05 ? (v.truth === 'reject' ? 'accept' : 'reject') : v.truth);
+      });
+    }
     if (mode() === 'components') {
       if (kind === 1) {
         // Six resin lots, one of them genuinely low; the assay itself is tight.
@@ -446,15 +612,19 @@
     $('vc-shape-body').innerHTML = SHAPES[m];
     $('vc-shape').querySelector('summary').textContent = 'What the data should look like';
     $('vc-map-components').hidden = m !== 'components';
-    $('vc-map-grr').hidden = m === 'components';
-    $('vc-spec').hidden = m === 'components';
-    $('vc-spec-note').hidden = m === 'components';
+    $('vc-map-grr').hidden = m !== 'grr';
+    $('vc-map-agree').hidden = m !== 'agree';
+    $('vc-agree-note').hidden = m !== 'agree';
+    $('vc-spec').hidden = m !== 'grr';
+    $('vc-spec-note').hidden = m !== 'grr';
     $('vc-advanced').hidden = m !== 'components';
-    $('vc-run').textContent = m === 'components' ? 'Split the variation' : 'Check the measurement system';
+    $('vc-run').textContent = m === 'components' ? 'Split the variation' : m === 'agree' ? 'Check the agreement' : 'Check the measurement system';
     $('vc-examples').innerHTML = EXAMPLES[m].map(([id, label]) => '<button class="btn ghost small" id="' + id + '" type="button">' + h(label) + '</button>').join('') +
       '<button class="btn ghost small" id="vc-clear" type="button">Clear</button>';
     bindExamples();
-    $('vc-data').placeholder = m === 'components' ? 'Lot,Result\nL-2401,96.2\nL-2401,96.6\nL-2402,94.1' : 'Sample,Analyst,Result\nS-01,Analyst 1,98.4\nS-01,Analyst 1,98.6';
+    $('vc-data').placeholder = m === 'components' ? 'Lot,Result\nL-2401,96.2\nL-2401,96.6\nL-2402,94.1'
+      : m === 'agree' ? 'Vial,Inspector,Call,Known\nV-01,Ana,accept,accept\nV-01,Ana,accept,accept\nV-01,Ben,reject,accept'
+      : 'Sample,Analyst,Result\nS-01,Analyst 1,98.4\nS-01,Analyst 1,98.6';
     $('vc-out').innerHTML = ''; $('vc-error').hidden = true;
     if (table) { describe(); } else { $('vc-read').textContent = ''; }
   }
@@ -481,6 +651,11 @@
         last = { kind: 'components', r: res, rows: got.rows };
         renderComponents(res, got.rows);
         window.MLVarianceRun = summaryComponents(res);
+      } else if (mode() === 'agree') {
+        const res = V.attributeAgreement(got.rows, { seed: 29, reps: 600 });
+        last = { kind: 'agree', r: res, rows: got.rows };
+        renderAgree(res, got.rows);
+        window.MLVarianceRun = summaryAgree(res);
       } else {
         const res = V.gageRR(got.rows, { lsl: $('vc-lsl').value, usl: $('vc-usl').value });
         last = { kind: 'grr', r: res, rows: got.rows };
@@ -531,7 +706,7 @@
       fr.onload = () => load(String(fr.result));
       fr.readAsText(f);
     });
-    ['vc-group', 'vc-value', 'vc-part', 'vc-operator', 'vc-grr-value'].forEach(id => $(id).addEventListener('change', describe));
+    ['vc-group', 'vc-value', 'vc-part', 'vc-operator', 'vc-grr-value', 'vc-a-part', 'vc-a-operator', 'vc-a-rating', 'vc-a-standard'].forEach(id => $(id).addEventListener('change', describe));
     $('vc-run').addEventListener('click', run);
   }
 

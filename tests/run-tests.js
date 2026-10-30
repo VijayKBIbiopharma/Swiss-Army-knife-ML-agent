@@ -4175,3 +4175,260 @@ test('many-levelled text columns are carried as numbers, and fitting them leaks 
   assert.strictEqual(unsup.parts[0].maps.length, 1);
   assert.deepStrictEqual(unsup.parts[0].maps.map(m => m.kind), ['freq']);
 });
+
+/* Attribute agreement: the measurement-system question for a judgement rather than a
+   measurement. Gage R&R cannot touch a visual inspector's accept/reject call - there is no
+   number to take a variance of - and percent agreement, which is what people reach for
+   instead, is actively misleading when the defect is rare. Both claims are measured here. */
+test('attribute agreement separates a good inspector from a rubber stamp, which percent agreement cannot', () => {
+  const study = (n, call) => {
+    const rows = [];
+    for (let i = 0; i < n; i++) {
+      const truth = i % 10 === 0 ? 'reject' : 'accept';   // 10% truly defective
+      for (const op of ['Ana', 'Ben']) for (const look of [0, 1]) {
+        rows.push({ part: 'V' + i, operator: op, rating: call(truth, op, look, i), standard: truth });
+      }
+    }
+    return rows;
+  };
+
+  // A perfect inspector: kappa 1 everywhere, and the figure a quality unit asks for is 100%.
+  const perfect = VC.attributeAgreement(study(30, t => t), { seed: 3, reps: 200 });
+  assert.strictEqual(perfect.withinAppraiser[0].kappa, 1);
+  assert.strictEqual(perfect.betweenAppraisers.kappa, 1);
+  assert.strictEqual(perfect.vsStandard[0].kappa, 1);
+  assert.strictEqual(perfect.allVsStandard.pct, 1);
+  assert.strictEqual(perfect.verdict, 'acceptable');
+  assert.strictEqual(perfect.vsStandard[0].miss, 0);
+  assert.strictEqual(perfect.vsStandard[0].falseAlarm, 0);
+
+  /* The rubber stamp: passes every vial without looking. This is the case the whole method
+     exists for, and the one an agreement percentage flatters. */
+  const stamp = VC.attributeAgreement(study(30, () => 'accept'), { seed: 3, reps: 200 });
+  const s0 = stamp.vsStandard[0];
+  assert.ok(Math.abs(s0.pct - 0.9) < 1e-9, 'agreeing with a 10% defect rate by passing everything scores 90%: got ' + s0.pct);
+  assert.strictEqual(s0.kappa, 0, 'and kappa must be 0, because that is agreement above guessing');
+  assert.strictEqual(s0.miss, 1, 'every real defect was passed');
+  assert.strictEqual(s0.falseAlarm, 0, 'and no good vial was ever rejected, which is why they look good on agreement');
+  assert.strictEqual(stamp.verdict, 'inadequate');
+  // The gap itself has to be said out loud, not left for the reader to notice.
+  assert.ok(stamp.notes.some(t => /kappa of 0/.test(t) && /background/.test(t)),
+    'the prevalence trap must be stated: ' + JSON.stringify(stamp.notes));
+  assert.ok(stamp.notes.some(t => /called every sample/.test(t)), 'an appraiser using one call only must be named');
+
+  /* Regression. Categories were first taken from the ratings alone, so this study - where
+     every rating is "accept" - threw "only one call ever made" and refused to run. The one
+     analysis that exposes a rubber stamp was the one that could not be performed. */
+  assert.doesNotThrow(() => VC.attributeAgreement(study(12, () => 'accept'), { seed: 1, reps: 50 }));
+
+  // Guessing at the right rate: agreement looks fine, kappa lands at zero where it belongs.
+  let kSum = 0, trials = 300;
+  for (let t = 0; t < trials; t++) {
+    const r = E.rng(500 + t);
+    const rows = study(40, () => (r() < 0.1 ? 'reject' : 'accept'));
+    const a = VC.attributeAgreement(rows, { seed: 2, reps: 0 });
+    kSum += a.vsStandard[0].kappa;
+  }
+  assert.ok(Math.abs(kSum / trials) < 0.05, 'ratings independent of the truth must average a kappa of 0, got ' + (kSum / trials).toFixed(3));
+
+  /* A real inspector: sees most defects, occasionally over-calls. The two rates are not
+     symmetric and a single agreement figure hides which way they lean. */
+  const real = VC.attributeAgreement(study(60, (t, op, look, i) => {
+    if (t === 'reject') return (i % 30 === 0 ? 'accept' : 'reject');       // misses some
+    return (i % 17 === 0 && look === 1 ? 'reject' : 'accept');             // over-calls some
+  }), { seed: 5, reps: 300 });
+  const r0 = real.vsStandard[0];
+  assert.ok(r0.kappa > 0.5 && r0.kappa < 0.95, 'a middling inspector must land between the extremes, got ' + r0.kappa);
+  assert.ok(r0.miss > 0 && r0.falseAlarm > 0, 'both error directions must be reported separately');
+  assert.ok(r0.miss !== r0.falseAlarm, 'and they are not the same number');
+  // The bootstrap interval has to contain the estimate and be an interval, not a point.
+  assert.ok(r0.lo < r0.kappa && r0.hi > r0.kappa, 'bootstrap interval must bracket the estimate: ' + r0.lo + '..' + r0.hi);
+  assert.ok(real.withinAppraiser[0].kappa < 1, 'an inspector who changes their mind on a second look is not perfectly repeatable');
+
+  // Honest refusals rather than numbers built on nothing.
+  assert.throws(() => VC.attributeAgreement([{ part: 'A', operator: 'x', rating: 'pass' }, { part: 'B', operator: 'x', rating: 'fail' }]), /at least 3 samples/);
+  assert.throws(() => VC.attributeAgreement(E.range(12).map(i => ({ part: 'V' + i, operator: 'x', rating: 'pass', standard: 'pass' }))), /nothing to agree/);
+  // A standard on only some samples is dropped, and said to be dropped.
+  const partial = VC.attributeAgreement(E.range(20).map(i => ({ part: 'V' + i, operator: 'x', rating: i % 3 ? 'pass' : 'fail', standard: i < 5 ? 'pass' : '' })), { seed: 1, reps: 50 });
+  assert.strictEqual(partial.hasStandard, false);
+  assert.ok(partial.notes.some(t => /partial standard flatters/.test(t)));
+});
+
+/* Charts for counted data, and the reason the textbook ones misfire on it. A Poisson chart
+   assumes every vial carries the same underlying rate; particles cluster by lot, line and
+   shift, so the rate itself moves and the real spread is wider than the square-root law
+   allows. The cost of ignoring that is measured here rather than asserted. */
+test('count charts measure overdispersion, and the textbook limits fire constantly without it', () => {
+  const pois = (lam, r) => { const L = Math.exp(-lam); let k = 0, p = 1; do { k++; p *= r(); } while (p > L); return k - 1; };
+  const nz = r => { let u = 0, v = 0; while (!u) u = r(); while (!v) v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  /* Counts with a given mean and a given dispersion, built by letting the rate itself wander
+     lognormally: var = m + m^2(e^s2 - 1), so dispersion phi = 1 + m(e^s2 - 1). */
+  const series = (n, m, phi, r) => {
+    const s2 = phi <= 1 ? 0 : Math.log(1 + (phi - 1) / m), s = Math.sqrt(s2);
+    return E.range(n).map(() => pois(m * Math.exp(s * nz(r) - s2 / 2), r));
+  };
+  const sweep = (phi, trials) => {
+    let pts = 0, plain = 0, widened = 0, phiSum = 0, facSum = 0;
+    for (let t = 0; t < trials; t++) {
+      const c = SPC.countChart(series(60, 16, phi, E.rng(1000 + t)));
+      pts += 60; plain += c.signals.length; widened += c.laney.signals.length;
+      phiSum += c.dispersion; facSum += c.factor;
+    }
+    return { measured: phiSum / trials, factor: facSum / trials, plain: plain / pts, widened: widened / pts };
+  };
+
+  // Dispersion is estimated accurately across the range.
+  const at1 = sweep(1, 200), at3 = sweep(3, 200), at5 = sweep(5, 150);
+  assert.ok(Math.abs(at1.measured - 1) < 0.1, 'Poisson counts must measure a dispersion of 1, got ' + at1.measured.toFixed(2));
+  assert.ok(Math.abs(at3.measured - 3) < 0.3, 'got ' + at3.measured.toFixed(2) + ' for true 3');
+  assert.ok(Math.abs(at5.measured - 5) < 0.6, 'got ' + at5.measured.toFixed(2) + ' for true 5');
+
+  /* When the counts really are Poisson the correction is near 1 and costs nothing, which is
+     what makes it safe to apply by default. */
+  assert.ok(at1.factor < 1.15, 'no widening when none is needed, got x' + at1.factor.toFixed(2));
+  assert.ok(at1.plain < 0.01, 'and the textbook chart behaves on Poisson counts: ' + (at1.plain * 100).toFixed(2) + '%');
+
+  /* The measured cost of ignoring overdispersion. At a dispersion of 3 - ordinary for
+     particle counts - the textbook chart flags about one point in sixteen from a process
+     with nothing wrong with it, which is roughly four false signals on a sixty-point chart.
+     Widened, that falls to about one in ninety. */
+  assert.ok(at3.plain > 0.04, 'textbook chart must misfire badly at phi 3, got ' + (at3.plain * 100).toFixed(2) + '%');
+  assert.ok(at3.widened < at3.plain / 3, 'widening must cut it several-fold: ' + (at3.plain * 100).toFixed(2) + '% to ' + (at3.widened * 100).toFixed(2) + '%');
+  assert.ok(at5.plain > 0.08, 'and it gets worse, not better, as clustering grows: ' + (at5.plain * 100).toFixed(2) + '%');
+  // Measured: phi 1 -> 0.31% vs 0.21%; phi 2 -> 2.99% vs 0.72%; phi 3 -> 6.25% vs 1.07%; phi 5 -> 11.78% vs 1.63%.
+
+  /* And the honest other side: widening costs sensitivity. A 60% sustained rise in the last
+     third of the chart is caught on most charts but not all. The textbook chart catches it
+     every time - while flagging one in sixteen in-control points, so that is not a fair
+     hundred percent, it is a chart that flags nearly anything. */
+  let caught = 0, trials = 200;
+  for (let t = 0; t < trials; t++) {
+    const r = E.rng(7000 + t);
+    const c = SPC.countChart(series(40, 16, 3, r).concat(series(20, 26, 3, r)));
+    if (c.laney.signals.some(s => s.i >= 40)) caught++;
+  }
+  assert.ok(caught / trials > 0.5, 'the widened chart must still see a real shift, got ' + Math.round(100 * caught / trials) + '%');
+
+  // The recommendation follows the measurement rather than a preference.
+  const clustered = SPC.countChart(series(60, 16, 4, E.rng(11)));
+  assert.strictEqual(clustered.use, 'c-prime');
+  assert.ok(/times as much as a Poisson model allows/.test(clustered.why));
+  const tame = SPC.countChart(series(60, 16, 1, E.rng(11)));
+  assert.strictEqual(tame.use, 'c');
+  assert.ok(/behave as a Poisson model expects/.test(tame.why));
+
+  /* A p-chart's limits move with how many units were looked at - the whole point of it.
+     Inspect 50 vials and the band is wide; inspect 5,000 and it is narrow. */
+  const units = [50, 5000, 50, 5000, 200, 200, 1000, 1000, 50, 5000];
+  const p = SPC.countChart(units.map(u => Math.round(u * 0.02)), { units, kind: 'p' });
+  assert.ok(Math.abs(p.centre - 0.02) < 0.002);
+  assert.ok(p.upper[0] > p.upper[1] * 3, 'a 50-vial point must have a far wider band than a 5,000-vial one');
+  assert.ok(p.lower.every(v => v >= 0) && p.upper.every(v => v <= 1), 'a proportion cannot leave 0 to 1');
+
+  // u-chart: defects per unit, where a unit can hold several.
+  const un = [10, 10, 20, 20, 5, 5, 10, 20, 10, 5];
+  const u = SPC.countChart([12, 9, 25, 18, 7, 4, 11, 22, 8, 6], { units: un });
+  assert.strictEqual(u.kind, 'u');
+  assert.ok(Math.abs(u.centre - 122 / 115) < 1e-9);
+
+  /* Nothing has ever happened: the limits collapse onto zero, and a chart that would flag
+     the first event as a signal is arithmetic rather than evidence. Said, not drawn. */
+  const none = SPC.countChart(E.range(12).map(() => 0));
+  assert.strictEqual(none.signals.length, 0);
+  assert.ok(/no rate to set limits around/.test(none.why));
+
+  // Refusals: a count is not a measurement, and a gap is not a zero.
+  assert.throws(() => SPC.countChart([1, 2, 3.5, 4, 5, 6, 7, 8]), /whole numbers/);
+  assert.throws(() => SPC.countChart([1, 2, 3, 4, 5, 6, 7, null]), /missing count is not a zero/);
+  assert.throws(() => SPC.countChart([1, 2, 3]), /at least 8 points/);
+  assert.throws(() => SPC.countChart([1, 2, 3, 4, 5, 6, 7, 8], { units: [1, 2], kind: 'p' }), /one size per point/);
+  assert.throws(() => SPC.countChart([9, 2, 3, 4, 5, 6, 7, 8], { units: [5, 5, 5, 5, 5, 5, 5, 5], kind: 'p' }), /cannot exceed the number inspected/);
+});
+
+/* One playbook per function, at the depth a group actually arrives wanting: what to do
+   first and why, the order after that, the measured cost of skipping a step, and the gaps
+   named rather than softened. The lists elsewhere in applications.js answer "what is this
+   used for"; none of them answers "I run this group, what do I do first, and where will
+   this let me down". These assertions are about that difference. */
+test('every function has a playbook with an order, a measured figure and its gaps named', () => {
+  const apps = require(path.join(ROOT, 'applications.js'));
+  const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const selector = (html.match(/<select id="tool">([\s\S]*?)<\/select>/) || [])[1] || '';
+  const tools = [...selector.matchAll(/<option value="([a-z]+)"/g)].map(m => m[1]);
+  const pb = apps.PLAYBOOKS;
+  assert.ok(pb, 'the playbooks must be exported, or the panel cannot render them');
+
+  for (const [key, label] of apps.FUNCTIONS) {
+    const p = pb[key];
+    assert.ok(p, 'no playbook for ' + label);
+    // A headline that states the hard problem, not a restatement of the function name.
+    assert.ok(p.headline && p.headline.length > 70, key + ': the headline is too thin');
+    // What to do FIRST, and why it comes first: the ordering is the point of a playbook.
+    assert.ok(p.first && p.first.label && p.first.why, key + ': needs a first step with a reason');
+    assert.ok(p.first.why.length > 120, key + ': the reason for starting there is too thin to be useful');
+    assert.ok(tools.includes(p.first.tool), key + ': first step routes to "' + p.first.tool + '", which is not a tool');
+
+    assert.ok(p.steps.length >= 4, key + ': only ' + p.steps.length + ' steps');
+    for (const st of p.steps) {
+      assert.ok(tools.includes(st.tool), key + ': step "' + st.label + '" routes to "' + st.tool + '", which is not a tool');
+      assert.ok(st.label && st.does && st.does.length > 80, key + ': step "' + st.label + '" says too little about what it does');
+      /* Every step must say where it stops. This is the field the whole structure exists
+         for: a group that discovers the third limitation on its own stops believing the
+         first two. */
+      assert.ok(st.limit && st.limit.length > 60, key + ': step "' + st.label + '" does not say where it stops');
+      if (st.measured) assert.ok(/\d/.test(st.measured), key + ': a "measured" claim with no number in it is not measured');
+    }
+    // At least one figure per playbook, because a warning with a number gets acted on.
+    assert.ok(p.steps.some(st => st.measured), key + ': no measured figure anywhere in the playbook');
+    assert.ok(p.gaps.length >= 3, key + ': only ' + p.gaps.length + ' gaps named');
+    for (const g of p.gaps) assert.ok(g.length > 40, key + ': gap "' + g + '" is too vague to be honest');
+  }
+
+  /* The guard that matters most, and the same one the department benches carry: this page
+     has no language model, and a quality group told it drafts their deviation report would
+     find out otherwise at the worst possible moment. */
+  const qa = pb.qa;
+  const qaText = JSON.stringify(qa).toLowerCase();
+  assert.ok(/does not write/.test(qaText) && /no language model/.test(qaText),
+    'the quality playbook must say plainly that it does not write documents');
+  assert.ok(!/\b(writes|drafts|generates) (your |the )?(deviation|capa|report|narrative)/.test(qaText),
+    'nothing may claim to author a document: ' + qaText.slice(0, 200));
+
+  /* Nothing may promise to read what the page cannot take. Every playbook is checked, not
+     just the ones where images are an obvious temptation.
+
+     The guard has to allow the denial while catching the claim, and the first version did
+     not: "the page does not read traces" is exactly the sentence we want these files to
+     contain, and it tripped the check. A guard that fires on the honest wording and the
+     dishonest one equally is not a guard, so the negation is excluded explicitly - and
+     then the check is run against a sentence built to trip it, because a guard nobody has
+     seen fail is a guard nobody knows works. */
+  const READS = /(?:\b(?:does ?n[o']t|do ?n[o']t|cannot|can ?not|never|no|without|neither|nor)\b[^.]{0,40})?\b(reads?|analyses?|analyzes?|interprets?) (?:the )?(image|picture|photo|chromatogram|spectra|spectrum|trace)s?\b/gi;
+  const overclaims = text => {
+    const hits = [];
+    for (const m of String(text).matchAll(READS)) {
+      // Group 1 present means a negator was swallowed ahead of the verb: a denial, not a claim.
+      if (!/\b(?:does ?n[o']t|do ?n[o']t|cannot|can ?not|never|no|without|neither|nor)\b/i.test(m[0])) hits.push(m[0]);
+    }
+    return hits;
+  };
+  assert.deepStrictEqual(overclaims('It reads chromatograms and ranks the peaks.'), ['reads chromatograms'],
+    'the guard must catch a plain claim, or it proves nothing below');
+  assert.deepStrictEqual(overclaims('The page does not read chromatograms.'), [],
+    'and must not fire on the denial, which is the wording these files are supposed to use');
+  for (const key of Object.keys(pb)) {
+    const hits = overclaims(JSON.stringify(pb[key]));
+    assert.deepStrictEqual(hits, [], key + ' claims to read something this page does not take: ' + hits.join('; '));
+  }
+  // And the ones where the temptation is real must say so outright.
+  for (const key of ['cld', 'dspd', 'afs', 'qc']) {
+    assert.ok(/image|chromatogram|spectra|instrument file|pictures/i.test(JSON.stringify(pb[key].gaps)),
+      key + ' must name what it cannot read, since its data usually starts as something it cannot read');
+  }
+
+  // The panel has to render it, and the measured-figure caveat has to reach the reader.
+  assert.ok(/PLAYBOOKS/.test(app), 'app.js must read the playbooks');
+  assert.ok(/own test suite/.test(app), 'the panel must say the figures are measured by the test suite rather than quoted');
+  assert.ok(/Where it stops/.test(app), 'the panel must print the limits, not just carry them in the data file');
+});

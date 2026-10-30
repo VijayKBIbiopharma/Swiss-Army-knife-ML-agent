@@ -245,6 +245,280 @@
     };
   }
 
-  root.MLVariance = { oneWay, tukey, gageRR, qCritical, srCdf, rangeCdf, fTestP };
+
+  /* ---------- Attribute agreement: can the judgement even be trusted? ----------
+
+     Gage R&R above answers that question for a measurement. It cannot answer it for a
+     judgement, and a great deal of pharmaceutical quality work is judgement: a visual
+     inspector calling a vial accept or reject, a reviewer grading a defect, an analyst
+     reading a plate pass or fail. There is no number to take a variance of, so the
+     machinery above does not apply at all - what matters is whether people agree with
+     themselves, with each other, and with the truth.
+
+     The trap this exists to close is percent agreement. Visual inspection defects are rare,
+     and when the defect rate is low an inspector who simply passes everything agrees with
+     the standard on almost every vial. Two percent defective means a rubber stamp scores
+     98% agreement, which reads as an excellent inspector and is the opposite of one. So
+     agreement is reported with Cohen's and Fleiss' kappa beside it, which measure agreement
+     ABOVE what guessing at the same rate would give: the rubber stamp scores zero, as it
+     should, and the gap between the two numbers is itself the warning.
+
+     Confidence intervals are bootstrapped over samples rather than taken from an asymptotic
+     formula, because the asymptotic variance of kappa is fragile exactly where these studies
+     live - few samples, rare defects, cells with nothing in them - and a resample needs no
+     such assumption. The interval is checked against its own coverage in the tests.
+
+     And for a binary call against a known standard, two more numbers matter more than any
+     kappa, because they are not symmetric: the share of real defects passed (a miss, which
+     reaches the patient) and the share of good units rejected (a false alarm, which costs
+     yield). One inspector can be strong on one and weak on the other, and a single
+     agreement figure hides that completely. */
+
+  // Fleiss' kappa across m raters on n items. counts[i][j] = raters putting item i in category j.
+  function fleiss(counts, k) {
+    const n = counts.length;
+    if (!n) return null;
+    const m = sum(counts[0]);
+    if (m < 2) return null;
+    if (counts.some(row => sum(row) !== m)) return null;
+    let pBar = 0;
+    const colTotal = new Array(k).fill(0);
+    for (const row of counts) {
+      let s = 0;
+      for (let j = 0; j < k; j++) { s += row[j] * row[j]; colTotal[j] += row[j]; }
+      pBar += (s - m) / (m * (m - 1));
+    }
+    pBar /= n;
+    let pe = 0;
+    for (let j = 0; j < k; j++) { const pj = colTotal[j] / (n * m); pe += pj * pj; }
+    // Everything in one category: agreement is perfect and chance agreement is also 1, so
+    // kappa is 0/0. Reported as not computable rather than as a number.
+    if (pe >= 1 - 1e-12) return { kappa: null, agreement: pBar, degenerate: true };
+    return { kappa: (pBar - pe) / (1 - pe), agreement: pBar, degenerate: false };
+  }
+
+  // Cohen's kappa between two aligned label vectors.
+  function cohen(a, b, cats) {
+    const n = a.length;
+    if (!n) return null;
+    const k = cats.length, idx = {};
+    cats.forEach((c, i) => { idx[c] = i; });
+    let po = 0;
+    const rowT = new Array(k).fill(0), colT = new Array(k).fill(0);
+    for (let i = 0; i < n; i++) {
+      const x = idx[a[i]], y = idx[b[i]];
+      if (x === y) po++;
+      rowT[x]++; colT[y]++;
+    }
+    po /= n;
+    let pe = 0;
+    for (let j = 0; j < k; j++) pe += (rowT[j] / n) * (colT[j] / n);
+    if (pe >= 1 - 1e-12) return { kappa: null, agreement: po, degenerate: true };
+    return { kappa: (po - pe) / (1 - pe), agreement: po, degenerate: false };
+  }
+
+  /* A percentile interval from resampling the SAMPLES - not the individual ratings, because
+     the ratings within one sample are the very thing being measured and resampling them
+     would break the dependence the study exists to capture. */
+  function bootCI(parts, statOf, seed, reps) {
+    const n = parts.length;
+    if (n < 3) return { lo: null, hi: null, reps: 0 };
+    const rand = E.rng(seed);
+    const out = [];
+    for (let b = 0; b < reps; b++) {
+      const draw = [];
+      for (let i = 0; i < n; i++) draw.push(parts[Math.floor(rand() * n)]);
+      const v = statOf(draw);
+      if (v !== null && v !== undefined && isFinite(v)) out.push(v);
+    }
+    if (out.length < reps / 2) return { lo: null, hi: null, reps: out.length };
+    out.sort((x, y) => x - y);
+    return { lo: E.quantile(out, 0.025), hi: E.quantile(out, 0.975), reps: out.length };
+  }
+
+  const KAPPA_BANDS = [
+    [0.90, 'acceptable'],
+    [0.70, 'marginal']
+  ];
+  // The 0.90 / 0.70 cuts are the measurement-systems convention, not a law; they are
+  // reported as the convention they are so a borderline study is argued, not rubber-stamped.
+  const kappaVerdict = k => {
+    if (k === null || k === undefined || !isFinite(k)) return 'not computable';
+    for (const [cut, label] of KAPPA_BANDS) if (k >= cut) return label;
+    return 'inadequate';
+  };
+
+  function attributeAgreement(rows, opt) {
+    opt = opt || {};
+    const clean = (rows || []).map(r => (r ? {
+      part: String(r.part === undefined ? '' : r.part).trim(),
+      operator: String(r.operator === undefined ? '' : r.operator).trim(),
+      rating: String(r.rating === undefined ? '' : r.rating).trim(),
+      standard: r.standard === undefined || r.standard === null ? '' : String(r.standard).trim()
+    } : null)).filter(r => r && r.part !== '' && r.operator !== '' && r.rating !== '');
+    if (!clean.length) throw new Error('No usable ratings found. Each row needs a sample, an appraiser and the call they made.');
+
+    const parts = [], operators = [], categories = [];
+    /* Categories come from the calls AND the known values. Taking them from the calls alone
+       threw out the one study this method exists to expose: the appraiser who passes
+       everything. Every rating they give is "accept", so the call column holds one category,
+       and the analysis that would have shown a kappa of zero refused to run instead. */
+    for (const r of clean) {
+      if (!parts.includes(r.part)) parts.push(r.part);
+      if (!operators.includes(r.operator)) operators.push(r.operator);
+      if (!categories.includes(r.rating)) categories.push(r.rating);
+      if (r.standard !== '' && !categories.includes(r.standard)) categories.push(r.standard);
+    }
+    if (parts.length < 3) throw new Error('Need at least 3 samples. Agreement measured on one or two samples is not measured.');
+    if (categories.length < 2) throw new Error('Every call and every known value in this study is "' + categories[0] + '". With only one possible answer there is nothing to agree or disagree about.');
+    if (categories.length > 8) throw new Error('Found ' + categories.length + ' different ratings. This is for a judgement with a few possible calls, not a measurement; if the column holds numbers, use the Gage R&R mode instead.');
+    categories.sort();
+
+    // The known truth, where there is one: one value per sample, taken from the rows.
+    const truth = Object.create(null);
+    const conflicting = [];
+    for (const r of clean) {
+      if (r.standard === '') continue;
+      if (truth[r.part] === undefined) truth[r.part] = r.standard;
+      else if (truth[r.part] !== r.standard && !conflicting.includes(r.part)) conflicting.push(r.part);
+    }
+    const withTruth = parts.filter(p => truth[p] !== undefined);
+    const hasStandard = withTruth.length === parts.length && parts.length > 0 && !conflicting.length;
+    const notes = [];
+    if (conflicting.length) notes.push('Samples ' + conflicting.slice(0, 5).join(', ') + (conflicting.length > 5 ? ' and others' : '') + ' carry more than one known value, so the standard was ignored and only agreement between and within appraisers is reported.');
+    else if (withTruth.length && !hasStandard) notes.push('Only ' + withTruth.length + ' of ' + parts.length + ' samples carry a known value, so comparison against the standard was skipped. A partial standard flatters whoever was shown the easy samples.');
+
+    const ratingsOf = (p, o) => clean.filter(r => r.part === p && r.operator === o).map(r => r.rating);
+    const repeatCounts = [];
+    for (const p of parts) for (const o of operators) repeatCounts.push(ratingsOf(p, o).length);
+    const repeats = Math.min.apply(null, repeatCounts);
+    const balanced = repeatCounts.every(c => c === repeatCounts[0]);
+    if (!balanced) notes.push('This study is not balanced: appraisers rated between ' + Math.min.apply(null, repeatCounts) + ' and ' + Math.max.apply(null, repeatCounts) + ' times per sample. Figures below use every rating given, but an unbalanced study weights whoever rated most.');
+
+    const countRow = labels => {
+      const row = new Array(categories.length).fill(0);
+      for (const l of labels) { const j = categories.indexOf(l); if (j >= 0) row[j]++; }
+      return row;
+    };
+
+    /* 1. Each appraiser against themselves. Only meaningful with repeats: one look per
+          sample cannot show whether a second look would have agreed. */
+    const withinAppraiser = operators.map(o => {
+      const per = parts.map(p => ratingsOf(p, o)).filter(rs => rs.length >= 2);
+      if (per.length < 3) return { operator: o, repeats: 0, n: per.length, agreed: null, pct: null, kappa: null, lo: null, hi: null, verdict: 'not measured', why: 'needs at least two looks at each of at least three samples' };
+      const r = Math.min.apply(null, per.map(x => x.length));
+      const trimmed = per.map(x => x.slice(0, r));
+      const agreed = trimmed.filter(x => x.every(v => v === x[0])).length;
+      const stat = set => { const f = fleiss(set.map(countRow), categories.length); return f ? f.kappa : null; };
+      const k = stat(trimmed);
+      const ci = bootCI(trimmed, stat, (opt.seed || 7) + 11, opt.reps || 400);
+      return { operator: o, repeats: r, n: trimmed.length, agreed, pct: agreed / trimmed.length, kappa: k, lo: ci.lo, hi: ci.hi, verdict: kappaVerdict(k) };
+    });
+
+    /* 2. Each appraiser against the known standard, pooling every look they took. Plus the
+          two asymmetric rates, which is what an inspection qualification turns on. */
+    const binary = categories.length === 2;
+    const defectName = binary ? (opt.defect && categories.includes(String(opt.defect).trim()) ? String(opt.defect).trim() : guessDefect(categories)) : null;
+    const vsStandard = !hasStandard ? [] : operators.map(o => {
+      const mine = [], theirs = [], per = [];
+      for (const p of parts) {
+        const rs = ratingsOf(p, o);
+        if (!rs.length) continue;
+        per.push({ ratings: rs, truth: truth[p] });
+        for (const v of rs) { mine.push(v); theirs.push(truth[p]); }
+      }
+      const c = cohen(mine, theirs, categories);
+      const stat = set => {
+        const a = [], b = [];
+        for (const row of set) for (const v of row.ratings) { a.push(v); b.push(row.truth); }
+        const cc = cohen(a, b, categories);
+        return cc ? cc.kappa : null;
+      };
+      const ci = bootCI(per, stat, (opt.seed || 7) + 23, opt.reps || 400);
+      let miss = null, falseAlarm = null, missN = 0, goodN = 0;
+      if (binary && defectName) {
+        let missed = 0, flagged = 0;
+        for (const row of per) for (const v of row.ratings) {
+          if (row.truth === defectName) { missN++; if (v !== defectName) missed++; }
+          else { goodN++; if (v === defectName) flagged++; }
+        }
+        miss = missN ? missed / missN : null;
+        falseAlarm = goodN ? flagged / goodN : null;
+      }
+      return {
+        operator: o, n: mine.length, agreed: Math.round((c ? c.agreement : 0) * mine.length), pct: c ? c.agreement : null,
+        kappa: c ? c.kappa : null, lo: ci.lo, hi: ci.hi, verdict: kappaVerdict(c ? c.kappa : null),
+        miss, falseAlarm, defectsSeen: missN, goodsSeen: goodN
+      };
+    });
+
+    // 3. Everyone against everyone: every rating on a sample treated as one more rater on it.
+    const allRows = parts.map(p => countRow(clean.filter(r => r.part === p).map(r => r.rating)));
+    const sameCount = allRows.every(r => sum(r) === sum(allRows[0]));
+    const between = (() => {
+      if (operators.length < 2) return { n: parts.length, agreed: null, pct: null, kappa: null, lo: null, hi: null, verdict: 'not measured', why: 'one appraiser only' };
+      const agreed = parts.filter(p => { const rs = clean.filter(r => r.part === p).map(r => r.rating); return rs.every(v => v === rs[0]); }).length;
+      if (!sameCount) return { n: parts.length, agreed, pct: agreed / parts.length, kappa: null, lo: null, hi: null, verdict: 'not computable', why: 'unbalanced: kappa between appraisers needs the same number of ratings on every sample' };
+      const perPart = parts.map(p => clean.filter(r => r.part === p).map(r => r.rating));
+      const stat = set => { const f = fleiss(set.map(countRow), categories.length); return f ? f.kappa : null; };
+      const k = stat(perPart);
+      const ci = bootCI(perPart, stat, (opt.seed || 7) + 37, opt.reps || 400);
+      return { n: parts.length, agreed, pct: agreed / parts.length, kappa: k, lo: ci.lo, hi: ci.hi, verdict: kappaVerdict(k) };
+    })();
+
+    // 4. The one figure a quality unit asks for: every appraiser, every look, all correct.
+    const allVsStandard = !hasStandard ? null : (() => {
+      const ok = parts.filter(p => clean.filter(r => r.part === p).every(r => r.rating === truth[p])).length;
+      return { n: parts.length, agreed: ok, pct: ok / parts.length };
+    })();
+
+    /* The prevalence warning, which is the whole reason kappa is here. With a rare defect,
+       percent agreement is close to 100 for anybody at all, so the gap between it and kappa
+       is reported rather than left for the reader to spot. */
+    let prevalence = null;
+    if (hasStandard && binary && defectName) {
+      const d = parts.filter(p => truth[p] === defectName).length;
+      prevalence = d / parts.length;
+      if (prevalence <= 0.2 || prevalence >= 0.8) {
+        const rubber = Math.max(prevalence, 1 - prevalence);
+        notes.push('Only ' + Math.round(prevalence * 100) + '% of these samples are truly ' + defectName + '. An appraiser who called every single one the same way would score ' +
+          Math.round(rubber * 100) + '% agreement and a kappa of 0, so read kappa here and treat the agreement percentage as background.');
+      }
+      if (d < 3 || parts.length - d < 3) notes.push('This study holds ' + d + ' truly ' + defectName + ' and ' + (parts.length - d) + ' truly not. Fewer than about three of either side cannot support a miss rate or a false alarm rate worth quoting; a qualification study is usually built close to half and half.');
+    }
+    if (repeats < 2) notes.push('No sample was rated twice by the same appraiser, so repeatability - whether one person would say the same thing on a second look - is not measured here at all.');
+    /* One call, every time. Kappa is 0 over 0 for such an appraiser against themselves, and
+       a blank there reads as a missing number rather than as the finding it is. */
+    const oneNote = [];
+    for (const o of operators) {
+      const used = [];
+      for (const r of clean) if (r.operator === o && !used.includes(r.rating)) used.push(r.rating);
+      if (used.length === 1) oneNote.push(o + ' called every sample "' + used[0] + '"');
+    }
+    if (oneNote.length) notes.push(oneNote.join('; ') + '. Perfect self-agreement and no discrimination whatever: their own kappa cannot be computed, and against the standard it is 0. Read the miss and false alarm rates for them, not the agreement percentage.');
+
+    const kappas = [].concat(withinAppraiser.map(w => w.kappa), vsStandard.map(v => v.kappa), [between.kappa]).filter(k => k !== null && isFinite(k));
+    const worst = kappas.length ? Math.min.apply(null, kappas) : null;
+    return {
+      parts: parts.length, operators: operators.slice(), categories: categories.slice(), repeats, balanced,
+      binary, defect: defectName, hasStandard, prevalence,
+      withinAppraiser, vsStandard, betweenAppraisers: between, allVsStandard,
+      worstKappa: worst, verdict: kappaVerdict(worst), notes,
+      ratings: clean.length
+    };
+  }
+
+  // Which of two labels means "there is something wrong with this unit".
+  const DEFECTY = /^(fail|failed|reject|rejected|defect|defective|bad|ng|not ?ok|nok|out|oos|particle|contaminated|positive|yes|y|1|true)$/i;
+  const GOODY = /^(pass|passed|accept|accepted|ok|good|clean|none|negative|no|n|0|false|conform|conforming)$/i;
+  function guessDefect(cats) {
+    const bad = cats.filter(c => DEFECTY.test(c));
+    if (bad.length === 1) return bad[0];
+    const good = cats.filter(c => GOODY.test(c));
+    if (good.length === 1) return cats.find(c => c !== good[0]);
+    return null;
+  }
+
+  root.MLVariance = { oneWay, tukey, gageRR, attributeAgreement, fleiss, cohen, qCritical, srCdf, rangeCdf, fTestP };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLVariance;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

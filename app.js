@@ -1706,6 +1706,9 @@
       '</div></details>';
     $('apps-details').addEventListener('toggle', e => { appsOpen = e.target.open; });
     $('apps-modality').addEventListener('change', e => { myModality = e.target.value; renderApplications(name); });
+    Array.prototype.forEach.call(el.querySelectorAll('.pb-go'), b => {
+      b.addEventListener('click', () => showTool(b.getAttribute('data-tool')));
+    });
     $('apps-function').addEventListener('change', e => {
       myFunction = e.target.value;
       renderApplications(name);
@@ -1733,9 +1736,44 @@
     if (!line && !ops.length) return '';
     const fn = labelOf(A.FUNCTIONS, myFunction);
     return (line ? '<div class="apps-mine"><div class="mine"><h4>' + h(fn) + ' with this technique</h4><p>' + h(line) + '</p></div></div>' : '') +
+      playbookHtml(myFunction, fn) +
       (ops.length ? '<h4 class="ops-head">Unit operations in ' + h(fn) + '<span class="hint">' + h(labelOf(A.MODALITIES, myModality)) + ' &middot; what machine learning is used for at each step</span></h4>' +
         '<ol class="ops">' + ops.map(([op, ml]) => '<li><b>' + h(op) + '</b><span>' + h(ml) + '</span></li>').join('') + '</ol>' : '');
   }
+  /* The depth a group actually arrives wanting: what to do first and why, then the order,
+     each step with the measured cost of skipping it, and the gaps named out loud. Folded,
+     because it is a page of reading and the tool is what people came for - but folded shut
+     rather than left out, since a group that finds the third limitation by itself stops
+     believing the first two. */
+  function playbookHtml(key, fnLabel) {
+    const A = window.MLApplications;
+    const pb = A.PLAYBOOKS && A.PLAYBOOKS[key];
+    if (!pb) return '';
+    const toolName = t => {
+      const o = document.querySelector('#tool option[value="' + t + '"]');
+      return o ? o.textContent.replace(/\s*\u2014.*$/, '').trim() : t;
+    };
+    const jump = (t, label) => '<button class="btn ghost small pb-go" type="button" data-tool="' + h(t) + '">' + h(label || ('Open ' + toolName(t))) + '</button>';
+    const steps = pb.steps.map((st, i) => '<li class="pb-step">' +
+      '<div class="pb-step-head"><span class="pb-num">' + (i + 1) + '</span><b>' + h(st.label) + '</b>' +
+      '<span class="pb-tool">' + h(toolName(st.tool)) + '</span></div>' +
+      '<p>' + h(st.does) + '</p>' +
+      (st.measured ? '<p class="pb-measured"><b>Measured.</b> ' + h(st.measured) + '</p>' : '') +
+      '<p class="pb-limit"><b>Where it stops.</b> ' + h(st.limit) + '</p>' +
+      '<div class="row-actions">' + jump(st.tool) + '</div></li>').join('');
+    return '<details class="playbook" id="pb-details">' +
+      '<summary><b>A playbook for ' + h(fnLabel) + '</b><span class="hint">what to do first, in what order, and where it stops</span></summary>' +
+      '<div class="pb-body">' +
+      '<p class="pb-headline">' + h(pb.headline) + '</p>' +
+      '<div class="pb-first"><h4>Start here &mdash; ' + h(pb.first.label) + '</h4><p>' + h(pb.first.why) + '</p>' +
+      '<div class="row-actions">' + jump(pb.first.tool) + '</div></div>' +
+      '<h4 class="pb-head">Then, in this order</h4><ol class="pb-steps">' + steps + '</ol>' +
+      '<h4 class="pb-head">What this tool will not do for ' + h(fnLabel) + '</h4>' +
+      '<ul class="pb-gaps">' + pb.gaps.map(g => '<li>' + h(g) + '</li>').join('') + '</ul>' +
+      '<p class="hint">Every figure above is measured by this tool\u2019s own test suite on data built so the right answer is known in advance, not quoted from a textbook.</p>' +
+      '</div></details>';
+  }
+
   /* Two pages, not one scroll. The tool page carries the technique selector and the tool,
      and nothing else: every time something useful got added - the plain-English front door,
      the department workbenches, the applications panel, nine practice datasets - it went

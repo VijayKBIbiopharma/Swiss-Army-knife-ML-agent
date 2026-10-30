@@ -232,6 +232,127 @@
     return { total, defects: total - good, p, yield: 1 - p, dpmo: p * 1e6, zLT, sigmaLevel: zLT + 1.5 };
   }
 
-  root.MLSpc = { normCdf, normInv, capability, imr, box, snRatio, taguchi, attribute };
+
+  /* ---------- Charts for things you count ----------
+
+     The I-MR chart above is built for measurements: a titer, a pH, a purity. A great deal of
+     quality data is not measured but counted - particles in a vial, vials rejected at
+     inspection, deviations in a month, colonies on a plate - and running a counted series
+     through a measurement chart gets the limits wrong, because the spread of a count is not
+     free to be anything: a Poisson count's standard deviation is the square root of its own
+     mean, and a proportion's depends on how many units were looked at.
+
+       c   defects per constant opportunity   particles per vial, deviations per month
+       u   defects per unit, varying size     particles per mL, deviations per 1000 batches
+       p   proportion of units defective      share of vials rejected at inspection
+
+     And then the part that matters more than the choice between them. The textbook limits
+     above assume the counts really are Poisson or binomial - that every vial has the same
+     underlying rate. Real counts almost never do: particles cluster by batch, by stopper
+     lot, by shift, so the rate itself moves and the observed spread is wider than the
+     square-root law allows. That is overdispersion, and a chart that ignores it draws
+     limits far too tight and then fires constantly at a process that is behaving.
+
+     So dispersion is measured rather than assumed, and reported. If the counts are wider
+     than the model allows, Laney's correction is applied: standardise every point, take the
+     spread of that standardised series from its average moving range - deliberately, since
+     a moving range is barely moved by the shifts the chart exists to find - and widen the
+     limits by it. When the counts really are Poisson that factor comes out near 1 and the
+     chart is the textbook one, so the correction costs nothing when it is not needed. Both
+     sets of limits are returned, with a recommendation, because a reader deserves to see
+     how much of the alarm was the chart. */
+  const LANEY_D2 = 1.128;   // E[moving range] / sigma for a pair of normal draws
+
+  function countChart(counts, opt) {
+    opt = opt || {};
+    const y = (counts || []).map(v => (num(v) ? Number(v) : null));
+    if (y.some(v => v === null)) throw new Error('Every point must be a number. A missing count is not a zero: leave the period out rather than calling it zero defects.');
+    if (y.some(v => v < 0 || v !== Math.round(v))) throw new Error('Counts must be whole numbers and cannot be negative. If these are measurements rather than counts, use the I-MR chart instead.');
+    const m = y.length;
+    if (m < 8) throw new Error('Need at least 8 points to set limits worth drawing. Below that the limits move more than the process does.');
+
+    let units = null;
+    if (opt.units) {
+      units = opt.units.map(v => (num(v) ? Number(v) : null));
+      if (units.length !== m) throw new Error('Got ' + m + ' counts but ' + units.length + ' opportunity sizes. There must be one size per point.');
+      if (units.some(v => v === null || v <= 0)) throw new Error('Every opportunity size must be a positive number: how many units were inspected, or how much material was looked at.');
+    }
+    let kind = opt.kind || (units ? 'u' : 'c');
+    if (kind === 'p' && !units) throw new Error('A p-chart needs how many units were inspected at each point, or a proportion cannot be formed.');
+    if (kind === 'p' && y.some((v, i) => v > units[i])) throw new Error('A p-chart counts defective units, so a count cannot exceed the number inspected. If a unit can hold several defects, this is a u-chart.');
+    if (kind === 'c' && units && !units.every(u => u === units[0])) throw new Error('These opportunity sizes are not all the same, so a c-chart cannot apply. Use a u-chart, whose limits move with the size.');
+
+    const total = y.reduce((a, b) => a + b, 0);
+    const totalUnits = units ? units.reduce((a, b) => a + b, 0) : m;
+    let centre, sigmaAt, plotted;
+    if (kind === 'c') {
+      centre = total / m;
+      plotted = y.slice();
+      sigmaAt = () => Math.sqrt(centre);
+    } else if (kind === 'u') {
+      centre = total / totalUnits;
+      plotted = y.map((v, i) => v / units[i]);
+      sigmaAt = i => Math.sqrt(centre / units[i]);
+    } else {
+      centre = total / totalUnits;
+      plotted = y.map((v, i) => v / units[i]);
+      sigmaAt = i => Math.sqrt(centre * (1 - centre) / units[i]);
+    }
+    /* A centre of zero means nothing ever happened. The limits collapse onto zero and the
+       chart would flag the first event that ever occurs as a signal, which is arithmetic
+       rather than evidence. */
+    if (!(centre > 0)) {
+      return { kind, n: m, centre: 0, plotted, sigma: plotted.map(() => 0), lower: plotted.map(() => 0), upper: plotted.map(() => 0),
+        dispersion: null, overdispersed: false, laney: null, signals: [], use: kind,
+        why: 'Not one defect in ' + m + ' points, so there is no rate to set limits around. The chart starts meaning something once something has happened.' };
+    }
+
+    const sigma = plotted.map((_, i) => sigmaAt(i));
+    const clampHi = v => (kind === 'p' ? Math.min(1, v) : v);
+    const lower = sigma.map(s => Math.max(0, centre - 3 * s));
+    const upper = sigma.map(s => clampHi(centre + 3 * s));
+
+    /* Dispersion: the average squared standardised distance from centre. Poisson or
+       binomial counts put this at 1. Above it, the rate itself is moving. */
+    const z = plotted.map((v, i) => (v - centre) / sigma[i]);
+    const phi = z.reduce((a, b) => a + b * b, 0) / (m - 1);
+
+    const mrs = [];
+    for (let i = 1; i < m; i++) mrs.push(Math.abs(z[i] - z[i - 1]));
+    const sigmaZ = mrs.length ? mean(mrs) / LANEY_D2 : 1;
+    /* Only ever used to widen. A sigmaZ below 1 says the counts are tighter than the model
+       allows, which is a real thing - stratified or over-controlled data - but tightening
+       limits on it would manufacture signals, so the textbook limits stand as the floor. */
+    const factor = Math.max(1, sigmaZ);
+    const lowerP = sigma.map(s => Math.max(0, centre - 3 * s * factor));
+    const upperP = sigma.map(s => clampHi(centre + 3 * s * factor));
+
+    const findSignals = (lo, hi) => {
+      const out = [];
+      for (let i = 0; i < m; i++) {
+        if (plotted[i] > hi[i]) out.push({ i, value: plotted[i], count: y[i], side: 'above', limit: hi[i] });
+        else if (plotted[i] < lo[i]) out.push({ i, value: plotted[i], count: y[i], side: 'below', limit: lo[i] });
+      }
+      return out;
+    };
+    const signals = findSignals(lower, upper);
+    const signalsP = findSignals(lowerP, upperP);
+
+    const overdispersed = phi > 1.5 && factor > 1.1;
+    const prime = kind + '-prime';
+    return {
+      kind, n: m, centre, plotted, sigma, lower, upper, signals,
+      units: units ? units.slice() : null, counts: y.slice(), total,
+      dispersion: phi, overdispersed, sigmaZ, factor,
+      laney: { kind: prime, sigmaZ, factor, lower: lowerP, upper: upperP, signals: signalsP },
+      use: overdispersed ? prime : kind,
+      why: overdispersed
+        ? 'These counts vary ' + phi.toFixed(1) + ' times as much as a ' + (kind === 'p' ? 'binomial' : 'Poisson') + ' model allows, so the rate itself is moving between points - clustering by lot, line or shift. The textbook limits would flag ' +
+          signals.length + ' of ' + m + ' points; widened for that extra spread, ' + signalsP.length + ' remain. Read the widened chart, and treat the difference as a question about what the clusters are rather than as signals.'
+        : 'Dispersion measures ' + phi.toFixed(2) + ', so these counts behave as a ' + (kind === 'p' ? 'binomial' : 'Poisson') + ' model expects and the textbook limits hold. The widened limits were computed too and change nothing worth reading.'
+    };
+  }
+
+  root.MLSpc = { normCdf, normInv, capability, imr, countChart, box, snRatio, taguchi, attribute };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MLSpc;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
