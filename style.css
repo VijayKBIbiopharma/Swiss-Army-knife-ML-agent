@@ -965,3 +965,20 @@ ol.ops li span { grid-column: 2; grid-row: 2; font-size: .83rem; line-height: 1.
   .tool-table td::before { content: attr(data-label); display: block; font-size: 0.72rem; text-transform: uppercase;
     letter-spacing: 0.05em; opacity: 0.6; margin-bottom: 1px; }
 }
+
+/* ---------- Page-by-page navigation, and the links out ---------- */
+.lesson-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 6px; }
+.lesson-count { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.65; text-align: center; }
+.lesson-bar { display: block; width: 100%; height: 3px; margin: 0 0 14px; }
+.lesson-bar .bar-bg { fill: var(--line); }
+.lesson-bar .bar-on { fill: var(--accent); }
+
+/* The one block on the page that needs the internet, and it has to look like it. */
+.card.watch { border-style: dashed; }
+.watch-note { margin: 0 0 8px; font-size: 0.84rem; line-height: 1.5; opacity: 0.8; }
+.watch-note + .watch-list + .watch-note, .watch-list + .watch-note { margin: 8px 0 0; }
+.watch-none { margin: 0; font-size: 0.88rem; line-height: 1.5; }
+.watch-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.watch-list li { font-size: 0.92rem; line-height: 1.45; }
+.watch-ch { font-size: 0.78rem; opacity: 0.65; white-space: nowrap; }
+.watch-list a::after { content: " \2197"; opacity: 0.6; }

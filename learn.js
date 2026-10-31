@@ -5,6 +5,7 @@
   'use strict';
   const E = window.MLEngine, C = window.Charts, A = window.MLAgent, D = window.MLDoe;
   const S = window.MLSpc, V = window.MLVariance, TL = window.MLTolerance, U = window.MLUncertainty;
+  const W = window.MLWatch;
   const h = C.esc, fmt = A.fmt, pct = A.pct;
   const range = E.range;
 
@@ -2560,6 +2561,46 @@
   const answered = {};
   const $ = id => document.getElementById(id);
 
+  /* Links out, fenced.
+
+     Everything else on this page works with the network off, so a block that needs the
+     internet has to say so rather than looking like part of the lesson. These are ordinary
+     links: nothing is embedded, nothing is fetched, and nothing is sent anywhere until the
+     reader chooses to click one. Where no video could be attributed to a channel with
+     confidence, the lesson says so and offers the search instead - a link nobody can vouch
+     for is worth less than a blank with a reason. */
+  function watchHtml(l) {
+    const w = W && W.WATCH ? W.WATCH[l.id] : null;
+    if (!w) return '';
+    if (!w.watch || !w.watch.length) {
+      return !w.search ? '' : '<div class="card watch"><h3>Watch it explained elsewhere</h3>' +
+        '<p class="watch-none">No video on this one could be traced to a channel worth vouching for, so there is no link here. ' +
+        'The search that finds it: <b>' + h(w.search) + '</b></p></div>';
+    }
+    return '<div class="card watch"><h3>Watch it explained elsewhere</h3>' +
+      '<p class="watch-note"><b>These leave ML Agent and need an internet connection.</b> They are plain links - nothing from these sites is loaded into this page, and nothing is sent anywhere unless you click one.</p>' +
+      '<ul class="watch-list">' + w.watch.map(v =>
+        '<li><a href="' + h(W.url(v.id)) + '" target="_blank" rel="noopener noreferrer">' + h(v.title) +
+        '</a> <span class="watch-ch">' + h(v.channel) + '</span></li>').join('') + '</ul>' +
+      '<p class="watch-note">Checked ' + h(W.CHECKED) + '. If one has gone, search for its title - that is why the title and channel are printed here.</p></div>';
+  }
+
+  /* Page by page. The next/previous pair at the foot of a long lesson is easy to miss, so
+     the same move is at the top, with the count and a bar showing how far through the
+     course you are. The bar is an SVG rectangle rather than a styled div because the page
+     forbids inline styles, and the arrow keys do the same thing for anyone who would
+     rather not reach for the mouse. */
+  function topNav(i, prev, next) {
+    const pct = Math.round((i + 1) / LESSONS.length * 100);
+    return '<nav class="lesson-top">' +
+      (prev ? '<a class="btn ghost small" href="#' + prev.id + '" title="' + h(prev.title) + '">\u2039 Previous</a>' : '<span></span>') +
+      '<span class="lesson-count">Lesson ' + (i + 1) + ' of ' + LESSONS.length + '</span>' +
+      (next ? '<a class="btn ghost small" href="#' + next.id + '" title="' + h(next.title) + '">Next \u203a</a>' : '<span></span>') +
+      '</nav><svg class="lesson-bar" viewBox="0 0 100 2" preserveAspectRatio="none" role="img" aria-label="' + pct + '% of the way through the course">' +
+      '<rect class="bar-bg" x="0" y="0" width="100" height="2"/><rect class="bar-on" x="0" y="0" width="' + pct + '" height="2"/></svg>';
+  }
+
+
   function renderNav(current) {
     const groups = [];
     LESSONS.forEach(l => { if (!groups.includes(l.group)) groups.push(l.group); });
@@ -2573,11 +2614,13 @@
     const i = Math.max(0, LESSONS.findIndex(l => l.id === id));
     const l = LESSONS[i], prev = LESSONS[i - 1], next = LESSONS[i + 1];
     const art = $('lesson');
-    art.innerHTML = '<p class="eyebrow">' + h(l.group) + ' · lesson ' + (i + 1) + ' of ' + LESSONS.length + '</p><h1>' + h(l.title) + '</h1>' +
+    art.innerHTML = topNav(i, prev, next) +
+      '<p class="eyebrow">' + h(l.group) + '</p><h1>' + h(l.title) + '</h1>' +
       '<div class="analogy-box"><b>Analogy</b><span>' + h(l.analogy) + '</span></div><p>' + h(l.intro) + '</p>' +
       '<div class="card demo" data-role="demo"></div>' +
       '<div class="cols2"><div class="card"><h3>How it works</h3><ol class="steps">' + l.steps.map(s => '<li>' + h(s) + '</li>').join('') + '</ol></div>' +
       '<div class="card"><h3>When to use it</h3><p>' + h(l.when) + '</p><h3>Watch out for</h3><p>' + h(l.watch) + '</p><h3>Where you see it in ML Agent</h3><p>' + h(l.where) + '</p></div></div>' +
+      watchHtml(l) +
       '<div class="card quiz"><h3>Quick check</h3><p>' + h(l.quiz.q) + '</p><div class="opts">' + l.quiz.options.map((o, k) => '<button type="button" class="opt" data-k="' + k + '">' + h(o) + '</button>').join('') + '</div><p class="why" aria-live="polite"></p></div>' +
       '<nav class="lesson-nav">' + (prev ? '<a class="btn ghost" href="#' + prev.id + '">← ' + h(prev.title) + '</a>' : '<span></span>') + (next ? '<a class="btn primary" href="#' + next.id + '">' + h(next.title) + ' →</a>' : '<a class="btn primary" href="./">Try it on data →</a>') + '</nav>';
     l.demo(art.querySelector('[data-role="demo"]'));
@@ -2600,6 +2643,19 @@
   }
   C.bindTips($('tip'));
   $('lesson-select').addEventListener('change', e => { location.hash = e.target.value; });
+
+  /* Arrow keys turn the page. Ignored while a control has focus, so dragging a slider with
+     the keyboard still works, and ignored with a modifier held so browser shortcuts are
+     left alone. */
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const t = e.target;
+    if (t && (t.matches('input, select, textarea, button, a') || t.isContentEditable)) return;
+    const i = LESSONS.findIndex(l => l.id === decodeURIComponent(location.hash.slice(1)));
+    const to = LESSONS[(i < 0 ? 0 : i) + (e.key === 'ArrowRight' ? 1 : -1)];
+    if (to) { e.preventDefault(); location.hash = to.id; }
+  });
   window.addEventListener('hashchange', route);
   route();
   window.MLLessons = LESSONS;

