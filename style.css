@@ -335,6 +335,7 @@ progress { flex: 1; height: 10px; accent-color: var(--steel); }
 /* Whiskers on a bar chart: the spread behind a bar, so an order nobody can support does
    not read as one. Stroke only, so it stays legible over the bar beneath it. */
 .chart .errbar { stroke: var(--ink); stroke-width: 1.4; fill: none; opacity: .7; }
+.chart .errbar.miss { stroke: var(--bad); opacity: 1; }
 .chart .diag { stroke: var(--muted); stroke-dasharray: 4 4; }
 .chart .dot { fill: var(--steel); fill-opacity: .75; stroke: var(--surface); stroke-width: 1.5; }
 .chart .line { fill: none; stroke: var(--steel); stroke-width: 2; }
@@ -924,3 +925,43 @@ ol.ops li span { grid-column: 2; grid-row: 2; font-size: .83rem; line-height: 1.
 .gate-val { font-size: 1.12rem; font-weight: 600; margin: 4px 0 0; }
 .gate p { margin: 5px 0 0; font-size: 0.87rem; line-height: 1.45; opacity: 0.88; }
 @media (max-width: 760px) { .cycle-wrap { grid-template-columns: 1fr; } .cycle { max-width: 300px; margin: 0 auto; } }
+
+/* ---------- Methods reference, and the non-normal answer ---------- */
+.method-cards { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.mcard { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.mcard-head { display: flex; flex-wrap: wrap; gap: 5px 8px; align-items: center; }
+.mcard-head b { font-size: 0.97rem; }
+.mcard dl { margin: 7px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; }
+.mcard dt { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.6; padding-top: 2px; }
+.mcard dd { margin: 0; font-size: 0.89rem; line-height: 1.45; }
+.mcard dt.shape, .mcard dd.shape { border-top: 1px solid var(--line); padding-top: 6px; margin-top: 3px; }
+.mcard dd.shape { opacity: 0.95; }
+.kind-tag { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; border: 1px solid var(--line);
+  border-radius: 999px; padding: 1px 8px; cursor: help; }
+.kind-tag.k-ml { border-color: var(--accent); color: var(--accent); }
+.qa { margin: 12px 0 0; display: grid; gap: 9px; }
+.qa dt { font-weight: 600; font-size: 0.95rem; }
+.qa dd { margin: 3px 0 0; font-size: 0.91rem; line-height: 1.5; opacity: 0.92; }
+@media (max-width: 620px) { .mcard dl { grid-template-columns: 1fr; gap: 1px; } .mcard dt { margin-top: 5px; } }
+
+/* The scannable tool table. Wide on a desktop, stacked on a phone: each cell carries its
+   own column name in data-label, so when the columns collapse the labels come with them
+   instead of leaving five anonymous paragraphs. */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.sub-sub-head { margin: 22px 0 2px; font-size: 1.02rem; }
+.tool-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+.tool-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+.tool-table th, .tool-table td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); line-height: 1.45; }
+.tool-table thead th { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; white-space: nowrap; }
+.tool-table tbody tr:last-child th, .tool-table tbody tr:last-child td { border-bottom: 0; }
+.tool-table tbody th { white-space: normal; min-width: 150px; }
+.tool-table td { min-width: 190px; }
+@media (max-width: 860px) {
+  .tool-table-wrap { border: 0; }
+  .tool-table, .tool-table tbody, .tool-table tr, .tool-table th, .tool-table td { display: block; width: auto; }
+  .tool-table thead { display: none; }
+  .tool-table tbody tr { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
+  .tool-table th, .tool-table td { border-bottom: 0; padding: 4px 0; min-width: 0; }
+  .tool-table td::before { content: attr(data-label); display: block; font-size: 0.72rem; text-transform: uppercase;
+    letter-spacing: 0.05em; opacity: 0.6; margin-bottom: 1px; }
+}

@@ -5074,3 +5074,308 @@ test('CUSUM and EWMA are calibrated to the same false alarm rate, and are far fa
   assert.throws(() => SPC.ewma(E.range(10).map(() => 5)), /no spread/);
   assert.throws(() => SPC.ewma(E.range(10).map((_, i) => i), { lambda: 0 }), /above 0 and at most 1/);
 });
+
+/* The bug class that silently emptied the academy page: a script whose first lines read
+   `root.MLSomething || require('./something.js')` runs fine under node and throws
+   "require is not defined" in a browser if the page forgot to load that dependency first.
+   The throw happens at load time, so the file's own global is never defined, and every
+   later script that uses it dies too - leaving blank containers with nothing in the UI to
+   say why. learn.html shipped like that: it loaded agent.js without uncertainty.js, so
+   window.MLAgent never existed and all 39 lessons rendered as empty boxes.
+
+   One grep cannot catch it; the order of the script tags on each page is what matters. */
+test('every page loads each script after the dependencies that script needs at load time', () => {
+  const exportsOf = {}, needsOf = {};
+  for (const f of fs.readdirSync(ROOT).filter(f => /\.js$/.test(f))) {
+    const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const ex = src.match(/root\.(ML[A-Za-z]*|Charts)\s*=/g) || [];
+    exportsOf[f] = ex.map(s => s.replace(/root\.|\s*=/g, ''));
+    /* Only the unguarded form is a hazard. `typeof require !== 'undefined' ? ... : null`
+       degrades to null in a browser, which is a missing-feature bug at worst, not a
+       page-killing throw, and some files use it deliberately for optional dependencies. */
+    needsOf[f] = (src.match(/root\.(ML[A-Za-z]*|Charts)\s*\|\|\s*require\(/g) || [])
+      .map(s => s.replace(/root\.|\s*\|\|[\s\S]*/g, ''));
+  }
+  // Nothing may claim a dependency no file provides: that would be a typo, not an ordering bug.
+  const provided = {};
+  for (const f of Object.keys(exportsOf)) for (const g of exportsOf[f]) provided[g] = f;
+  for (const f of Object.keys(needsOf)) for (const g of needsOf[f]) {
+    assert.ok(provided[g], f + ' needs ' + g + ', which no file in the project defines');
+  }
+
+  const pages = fs.readdirSync(ROOT).filter(f => /\.html$/.test(f));
+  assert.ok(pages.length >= 2, 'both pages must be checked: ' + pages.join(', '));
+  for (const page of pages) {
+    const html = fs.readFileSync(path.join(ROOT, page), 'utf8');
+    const loaded = (html.match(/<script src="([^"]+)"/g) || []).map(s => s.replace(/.*src="|"/g, ''));
+    const defined = new Set();
+    for (const f of loaded) {
+      assert.ok(fs.existsSync(path.join(ROOT, f)), page + ' loads ' + f + ', which does not exist');
+      for (const g of needsOf[f] || []) {
+        assert.ok(defined.has(g),
+          page + ' loads ' + f + ' before ' + g + ' (' + provided[g] + ') is defined. In a browser that file '
+          + 'throws on load, so ' + (exportsOf[f] || []).join(' and ') + ' is never defined and every script after it breaks.');
+      }
+      for (const g of exportsOf[f] || []) defined.add(g);
+    }
+  }
+});
+
+/* The tools summary. Two tables over the same eight benches, and the thing that makes them
+   worth having rather than decorative is that every row names the input type: variable,
+   attribute, or neither. Get that wrong and the reader takes a count to a measurement chart,
+   where the limits are not approximately wrong but structurally wrong - the spread of a
+   Poisson count is fixed by its own mean and has nothing to do with the moving range. */
+test('the tools summary covers every bench, names the input type, and cannot drift from the selector', () => {
+  const M = require(path.join(ROOT, 'methods.js'));
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+
+  // The selector is the single source of truth for which benches exist.
+  const picker = html.slice(html.indexOf('<select id="tool">'), html.indexOf('</select>', html.indexOf('<select id="tool">')));
+  const options = (picker.match(/value="([a-z]+)"/g) || []).map(s => s.replace(/value="|"/g, ''));
+  assert.ok(options.length >= 8, 'tool selector not found or too short: ' + options.join(','));
+  const analytic = options.filter(o => o !== 'privacy');
+
+  // Every analysis bench gets exactly one row, and no row invents a bench.
+  assert.deepStrictEqual(M.TOOLS.map(t => t.tool).slice().sort(), analytic.slice().sort(),
+    'the summary table and the tool selector must list the same benches');
+  for (const m of M.METHODS) assert.ok(options.includes(m.tool), m.name + ' points at bench "' + m.tool + '", which is not in the selector');
+  // And every bench in the table has at least one method card opened up beneath it.
+  for (const t of M.TOOLS) assert.ok(M.METHODS.some(m => m.tool === t.tool), t.tool + ' has a table row but no method card');
+
+  /* Every field on both tables has to be filled and has to say something. A one-word cell
+     passes a presence check and tells a reader nothing, so there is a floor on length. */
+  for (const t of M.TOOLS) {
+    for (const k of ['what', 'where', 'inputs', 'outputs']) {
+      assert.ok(typeof t[k] === 'string' && t[k].length > 40, t.tool + ' has a thin or missing "' + k + '": ' + t[k]);
+    }
+  }
+  for (const m of M.METHODS) {
+    for (const k of ['method', 'answers', 'chart', 'where', 'inputs', 'outputs', 'judged', 'shape']) {
+      assert.ok(typeof m[k] === 'string' && m[k].length > 40, m.name + ' has a thin or missing "' + k + '": ' + m[k]);
+    }
+    assert.ok(['stats', 'ml', 'both'].includes(m.kind), m.name + ' has an unknown kind');
+  }
+
+  /* The input type is the column that decides the method, so it must be named in words a
+     reader can act on - not implied. The two benches that take no tabular data at all have
+     to say so rather than quietly omitting it. */
+  const names = /\b(variable|attribute|categor|count|pass.fail|sequence|no data|no tabular data)/i;
+  for (const t of M.TOOLS) assert.ok(names.test(t.inputs), t.tool + ' does not name its input type: ' + t.inputs);
+  for (const m of M.METHODS) assert.ok(names.test(m.inputs), m.name + ' does not name its input type: ' + m.inputs);
+  // Attribute agreement is categories only; the count charts are the other direction.
+  const agree = M.METHODS.find(m => /Attribute agreement/.test(m.name));
+  assert.ok(/attribute only/i.test(agree.inputs), 'attribute agreement must say it takes no measurements');
+  const caps = M.METHODS.find(m => /Capability and control charts/.test(m.name));
+  assert.ok(/attribute/i.test(caps.inputs) && /variable/i.test(caps.inputs),
+    'the chart bench takes both, and which chart goes with which is the whole point');
+
+  /* The page renders both tables from the data file, so a method added to methods.js
+     appears without anybody editing the markup. If these go back to being written into the
+     HTML they will drift from the selector the first time a bench is renamed. */
+  assert.ok(/M\.TOOLS\.map/.test(app), 'the table must be rendered from the data file');
+  for (const col of ['What it is', 'Where it is used', 'Input data', 'What you get out']) {
+    assert.ok(app.includes(col), 'the summary table is missing the "' + col + '" column');
+  }
+  for (const row of ['What the chart does', 'Where it can be used', 'Input data', 'What you get out']) {
+    assert.ok(app.includes(row), 'the method cards are missing the "' + row + '" row');
+  }
+  // Each row opens its bench: a reference table you cannot act from is just reading material.
+  assert.ok(/tool-table[\s\S]{0,2000}data-open-tool/.test(app), 'each table row needs a button that opens the bench');
+  // Stacking on a phone must keep the column names with the cells.
+  const css = fs.readFileSync(path.join(ROOT, 'style.css'), 'utf8');
+  assert.ok(/content: attr\(data-label\)/.test(css), 'stacked cells must print their own column name');
+  assert.ok(/data-label="/.test(app), 'and the renderer must supply it');
+  // The build has to ship the data file, or the download renders an empty section.
+  assert.ok(/methods\.js/.test(fs.readFileSync(path.join(ROOT, 'package.sh'), 'utf8')), 'package.sh must copy methods.js');
+});
+
+/* The academy. Fifty-eight lessons is only worth having if it covers what the tool actually
+   reports - a lesson plan that stops before the methods a user will meet in their results
+   sends them to a search engine at exactly the wrong moment. These assertions are the drift
+   check: add a method to the tool and the lesson plan has to catch up or the suite fails. */
+test('the lesson plan is complete, ordered, and covers every method the tool reports', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'learn.js'), 'utf8');
+  const html = fs.readFileSync(path.join(ROOT, 'learn.html'), 'utf8');
+
+  // Structure: every lesson carries the full teaching shape, not a title and a stub.
+  const ids = (src.match(/^    id: '[a-z0-9-]+',/gm) || []).map(s => s.replace(/.*'([^']+)'.*/, '$1'));
+  assert.ok(ids.length >= 55, 'expected a full curriculum, found ' + ids.length + ' lessons');
+  assert.strictEqual(new Set(ids).size, ids.length, 'lesson ids must be unique');
+  for (const field of ['group:', 'title:', 'analogy:', 'intro:', 'demo(el) {', 'steps:', 'when:', 'watch:', 'where:', 'quiz:']) {
+    const n = (src.match(new RegExp(field.replace(/[(){}]/g, '\\$&'), 'g')) || []).length;
+    assert.ok(n >= ids.length, 'only ' + n + ' lessons carry "' + field + '" but there are ' + ids.length);
+  }
+  // Every quiz offers a real choice and names a correct one that exists.
+  const quizzes = src.match(/options: \[[^\]]*\], answer: \d/g) || [];
+  assert.strictEqual(quizzes.length, ids.length, 'every lesson needs exactly one quiz');
+  for (const qz of quizzes) {
+    const opts = (qz.match(/'(?:[^'\\]|\\.)*'/g) || []).length;
+    const ans = Number(qz.match(/answer: (\d)/)[1]);
+    assert.ok(opts >= 3, 'a quiz with fewer than three options is not a check: ' + qz.slice(0, 80));
+    assert.ok(ans >= 0 && ans < opts, 'answer index ' + ans + ' is outside its own option list');
+  }
+
+  /* Order: foundations first. Someone who does not know what a p-value is cannot start at
+     gradient boosting, and the group order is taken from the order lessons are added. */
+  const groups = [];
+  for (const m of src.match(/^    id: '[a-z0-9-]+', group: '[^']+'/gm) || []) {
+    const g = m.replace(/.*group: '([^']+)'.*/, '$1');
+    if (!groups.includes(g)) groups.push(g);
+  }
+  assert.strictEqual(groups[0], 'Statistics foundations', 'the plan must open with the statistics, not with machine learning');
+  assert.ok(groups.indexOf('Start here') === 1, 'the ML introduction comes second');
+  assert.ok(groups.indexOf('Using the results') === groups.length - 1, 'reading the results comes last');
+
+  /* Coverage. Each entry is something the tool prints in a result or a chart; if a user can
+     be shown it, there has to be a lesson that explains it. */
+  const topics = {
+    'attribute versus variable data': /attribute or variable|Attribute or variable/,
+    'mean, median and spread': /interquartile range/,
+    'distribution shape': /skewness/,
+    'sampling error': /standard error/,
+    'confidence intervals': /confidence interval/i,
+    'p-values': /p-value/,
+    'correlation traps': /correlation coefficient/,
+    'cross-validation': /[Cc]ross-validation/,
+    'overfitting': /[Oo]verfitting/,
+    'category encoding': /[Tt]arget encoding/,
+    'collinearity and VIF': /variance inflation factor/,
+    'randomization and blocking': /[Rr]andomiz/,
+    'response surfaces': /response-surface design|response surface/i,
+    'multiplicity': /Benjamini-Hochberg/,
+    'capability': /Cpk/,
+    'control charts': /[Nn]elson|control limit/,
+    'count charts': /c, u and p|u-chart|c-chart/,
+    'CUSUM and EWMA': /CUSUM/,
+    'rare events': /between consecutive events|gap chart|g-chart/,
+    'Box-Cox': /Box-Cox/,
+    'normality testing': /Anderson-Darling/,
+    'tolerance intervals': /tolerance interval/i,
+    'distribution-free bounds': /distribution-free/i,
+    'power and sample size': /sample size/,
+    'attribute agreement': /kappa/,
+    'Gage R&R': /Gage R&R/,
+    'variance components': /variance component/i,
+    'equivalence': /TOST|equivalence/i,
+    'shelf life': /shelf life/i,
+    'multivariate monitoring': /Hotelling|T-squared|T.squared/,
+    'conformal intervals': /[Cc]onformal/,
+    'desirability': /desirability/i,
+    'Taguchi': /Taguchi/,
+    'PCA': /PCA|principal component/i,
+    'clustering': /k-means/,
+    'genetic algorithms': /Pareto front/
+  };
+  for (const [name, re] of Object.entries(topics)) {
+    assert.ok(re.test(src), 'no lesson covers ' + name + ' (looked for ' + re + ')');
+  }
+
+  /* Every design the DOE builder can generate has to be named somewhere in the lessons,
+     by the words the builder itself uses. This is the check that catches a new design
+     being added to the tool and never explained. */
+  const DESIGN_WORDS = {
+    full: /full factorial/i, half: /half fraction|fractional factorial/i, res4: /resolution IV/,
+    pb: /Plackett-Burman/, ccd: /central composite/i, ccf: /face-centred central composite|face-centered central composite/i,
+    bbd: /Box-Behnken/, dsd: /definitive screening/i, mixLattice: /simplex lattice/i,
+    mixCentroid: /simplex centroid/i, mixVertices: /extreme vertices/i
+  };
+  assert.deepStrictEqual(Object.keys(DESIGN_WORDS).sort(), Object.keys(D.DESIGNS).sort(),
+    'a design was added to or removed from the builder without updating this coverage list');
+  for (const [key, re] of Object.entries(DESIGN_WORDS)) {
+    assert.ok(re.test(src), 'the DOE builder offers "' + D.DESIGNS[key].name + '" but no lesson names it');
+  }
+
+  // The page has to load the libraries the lessons call, in an order that works in a browser.
+  for (const f of ['engine.js', 'doe.js', 'spc.js', 'uncertainty.js', 'agent.js', 'variance.js', 'tolerance.js', 'charts.js', 'learn.js']) {
+    assert.ok(html.includes('src="' + f + '"'), 'learn.html must load ' + f);
+  }
+  // Demos may compute, but they may not invent: nothing here fabricates a result to display.
+  assert.ok(!/Math\.random\(/.test(src), 'lessons must use the seeded generator so every reader sees the same numbers');
+});
+
+/* The README quotes the size of the course and four measured figures from its demos. A
+   number in a README is a promise to a reader who cannot check it, so each one is checked
+   here against the thing it describes. */
+test('the README figures for the academy match the academy', () => {
+  const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+  const src = fs.readFileSync(path.join(ROOT, 'learn.js'), 'utf8');
+  const count = (src.match(/^    id: '[a-z0-9-]+',/gm) || []).length;
+  const quoted = readme.match(/(\d+)-lesson course/);
+  assert.ok(quoted, 'the README must say how long the course is');
+  assert.strictEqual(Number(quoted[1]), count, 'README says ' + quoted[1] + ' lessons; learn.js has ' + count);
+  assert.ok(readme.includes(count + ' lessons'), 'the opening line must quote the same count');
+
+  // The groups the README lists, in the order the lessons actually produce.
+  const groups = [];
+  for (const m of src.match(/^    id: '[a-z0-9-]+', group: '[^']+'/gm) || []) {
+    const g = m.replace(/.*group: '([^']+)'.*/, '$1');
+    if (!groups.includes(g)) groups.push(g);
+  }
+  let at = -1;
+  for (const g of groups) {
+    const i = readme.indexOf('*' + g + '*');
+    assert.ok(i > at, 'the README group list must name "' + g + '" in course order');
+    at = i;
+  }
+});
+
+/* The conformal lesson makes a measured claim - that a band taken from in-sample residuals
+   under-delivers while the same band taken from held-out residuals hits its nominal rate -
+   and both the lesson and the README quote the figures. Re-measure them here, over exactly
+   the ten datasets the demo cycles through, so neither can drift. */
+test('in-sample interval bands under-cover where conformal bands do not', () => {
+  const U = require(path.join(ROOT, 'uncertainty.js'));
+  const normal = r => { let u = 0, v = 0; while (!u) u = r(); while (!v) v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const inSample = [], conformal = [];
+  for (let k = 0; k < 10; k++) {
+    const rand = E.rng(71 + 13 * k), nFit = 16, nCal = 60, nTest = 120, n = nFit + nCal + nTest;
+    const xs = E.range(n).map(() => rand() * 10), ys = xs.map(x => 20 + 2 * x + normal(rand) * 2.5);
+    const feat = x => E.range(9).map(j => Math.pow(x / 10, j + 1));
+    const fit = E.range(nFit), cal = E.range(nCal).map(i => nFit + i), test = E.range(nTest).map(i => nFit + nCal + i);
+    const m = E.fitRidgeCore(fit.map(i => feat(xs[i])), fit.map(i => ys[i]), 1e-7);
+    const pr = idx => m.predict(idx.map(i => feat(xs[i])));
+    const sIn = E.sd(pr(fit).map((p, j) => ys[fit[j]] - p));
+    const q = U.conformalQuantile(pr(cal).map((p, j) => Math.abs(ys[cal[j]] - p)).sort((a, b) => a - b), 0.95);
+    const tp = pr(test), cov = w => test.filter((i, j) => Math.abs(ys[i] - tp[j]) <= w).length / test.length;
+    inSample.push(cov(1.96 * sIn)); conformal.push(cov(q));
+  }
+  const mi = E.mean(inSample), mc = E.mean(conformal);
+  assert.ok(Math.abs(mi - 0.77) < 0.04, 'the lesson and README quote 77% for the in-sample band; measured ' + (mi * 100).toFixed(0) + '%');
+  assert.ok(Math.abs(mc - 0.95) < 0.04, 'the conformal band must deliver its 95% claim; measured ' + (mc * 100).toFixed(0) + '%');
+  assert.ok(Math.max(...inSample) < 0.95, 'the lesson says the in-sample band never reaches its claim; one dataset reached ' + (Math.max(...inSample) * 100).toFixed(0) + '%');
+  assert.ok(mc - mi > 0.1, 'the whole point is the gap between the two, measured at ' + ((mc - mi) * 100).toFixed(0) + ' points');
+});
+
+/* The encoding lesson claims a column of pure noise scores R-squared 0.45 when its target
+   encoding is fitted once over all the rows, and below zero when fitted inside the folds.
+   That is the leak measuring itself, and the figures are quoted in the README. */
+test('a target encoding fitted outside the folds scores a column that means nothing', () => {
+  const rand = E.rng(13), n = 60, levels = 30;
+  const code = E.range(n).map(i => 'L' + (i % levels));
+  const normal = r => { let u = 0, v = 0; while (!u) u = r(); while (!v) v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const y = E.range(n).map(() => 100 + normal(rand) * 3);
+  const scoreWith = encode => {
+    const folds = E.makeFolds(n, 5, E.rng(3)), pred = new Array(n).fill(0);
+    for (let f = 0; f < 5; f++) {
+      const tr = E.range(n).filter(i => folds[i] !== f), te = E.range(n).filter(i => folds[i] === f);
+      const map = encode(tr), grand = E.mean(tr.map(i => y[i]));
+      const xOf = i => [map[code[i]] === undefined ? grand : map[code[i]]];
+      const m = E.fitRidgeCore(tr.map(xOf), tr.map(i => y[i]), 1e-6);
+      const pr = m.predict(te.map(xOf));
+      te.forEach((i, k) => { pred[i] = pr[k]; });
+    }
+    return E.regressionMetrics(y, pred).r2;
+  };
+  const meanBy = rows => {
+    const sum = {}, cnt = {};
+    rows.forEach(i => { sum[code[i]] = (sum[code[i]] || 0) + y[i]; cnt[code[i]] = (cnt[code[i]] || 0) + 1; });
+    const out = {}; Object.keys(sum).forEach(k => { out[k] = sum[k] / cnt[k]; });
+    return out;
+  };
+  const leaky = scoreWith(() => meanBy(E.range(n))), honest = scoreWith(tr => meanBy(tr));
+  assert.ok(leaky > 0.3, 'the leak must be visible; the lesson quotes 0.45 and measured ' + leaky.toFixed(2));
+  assert.ok(honest < 0, 'encoded inside the folds, a noise column must score no better than the mean; measured ' + honest.toFixed(2));
+  assert.ok(leaky - honest > 0.5, 'the gap between the two is the lesson; measured ' + (leaky - honest).toFixed(2));
+});

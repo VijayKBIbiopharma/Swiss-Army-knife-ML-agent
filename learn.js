@@ -4,13 +4,14 @@
 (function () {
   'use strict';
   const E = window.MLEngine, C = window.Charts, A = window.MLAgent, D = window.MLDoe;
+  const S = window.MLSpc, V = window.MLVariance, TL = window.MLTolerance, U = window.MLUncertainty;
   const h = C.esc, fmt = A.fmt, pct = A.pct;
   const range = E.range;
 
   // ---------- Small drawing helpers ----------
   function frame(W, H, xd, yd, o) {
     o = o || {};
-    const L = o.l !== undefined ? o.l : 46, R = 14, T = 12, B = o.b !== undefined ? o.b : 38;
+    const L = o.l !== undefined ? o.l : 46, R = 14, T = o.t !== undefined ? o.t : 12, B = o.b !== undefined ? o.b : 38;
     const sx = v => L + (v - xd[0]) / (xd[1] - xd[0]) * (W - L - R);
     const sy = v => H - B - (v - yd[0]) / (yd[1] - yd[0]) * (H - T - B);
     let axes = '';
@@ -71,6 +72,290 @@
   // ---------- Lessons ----------
   const LESSONS = [];
   const add = l => LESSONS.push(l);
+
+  /* ---------- Statistics foundations ----------
+     These come first because every later lesson leans on them, and because the mistakes
+     they prevent are the expensive ones: a count on a measurement chart, an average quoted
+     from a skewed distribution, a p-value read as an effect size. Each demo computes its
+     numbers with the same functions the tool uses on real data, so nothing here is a
+     simplification that stops being true at the bench. */
+
+  // A Poisson draw, for the lessons about counts. Knuth's method: multiply uniforms until
+  // the product falls below exp(-lambda). Fine at the small means these demos use.
+  function poisson(lambda, rand) {
+    const L = Math.exp(-lambda);
+    let k = 0, p = 1;
+    do { k++; p *= rand(); } while (p > L);
+    return k - 1;
+  }
+  // First signal at or after a given point, or -1. Used by the drift-chart race.
+  const sigOf = (res, at) => { const s = res.signals.find(x => x.i >= (at === undefined ? 40 : at)); return s ? s.i : -1; };
+  const skew = v => { const m = E.mean(v), s = E.sd(v); return s > 0 ? E.mean(v.map(x => Math.pow((x - m) / s, 3))) : 0; };
+
+  add({
+    id: 'data-types', group: 'Statistics foundations', title: 'Attribute or variable: the first question',
+    analogy: 'A thermometer and a tally counter. One tells you how hot it is, the other how many times something happened. Averaging a tally the way you average a temperature is how a chart ends up confidently wrong.',
+    intro: 'Variable data is measured on a scale: purity, pH, titre, fill weight. You measure its spread from the data itself. Attribute data is a count or a call: three particles, pass, fail, protein-like. Its spread is not yours to measure, because the mean fixes it - a count averaging 4 has a standard deviation of 2 whether you like it or not. Almost every method in this tool branches on which kind you brought, and getting it wrong does not make the answer approximately right.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-grid"><div><h4>On a count chart (correct)</h4><div data-role="c"></div></div>' +
+        '<div><h4>On a measurement chart (wrong)</h4><div data-role="i"></div></div></div>' +
+        '<p class="demo-read" data-role="read"></p>';
+      const rand = E.rng(17);
+      const counts = range(24).map(() => poisson(4, rand));
+      counts[11] = 12;                                        // one genuine excursion
+      const cc = S.countChart(counts);
+      const im = S.imr(counts);
+      C.controlChart(q(el, 'c'), counts, { ucl: cc.upper[0], cl: cc.centre, lcl: cc.lower[0], flags: counts.map((v, i) => (cc.signals.some(s => s.i === i) ? ['beyond the count limit'] : [])), yLabel: 'Defects per batch', height: 220 });
+      C.controlChart(q(el, 'i'), counts, { ucl: im.ucl, cl: im.cl, lcl: im.lcl, flags: im.flags, yLabel: 'Defects per batch', height: 220 });
+      const cFlags = cc.signals.length, iFlags = im.signals.length;
+      q(el, 'read').innerHTML = 'Same 24 numbers, two sets of limits. The count chart sets its upper limit at <b>' + fmt(cc.upper[0]) +
+        '</b> from the mean alone, because for a count the mean <i>is</i> the spread. The measurement chart measures a spread from the moving range and lands on <b>' + fmt(im.ucl) +
+        '</b>, with a lower limit of <b>' + fmt(im.lcl) + '</b> - a negative number of defects, which cannot happen. ' +
+        'Here they happen to flag ' + cFlags + ' and ' + iFlags + ' points; the problem is not the count but that the second chart’s limits were never the right shape, so whether it agrees is luck.';
+    },
+    steps: ['Ask what one row is: a measurement on a scale, or a count or a call?', 'Variable data: you estimate the centre and the spread separately from the data.', 'Attribute data: the mean determines the spread, so the limits come from a count distribution, not from a standard deviation.', 'Attribute data has its own methods throughout: count charts instead of I-MR, kappa instead of Gage R&R, proportions instead of means.'],
+    when: 'Before you choose any method. It is the first branch in the decision, not a detail.',
+    watch: 'A count dressed as a measurement is the commonest version of this mistake: particles per vial, deviations per month, failures per batch. All counts.',
+    where: 'The capability tool switches to c, u and p charts when you tell it the column is a count; the variance tool switches to attribute agreement when the calls are categories.',
+    quiz: { q: 'You chart "particles per vial" on an individuals chart and the lower control limit comes out at −1.8. What has gone wrong?', options: ['Nothing; a negative limit just never triggers', 'A count cannot be negative, so the limits were built from the wrong distribution and the upper one is wrong too', 'The data needs more points'], answer: 1, why: 'The impossible lower limit is the visible symptom of a deeper problem: the chart assumed a symmetric spread you measure, when a count’s spread is fixed by its mean. The upper limit is wrong by the same mistake, it just does not look absurd.' }
+  });
+
+  add({
+    id: 'centre-spread', group: 'Statistics foundations', title: 'Average, median and spread',
+    analogy: 'Two people describe the same commute. One says "it averages 40 minutes", the other says "half the time it is under 30". Both are true, and the gap between them is the whole story.',
+    intro: 'Four numbers describe most datasets. The mean and the median say where the middle is; the standard deviation and the interquartile range say how wide it is. They disagree in a specific and useful way: the mean and the standard deviation are pulled by extreme values, the median and the IQR are not. When they disagree, that is information, not a problem to be averaged away.',
+    demo(el) {
+      el.innerHTML = '<div data-role="plot"></div><div class="demo-controls">' + slider('out', 'Move one result to', 100, 180, 1, 102) + '</div><p class="demo-read" data-role="read"></p>';
+      const rand = E.rng(11);
+      const base = range(14).map(() => 100 + normal(rand) * 2);
+      const f = frame(640, 150, [95, 185], [0, 1], { noAxes: false, b: 34, yFmt: () => '' });
+      const draw = () => {
+        const v = Number(q(el, 'out').value);
+        setOut(el, 'out', v);
+        const data = base.concat([v]);
+        const m = E.mean(data), md = E.median(data), sd = E.sd(data);
+        const iqr = E.quantile(data, 0.75) - E.quantile(data, 0.25);
+        const mark = (x, lab, cls) => '<line class="' + cls + '" x1="' + f.sx(x) + '" x2="' + f.sx(x) + '" y1="26" y2="104"/><text class="lbl-strong" x="' + f.sx(x) + '" y="20" text-anchor="middle">' + h(lab) + '</text>';
+        q(el, 'plot').innerHTML = svg(640, 150, 'Fifteen results with the mean and the median marked',
+          f.axes + data.map((d, i) => dot(f.sx(d), 72 + (i % 3 - 1) * 9, i === data.length - 1 ? 'c2' : 'c1', 5)).join('') +
+          mark(m, 'Mean ' + fmt(m), 'ref') + mark(md, 'Median ' + fmt(md), 'median'));
+        q(el, 'read').innerHTML = 'Mean <b>' + fmt(m) + '</b>, median <b>' + fmt(md) + '</b>, standard deviation <b>' + fmt(sd) +
+          '</b>, interquartile range <b>' + fmt(iqr) + '</b>. Drag the orange result out to 180 and the mean follows it while the median barely moves: ' +
+          'one value in fifteen shifts the mean by ' + fmt(m - E.mean(base.concat([102]))) + ' and the median by ' + fmt(md - E.median(base.concat([102]))) + '. ' +
+          'The standard deviation reacts even harder, because it squares the distance first.';
+      };
+      q(el, 'out').oninput = draw;
+      draw();
+    },
+    steps: ['Mean: add them up and divide. Every value gets a vote weighted by how far out it is.', 'Median: line them up and take the middle one. Each value gets one vote regardless of size.', 'Standard deviation: the typical distance from the mean, computed by squaring, averaging and taking the root - so a far-out value counts for a great deal.', 'Interquartile range: the width of the middle half. Insensitive to both tails by construction.'],
+    when: 'Always report both pairs on data you have not seen before. If they agree, the distribution is roughly symmetric; if they do not, you have learned something before fitting anything.',
+    watch: 'A mean quoted alone on skewed data is the classic trap: most impurity results sit below their own average, so "the average is within spec" can be true while a quarter of batches fail.',
+    where: 'The data profile prints both for every numeric column, and the capability panel reports the median beside the mean precisely so the gap is visible.',
+    quiz: { q: 'An impurity has a mean of 0.8% and a median of 0.5%. What does that tell you?', options: ['The data has an error in it', 'The distribution has a long right tail: a few high results are pulling the mean up', 'The two are close enough to treat as equal'], answer: 1, why: 'Mean well above median is the signature of right skew, which is what impurities, aggregates and particle counts normally look like. It also warns you that any figure computed from a normal tail - PPM, sigma level - is about to be wrong.' }
+  });
+
+  add({
+    id: 'distributions', group: 'Statistics foundations', title: 'Shape: the bell curve and the many things that are not one',
+    analogy: 'Four crowds, all averaging 1.75 m tall: a school staff room, a basketball squad mixed with jockeys, a queue where one person is on stilts, and a crowd where nobody can be shorter than zero. The average describes none of them.',
+    intro: 'A great deal of statistics assumes the bell curve, and biologics data routinely is not one. Impurities and particle counts are bounded at zero with a long right tail. Counts of rare events are Poisson. A bimodal result usually means two populations got mixed. The tool tests the shape rather than assuming it, and this lesson is what that test is looking at.',
+    demo(el) {
+      const SHAPES = [['normal', 'Bell-shaped'], ['skew', 'Right-skewed impurity'], ['bimodal', 'Two populations mixed'], ['counts', 'Counts of something rare']];
+      el.innerHTML = '<div class="demo-controls">' + SHAPES.map(s => btn(s[0], s[1], 'ghost')).join('') + '</div>' +
+        '<div data-role="plot"></div><p class="demo-read" data-role="read"></p>';
+      const make = kind => {
+        const rand = E.rng(23);
+        if (kind === 'skew') return range(160).map(() => 0.2 + Math.exp(normal(rand) * 0.55) * 0.3);
+        if (kind === 'bimodal') return range(160).map((_, i) => (i % 2 ? 0.7 : 1.9) + normal(rand) * 0.18);
+        if (kind === 'counts') return range(160).map(() => poisson(1.4, rand));
+        return range(160).map(() => 1.3 + normal(rand) * 0.3);
+      };
+      const show = kind => {
+        const v = make(kind), ad = TL.andersonDarling(v);
+        C.histogram(q(el, 'plot'), v, { mean: E.mean(v), sd: E.sd(v), xLabel: 'Result', label: 'Distribution of 160 results' });
+        q(el, 'read').innerHTML = 'Mean <b>' + fmt(E.mean(v)) + '</b>, median <b>' + fmt(E.median(v)) + '</b>, skewness <b>' + fmt(skew(v)) +
+          '</b>. The line drawn over the bars is the bell curve those two numbers imply. Anderson-Darling: p = <b>' + fmt(ad.p) + '</b>, so normality ' +
+          (ad.normal ? '<b>is not rejected</b> - the bell curve is a usable description here.' : '<b>is rejected</b>. Look at where the line sits against the bars: that gap is what every normal tail probability would be computed from.') +
+          (kind === 'bimodal' ? ' No transform fixes two humps - the honest move is to find out what separates the two populations and split them.' : '') +
+          (kind === 'counts' ? ' And these are counts, not measurements: the bell curve was never the right model, however the test comes out.' : '');
+      };
+      SHAPES.forEach(s => { q(el, s[0]).onclick = () => show(s[0]); });
+      show('normal');
+    },
+    steps: ['Draw the histogram first. Most shape problems are visible before any test is run.', 'Compare the mean with the median: apart means skewed.', 'Run Anderson-Darling, which weights the tails - where the specification lives - more heavily than the middle.', 'Below about eight results the test has no power worth quoting, so the tool reports "untested" rather than "passed".'],
+    when: 'Before anything that depends on a tail: PPM, sigma level, a tolerance interval, a capability claim.',
+    watch: 'A passed normality test on 20 results is weak evidence, not a clean bill of health. And a failed test does not invalidate everything - Cp and Cpk are ratios and survive it.',
+    where: 'The capability panel runs Anderson-Darling automatically and withholds the tail figures when it fails, with the reason printed rather than a footnote.',
+    quiz: { q: 'A normality test on 150 particle counts returns p = 0.001. Which figures should you still be happy to quote?', options: ['None of them', 'Cp, Cpk and the observed count outside specification', 'PPM and sigma level, since the sample is large'], answer: 1, why: 'Cp and Cpk are ratios of distances to spread and need no distribution. So does counting how many results actually fell outside the limits. PPM and sigma level are normal tail probabilities, and a large sample makes a wrong distribution more precisely wrong, not less.' }
+  });
+
+  add({
+    id: 'sampling', group: 'Statistics foundations', title: 'Sampling variation: why two samples never agree',
+    analogy: 'Two auditors each pull ten batches from the same year and come back with different averages. Neither made a mistake. That difference has a size you can predict, and predicting it is most of statistics.',
+    intro: 'Measure ten batches and you get an average. Measure ten more from the same unchanged process and you get a different one. The spread of those averages has a formula: the standard deviation divided by the square root of how many you took. That single fact is behind every confidence interval, every p-value and every sample size calculation in this tool.',
+    demo(el) {
+      el.innerHTML = '<div data-role="plot"></div><div class="demo-controls">' + slider('n', 'Batches per sample', 2, 50, 1, 5) +
+        btn('draw', 'Draw 30 samples', 'primary') + btn('reset', 'Clear', 'ghost') + '</div><p class="demo-read" data-role="read"></p>';
+      const TRUE = 100, SIGMA = 4;
+      const rand = E.rng(31);
+      let means = [];
+      const f = frame(640, 190, [94, 106], [0, 1], { b: 34, yFmt: () => '' });
+      const draw = () => {
+        const n = Number(q(el, 'n').value);
+        setOut(el, 'n', n);
+        const se = SIGMA / Math.sqrt(n);
+        const band = '<rect class="usual" x="' + f.sx(TRUE - 2 * se) + '" y="24" width="' + (f.sx(TRUE + 2 * se) - f.sx(TRUE - 2 * se)) + '" height="104"/>';
+        q(el, 'plot').innerHTML = svg(640, 190, 'Sample averages from an unchanged process', band + f.axes +
+          '<line class="target-line" x1="' + f.sx(TRUE) + '" x2="' + f.sx(TRUE) + '" y1="24" y2="128"/>' +
+          '<text class="lbl-strong" x="' + f.sx(TRUE) + '" y="18" text-anchor="middle">True average 100</text>' +
+          means.map((m, i) => dot(f.sx(m), 128 - (i % 11) * 9, Math.abs(m - TRUE) > 2 * se ? 'c2' : 'c1', 4.5)).join(''));
+        const obs = means.length > 2 ? E.sd(means) : null;
+        q(el, 'read').innerHTML = 'The process never changes: every result is drawn around 100 with a standard deviation of 4. The shaded band is &plusmn;2 standard errors - ' +
+          '4 &divide; &radic;' + n + ' = <b>' + fmt(se) + '</b> - which is where sample averages should land about 95% of the time. ' +
+          (means.length ? means.length + ' samples drawn, and the spread of their averages is <b>' + fmt(obs) + '</b> against the predicted ' + fmt(se) + '. '
+            : 'Press draw. ') +
+          'Raise the sample size and the band narrows as the square root: going from 5 batches to 20 halves it, and from 20 to 80 halves it again. That is why the fourth doubling of a study costs as much as the first and buys a quarter as much.';
+      };
+      q(el, 'draw').onclick = () => { const n = Number(q(el, 'n').value); for (let k = 0; k < 30; k++) means.push(E.mean(range(n).map(() => TRUE + normal(rand) * SIGMA))); draw(); };
+      q(el, 'reset').onclick = () => { means = []; draw(); };
+      q(el, 'n').oninput = () => { means = []; draw(); };
+      draw();
+    },
+    steps: ['A statistic computed from a sample is itself a random quantity with its own spread.', 'For an average, that spread is the standard error: sigma divided by the square root of n.', 'Four times the data halves the uncertainty, which is the single most useful piece of arithmetic in study planning.', 'Everything downstream - intervals, p-values, control limits - is built on this one quantity.'],
+    when: 'Whenever you are tempted to say two numbers differ. Ask first how far apart they would be if nothing had changed.',
+    watch: 'The formula assumes the results are independent. Three vials from the same batch are not three batches, and treating them as such understates the uncertainty - badly.',
+    where: 'The power and sample size tool is this lesson made operational; the standard errors behind every interval the agent prints come from it.',
+    quiz: { q: 'Your study of 10 batches gives a confidence interval 3 units wide, and you need 1.5. How many batches?', options: ['20', '40', '15'], answer: 1, why: 'Width shrinks with the square root of n, so halving it needs four times the data: 40 batches. This is the arithmetic that stops a study being planned by hope.' }
+  });
+
+  add({
+    id: 'confidence-intervals', group: 'Statistics foundations', title: 'Confidence intervals: the range the data can defend',
+    analogy: 'A weather forecast of "18 to 24 degrees" rather than "21". The range is not weakness, it is the part you can be held to.',
+    intro: 'A single number from a sample is almost certainly not the truth. A confidence interval is the range of truths the data cannot rule out. "95% confidence" is a property of the procedure, not of your one interval: run the study many times and 95% of the intervals it produces will contain the real value. This demo runs it many times so you can watch that happen - and watch the ones that miss.',
+    demo(el) {
+      el.innerHTML = '<div data-role="plot"></div><div class="demo-controls">' + slider('n', 'Batches per study', 3, 40, 1, 8) +
+        btn('draw', 'Run 25 studies', 'primary') + btn('reset', 'Clear', 'ghost') + '</div><p class="demo-read" data-role="read"></p>';
+      const TRUE = 100, SIGMA = 4;
+      const rand = E.rng(41);
+      let runs = [];
+      const draw = () => {
+        const n = Number(q(el, 'n').value); setOut(el, 'n', n);
+        const rows = runs.slice(-25);
+        const W = 640, H = Math.max(120, 26 + rows.length * 10);
+        const lo = Math.min(92, ...rows.map(r => r.lo)), hi = Math.max(108, ...rows.map(r => r.hi));
+        const sx = v => 40 + (v - lo) / (hi - lo) * (W - 60);
+        let b = '<line class="target-line" x1="' + sx(TRUE) + '" x2="' + sx(TRUE) + '" y1="16" y2="' + (H - 6) + '"/>' +
+          '<text class="lbl-strong" x="' + sx(TRUE) + '" y="12" text-anchor="middle">The truth: 100</text>';
+        rows.forEach((r, i) => {
+          const y = 22 + i * 10, cls = r.miss ? 'c2' : 'c1';
+          b += '<line class="errbar' + (r.miss ? ' miss' : '') + '" x1="' + sx(r.lo) + '" x2="' + sx(r.hi) + '" y1="' + y + '" y2="' + y + '"/>' + dot(sx(r.m), y, cls, 3);
+        });
+        q(el, 'plot').innerHTML = svg(W, H, 'Confidence intervals from repeated studies', b);
+        const miss = runs.filter(r => r.miss).length;
+        q(el, 'read').innerHTML = runs.length
+          ? runs.length + ' studies run, each on ' + n + ' batches from the same unchanged process. <b>' + (runs.length - miss) + '</b> intervals contain the truth and <b>' + miss +
+            '</b> miss it entirely: ' + pct(miss / runs.length) + ' against the 5% the method promises. The ones that miss are not mistakes - they are the advertised failure rate, and in real life you never know which kind you have.'
+          : 'Each line will be one study: its average as a dot, its 95% interval as the bar. Press the button.';
+      };
+      q(el, 'draw').onclick = () => {
+        const n = Number(q(el, 'n').value);
+        for (let k = 0; k < 25; k++) {
+          const y = range(n).map(() => TRUE + normal(rand) * SIGMA);
+          const m = E.mean(y), se = E.sd(y) / Math.sqrt(n), t = E.tQuantile(0.975, n - 1);
+          const lo = m - t * se, hi = m + t * se;
+          runs.push({ m, lo, hi, miss: TRUE < lo || TRUE > hi });
+        }
+        draw();
+      };
+      q(el, 'reset').onclick = () => { runs = []; draw(); };
+      q(el, 'n').oninput = () => { runs = []; draw(); };
+      draw();
+    },
+    steps: ['Take the estimate, and the standard error that goes with it.', 'Multiply the standard error by a factor from the t distribution, which widens as the sample shrinks because sigma had to be estimated too.', 'The interval is estimate plus and minus that product.', 'Read it as "the values this data cannot rule out", and act on the unfavourable end when the decision is one-sided.'],
+    when: 'Report one beside every estimate that will be used for a decision. A point estimate alone hides exactly the information a reviewer needs.',
+    watch: '95% confidence is a property of the procedure over many studies, not a probability about your particular interval. And an interval says nothing about whether the measurement was biased - only about how much the sampling moved it.',
+    where: 'Shelf life uses the one-sided limit rather than the fitted line; the equivalence verdict is read off an interval; the model leaderboard puts a bootstrap interval on every score.',
+    quiz: { q: 'A 95% interval for a difference runs from −0.4 to +2.8. What is the honest reading?', options: ['There is no difference, because the interval includes zero', 'The data cannot rule out "no difference", but it also cannot rule out a difference as large as 2.8', 'The difference is 1.2'], answer: 1, why: 'An interval containing zero is not evidence of no effect; it is a statement that the study was not sharp enough to exclude it. Reporting that as "no difference" throws away the other half of what the interval says - which is that a substantial effect is equally consistent with the data.' }
+  });
+
+  add({
+    id: 'hypothesis-tests', group: 'Statistics foundations', title: 'p-values: what they do and do not say',
+    analogy: 'A metal detector. It beeps to say "something is there", not "something valuable is there". Turn the sensitivity up far enough and it beeps at a bottle top.',
+    intro: 'A p-value answers one narrow question: if nothing were really different, how often would I see a gap at least this big by chance alone? Small p means the gap is hard to explain as noise. It does not mean the gap is large, or important, or worth acting on - and the two sliders below pull those apart.',
+    demo(el) {
+      el.innerHTML = '<div data-role="plot"></div><div class="demo-controls">' + slider('d', 'Real difference between the labs', 0, 3, 0.1, 0.3) +
+        slider('n', 'Results per lab', 4, 200, 2, 10) + '</div><p class="demo-read" data-role="read"></p>';
+      const SIGMA = 2;
+      const draw = () => {
+        const d = Number(q(el, 'd').value), n = Number(q(el, 'n').value);
+        setOut(el, 'd', d.toFixed(1)); setOut(el, 'n', n);
+        const rand = E.rng(7);
+        const a = range(n).map(() => 100 + normal(rand) * SIGMA);
+        const b = range(n).map(() => 100 + d + normal(rand) * SIGMA);
+        const se = Math.sqrt(E.variance(a) / n + E.variance(b) / n);
+        const t = (E.mean(b) - E.mean(a)) / se;
+        const p = E.tTestP(t, 2 * n - 2);
+        const f = frame(640, 200, [94, 108], [0, 1], { b: 34, yFmt: () => '' });
+        q(el, 'plot').innerHTML = svg(640, 200, 'Two labs, the same method', f.axes +
+          a.map(v => dot(f.sx(v), 60, 'c1', 4)).join('') + b.map(v => dot(f.sx(v), 110, 'c3', 4)).join('') +
+          '<text x="12" y="64">Lab A</text><text x="12" y="114">Lab B</text>' +
+          '<line class="ref" x1="' + f.sx(E.mean(a)) + '" x2="' + f.sx(E.mean(a)) + '" y1="44" y2="76"/>' +
+          '<line class="ref" x1="' + f.sx(E.mean(b)) + '" x2="' + f.sx(E.mean(b)) + '" y1="94" y2="126"/>');
+        const obs = E.mean(b) - E.mean(a);
+        q(el, 'read').innerHTML = 'Observed gap <b>' + fmt(obs) + '</b> units, p = <b>' + (p < 0.001 ? '&lt;0.001' : fmt(p)) + '</b>. ' +
+          (p < 0.05 ? 'Significant. ' : 'Not significant. ') +
+          'Now hold the real difference at 0.3 - a third of a unit, almost certainly irrelevant to a release decision - and push the sample size to 200: the p-value crosses 0.05 while the difference stays trivial. ' +
+          'Then set a real difference of 2 units with 4 results each: a difference that would fail a transfer, and p says nothing. The p-value is a statement about evidence, and sample size is half of it. The size of the effect is a separate question that only the interval answers.';
+      };
+      q(el, 'd').oninput = draw; q(el, 'n').oninput = draw;
+      draw();
+    },
+    steps: ['State what "nothing is happening" would mean - the null hypothesis.', 'Compute how extreme the observed result is against that assumption, in standard errors.', 'The p-value is the chance of a result at least that extreme if the null were true.', 'Read it with the effect size and the interval beside it, never alone.'],
+    when: 'When you need to know whether a difference is distinguishable from noise - which is a smaller question than whether it matters.',
+    watch: 'Two opposite misreadings. A large p is not proof of no effect, usually just a small study. A small p is not proof of a large effect, often just a large one. And a test for a difference can never demonstrate sameness: that needs an equivalence test against a margin.',
+    where: 'DOE effect p-values, poolability tests, ANOVA F tests, Gage R&R interaction tests - and the TOST tool, which exists because this test is the wrong one for a sameness claim.',
+    quiz: { q: 'A supplier comparison on 400 lots per supplier gives p = 0.004 for a difference of 0.05% in yield. What should you do?', options: ['Change supplier: the difference is highly significant', 'Treat the difference as real but almost certainly too small to act on', 'Repeat the study with more lots'], answer: 1, why: 'With 800 lots the study can detect differences far smaller than anything that matters operationally. The p-value is doing its job correctly; the mistake would be to read statistical significance as practical importance. Look at the interval and ask whether its whole range is small enough to ignore.' }
+  });
+
+  add({
+    id: 'correlation', group: 'Statistics foundations', title: 'Correlation: one number that hides as much as it shows',
+    analogy: 'A one-line summary of four different films, all of which happen to read "a journey, mostly uphill". Accurate, useless, and you would not green-light any of them on it.',
+    intro: 'The correlation coefficient measures how well a straight line through the data describes it. Four datasets below have almost the same correlation and nothing else in common: one is genuinely linear, one is a curve, one is driven by a single point, one is two separate populations. The number cannot tell them apart. Looking at the plot takes two seconds and can.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-grid" data-role="grid"></div><div class="demo-controls">' + btn('line', 'Fit a straight line to each', 'primary') + '</div><p class="demo-read" data-role="read"></p>';
+      const rand = E.rng(5);
+      const sets = [
+        ['Genuinely linear', range(28).map(() => { const x = 2 + rand() * 8; return [x, 10 + 1.6 * x + normal(rand) * 1.8]; })],
+        ['A curve', range(28).map((_, i) => { const x = 2 + i * 0.3; return [x, 10 + 5.2 * Math.sqrt(x) - 0.02 * x * x + normal(rand) * 0.7]; })],
+        ['One point doing the work', range(27).map(() => { const x = 2 + rand() * 2; return [x, 14 + normal(rand) * 1.4]; }).concat([[11, 34]])],
+        ['Two populations', range(28).map((_, i) => (i % 2 ? [3 + rand() * 1.5, 13 + normal(rand) * 1.2] : [9 + rand() * 1.5, 26 + normal(rand) * 1.2]))]
+      ];
+      let withLine = false;
+      const draw = () => {
+        q(el, 'grid').innerHTML = sets.map(([name, pts], k) => {
+          const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+          const r = E.pearson(xs, ys);
+          const f = frame(300, 210, [1, 12], [8, 36], { l: 34, b: 28 });
+          let body = f.axes + pts.map(p => dot(f.sx(p[0]), f.sy(p[1]), 'c1', 4)).join('');
+          if (withLine) {
+            const mx = E.mean(xs), my = E.mean(ys);
+            const b1 = pts.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0) / pts.reduce((a, p) => a + (p[0] - mx) * (p[0] - mx), 0);
+            body += '<path class="line" d="' + pathOf([[1, my + b1 * (1 - mx)], [12, my + b1 * (12 - mx)]], f) + '"/>';
+          }
+          return '<div><h4>' + h(name) + ' &mdash; r = ' + r.toFixed(2) + '</h4>' + svg(300, 210, name, body) + '</div>';
+        }).join('');
+        q(el, 'read').innerHTML = 'Four correlations within a few hundredths of each other. ' + (withLine
+          ? 'And four straight lines, only one of which deserves to be there. On the curve the line misses the shape entirely and would extrapolate badly; on the third panel the line exists because of one point, and deleting it leaves a correlation near zero; on the fourth there is no relationship inside either group - the line is an artefact of two clusters sitting diagonally apart.'
+          : 'Press the button to fit a line to each, then ask which of the four lines you would use to predict anything.');
+      };
+      q(el, 'line').onclick = () => { withLine = !withLine; draw(); };
+      draw();
+    },
+    steps: ['Correlation runs from −1 to +1 and measures straight-line agreement only.', 'It is symmetric and unitless, so it says nothing about which way the causation runs or how big the effect is in real units.', 'A curve, a single leverage point or two clusters all produce respectable-looking correlations.', 'Plot it. Then, if you need a number with units, fit a slope and look at its interval.'],
+    when: 'As a first screen across many columns, to decide what to look at. Never as the evidence itself.',
+    watch: 'Correlation is not causation - and on historical data it is usually not even correlation with the thing you think, because the inputs move together. That is what DOE and multicollinearity checks are for.',
+    where: 'The driver ranking is built from models rather than raw correlations for exactly this reason, and every important driver gets a response curve so the shape is visible.',
+    quiz: { q: 'Two process inputs correlate at r = 0.85 with yield. One is a genuine driver, one moves with it because both follow the seasons. What tells them apart?', options: ['The higher correlation', 'A designed experiment that moves each one on purpose', 'A larger historical dataset'], answer: 1, why: 'No amount of history separates a driver from a companion that moves with it: both will correlate. Changing one on purpose while holding the other still is the only thing that does, which is why the tool pairs the model with a run sheet.' }
+  });
 
   add({
     id: 'start', group: 'Start here', title: 'What machine learning is (and is not)',
@@ -637,6 +922,114 @@
   });
 
   add({
+    id: 'encoding', group: 'Predicting numbers and categories', title: 'Turning categories into numbers (and the leak that hides in it)',
+    analogy: 'A model cannot read "Supplier B". It needs a number. How you choose that number decides what the model is allowed to learn - and one popular choice quietly hands it the answer sheet.',
+    intro: 'Text columns - supplier, operator, lot code, site - carry real information, but every algorithm here wants numbers. Three ways to supply them: one column per level (one-hot), how often each level appears (frequency), or the average result for each level (target encoding). The third is the most powerful and the most dangerous, because the average result is made out of the answer you are trying to predict.',
+    demo(el) {
+      el.innerHTML = '<div data-role="plot"></div><div class="demo-controls">' + btn('run', 'Score both ways', 'primary') + '</div><p class="demo-read" data-role="read"></p>';
+      /* A lot code with no real effect whatsoever: y is pure noise, and every level appears
+         exactly twice. Nothing is there to find, so an honest score must come out near zero
+         and anything above that is the leak measuring itself. */
+      const rand = E.rng(13), n = 60, levels = 30;
+      const code = range(n).map(i => 'L' + (i % levels));
+      const y = range(n).map(() => 100 + normal(rand) * 3);
+      const scoreWith = encode => {
+        const folds = E.makeFolds(n, 5, E.rng(3));
+        const pred = new Array(n).fill(0);
+        for (let f = 0; f < 5; f++) {
+          const tr = range(n).filter(i => folds[i] !== f), te = range(n).filter(i => folds[i] === f);
+          const map = encode(tr);
+          const grand = E.mean(tr.map(i => y[i]));
+          const xOf = i => [map[code[i]] === undefined ? grand : map[code[i]]];
+          const m = E.fitRidgeCore(tr.map(xOf), tr.map(i => y[i]), 1e-6);
+          const pr = m.predict(te.map(xOf));
+          te.forEach((i, k) => { pred[i] = pr[k]; });
+        }
+        return E.regressionMetrics(y, pred).r2;
+      };
+      const meanBy = rows => {
+        const sum = {}, cnt = {};
+        rows.forEach(i => { sum[code[i]] = (sum[code[i]] || 0) + y[i]; cnt[code[i]] = (cnt[code[i]] || 0) + 1; });
+        const out = {}; Object.keys(sum).forEach(k => { out[k] = sum[k] / cnt[k]; });
+        return out;
+      };
+      const smoothed = rows => {
+        const sum = {}, cnt = {}, grand = E.mean(rows.map(i => y[i])), prior = E.TARGET_PRIOR;
+        rows.forEach(i => { sum[code[i]] = (sum[code[i]] || 0) + y[i]; cnt[code[i]] = (cnt[code[i]] || 0) + 1; });
+        const out = {}; Object.keys(sum).forEach(k => { out[k] = (sum[k] + prior * grand) / (cnt[k] + prior); });
+        return out;
+      };
+      const draw = vals => { C.hbar(q(el, 'plot'), vals.map(v => ({ label: v.label, value: v.value, cls: v.cls, text: 'R\u00b2 ' + v.value.toFixed(2) })), { min: -1, max: 1 }); };
+      draw([{ label: 'Cross-validated score', value: 0 }]);
+      q(el, 'run').onclick = () => {
+        const leaky = scoreWith(() => meanBy(range(n)));          // encoded once, on everything
+        const honest = scoreWith(tr => meanBy(tr));               // encoded inside each fold
+        const smooth = scoreWith(tr => smoothed(tr));             // inside the fold, and pulled to the grand mean
+        draw([
+          { label: 'Encoded on all rows', value: leaky, cls: 'accent' },
+          { label: 'Encoded inside each fold', value: honest },
+          { label: 'Inside the fold, smoothed', value: smooth }
+        ]);
+        q(el, 'read').innerHTML = 'The result column here is pure noise and the lot code means nothing, so an honest score cannot be above zero. ' +
+          'Encode the lot code with its average result <b>once, over all 60 rows</b>, and cross-validation reports <b>R&sup2; ' + leaky.toFixed(2) +
+          '</b> - a respectable-looking model of nothing at all, because each row’s encoded value was built partly from that row’s own answer. It sat the exam with the paper in front of it. ' +
+          'Recompute the encoding <b>inside every fold</b>, from training rows only, and the score falls to <b>' + honest.toFixed(2) +
+          '</b>. Below zero means it predicts worse than simply quoting the overall average - which is what a column of noise deserves. ' +
+          'Smoothing each level toward the grand mean recovers part of that (<b>' + smooth.toFixed(2) +
+          '</b>) and is what the tool does, because with two rows per level a raw average is almost all noise. ' +
+          'The point is not that target encoding is bad: it is that the encoding is part of the model, so it has to be fitted where the model is fitted.';
+      };
+    },
+    steps: ['One-hot: one yes/no column per level. Safe and interpretable; impractical past a dozen levels.', 'Frequency: replace the level with how often it occurs. Cheap, never leaks, and often surprisingly useful - rare suppliers behave differently from routine ones.', 'Target encoding: replace the level with the average result for it. Powerful for many-levelled columns, and it must be fitted inside the cross-validation folds or it leaks.', 'Smoothing: pull each level’s average toward the overall average in proportion to how few rows it has, so a level with two rows is not trusted like one with two hundred.'],
+    when: 'Any time a text column matters: supplier, site, operator, lot, campaign.',
+    watch: 'A suspiciously good cross-validated score on a dataset with a high-cardinality code column is the signature of this leak. So is an ID-like column appearing as the top driver.',
+    where: 'The agent encodes automatically: one-hot up to 12 levels, then frequency and smoothed target encoding above it - always refitted inside each fold. Columns that look like unique identifiers are dropped with a note rather than encoded.',
+    quiz: { q: 'A model that includes a 40-level "lot code" column scores R² 0.91 in cross-validation, and the lot code is the top driver. What is the first thing to check?', options: ['Whether more lots would help', 'Whether the lot code was target-encoded using all rows rather than inside each fold', 'Whether the model is too simple'], answer: 1, why: 'With 40 levels and a target encoding fitted once on everything, each row’s encoded value is built partly from its own answer. The score then measures the leak, not the process. Refit inside the folds and the score usually collapses - which is the honest number.' }
+  });
+
+  add({
+    id: 'multicollinearity', group: 'Predicting numbers and categories', title: 'When two inputs carry the same information',
+    analogy: 'Two witnesses who were standing in the same spot. Between them they describe the scene well, but ask which one saw the crucial detail and they will contradict each other at random.',
+    intro: 'In historical process data, inputs move together: temperature and jacket setpoint, feed rate and dilution, run time and total volume. When two columns are nearly the same information, a model can still predict well while its individual coefficients become almost arbitrary. That matters here, because the whole point of the driver ranking is to say which input to change.',
+    demo(el) {
+      el.innerHTML = '<div data-role="plot"></div><div class="demo-controls">' + slider('r', 'Correlation between the two inputs', 0, 0.99, 0.01, 0.3) + '</div><p class="demo-read" data-role="read"></p>';
+      const draw = () => {
+        const r = Number(q(el, 'r').value);
+        setOut(el, 'r', r.toFixed(2));
+        const rand = E.rng(29), n = 40, fits = [];
+        for (let rep = 0; rep < 40; rep++) {
+          const X = [], y = [];
+          for (let i = 0; i < n; i++) {
+            const a = normal(rand), b = r * a + Math.sqrt(1 - r * r) * normal(rand);
+            X.push([a, b]); y.push(1 * a + 1 * b + normal(rand) * 0.6);
+          }
+          const m = E.fitRidgeCore(X, y, 1e-9);
+          fits.push([m.w[0], m.w[1]]);
+        }
+        const f = frame(420, 300, [-2.5, 4.5], [-2.5, 4.5], { l: 42, b: 36, xLabel: 'Coefficient fitted for input A', yLabel: 'for input B' });
+        q(el, 'plot').innerHTML = svg(420, 300, 'Forty refits of the same model', f.axes +
+          '<path class="diag" d="' + pathOf([[-2.5, 4.5], [4.5, -2.5]], f) + '"/>' +
+          fits.map(c => dot(f.sx(c[0]), f.sy(c[1]), 'c1', 4)).join('') +
+          dot(f.sx(1), f.sy(1), 'c2', 6, 'The truth: both slopes are exactly 1', 'square'));
+        const sdA = E.sd(fits.map(c => c[0])), sdSum = E.sd(fits.map(c => c[0] + c[1]));
+        const vif = 1 / (1 - r * r);
+        q(el, 'read').innerHTML = 'Forty independent datasets from the same truth - both slopes are exactly 1, marked by the orange square. Each blue dot is one refit. ' +
+          'At this correlation the variance inflation factor is <b>' + vif.toFixed(1) + '</b> (that is 1 &divide; (1 &minus; r&sup2;)), the fitted slope for A varies by <b>&plusmn;' + fmt(sdA) +
+          '</b> between datasets, but their <b>sum</b> varies by only <b>&plusmn;' + fmt(sdSum) + '</b>. ' +
+          'Push the slider to 0.99 and the dots stretch along the dashed line: the model knows the two together add up to 2 and has almost no idea how to split it. ' +
+          'Predictions stay fine. The attribution - which input to change - is what has gone.';
+      };
+      q(el, 'r').oninput = draw;
+      draw();
+    },
+    steps: ['Fit the model. If it predicts well, prediction is not the problem.', 'Compute each input’s variance inflation factor: how much its coefficient’s variance is inflated by its overlap with the others. Above about 5 is a warning, above 10 a serious one.', 'Read the ranking as "this group of inputs matters", not "this one input matters", when the group is collinear.', 'To separate them, change them independently - which means an experiment, not more history.'],
+    when: 'Before acting on a driver ranking built from observational data. It is the standard failure mode of historical process data.',
+    watch: 'A coefficient with the wrong sign, or one that flips when you add a column, is collinearity rather than a discovery. Ridge and PLS stabilise the prediction but do not restore the attribution.',
+    where: 'The agent computes VIF for every numeric input and warns when a group of inputs is inseparable, rather than letting the ranking imply a single cause. The DOE tool is the fix.',
+    quiz: { q: 'Temperature and jacket setpoint have a VIF of 22 between them. The model predicts yield well. What can you honestly claim?', options: ['Temperature is the driver, since it has the larger coefficient', 'The thermal setting matters, but this data cannot say which of the two to change', 'Neither matters'], answer: 1, why: 'With a VIF of 22 the two columns are nearly the same information, so the split between their coefficients is close to arbitrary and would move with a different sample. The group effect is real and well estimated; the individual attribution is not. Moving one while holding the other is an experiment, not an analysis.' }
+  });
+
+  add({
     id: 'kmeans', group: 'Finding patterns', title: 'k-means: finding natural groups',
     analogy: 'Placing k warehouses so every store is as close as possible to its nearest one. Move the warehouses, reassign the stores, repeat.',
     intro: 'k-means has no answer key. It drops k centers, assigns every row to the nearest center, moves each center to the middle of its rows, and repeats until nothing changes. Step through it.',
@@ -978,7 +1371,7 @@
       ['minA', 'maxC'].forEach(k => { q(el, k).oninput = draw; });
       draw();
     },
-    steps: ['List the components and the realistic minimum and maximum percentage of each.', 'Pick the layout: a lattice or centroid design if anything goes, extreme vertices if the components have real limits.', 'Run the blends and measure the response.', 'Fit a Scheffé model, which has no intercept. Each component’s coefficient is the response from that component alone; a cross term says whether a pair beats the straight average of the two.'],
+    steps: ['List the components and the realistic minimum and maximum percentage of each.', 'Pick the layout: a simplex lattice or simplex centroid design if any blend is allowed, extreme vertices if the components have real upper and lower limits.', 'Run the blends and measure the response.', 'Fit a Scheffé model, which has no intercept. Each component’s coefficient is the response from that component alone; a cross term says whether a pair beats the straight average of the two.'],
     when: 'Formulation and buffer development, excipient screening, media and feed composition, anything where the answer is a recipe rather than a set of machine settings.',
     watch: 'The ordinary factorial analysis is not merely inaccurate here, it is undefined: with the components summing to a constant the design matrix is singular and an intercept cannot exist. Also, a model fitted inside the formulable region says nothing outside it, and with tight limits that region can be small — so resist reading the coefficients as if a pure component had been tested when it never was.',
     where: 'Pick one of the three "Mixture" designs in the DOE builder; paste the finished run sheet back in underneath to fit the blending model.',
@@ -1008,6 +1401,163 @@
     watch: 'Center points show that curvature exists, but not which factor causes it. A response-surface design pins that down.',
     where: 'DOE results: "Curvature" term and the curvature finding.',
     quiz: { q: 'Center points average 72, corner runs average 65. What does this suggest?', options: ['An error in the data', 'Curvature: the best setting may be inside the range', 'No effect of any factor'], answer: 1, why: 'The middle beats the straight-line prediction, so the response bends.' }
+  });
+
+  add({
+    id: 'randomization', group: 'Design of experiments', title: 'Randomization, blocking and replication',
+    analogy: 'Tasting a soup while someone slowly adds salt. Taste the low-temperature batches in the morning and the high ones in the afternoon, and you will credit the temperature with everything the salt did.',
+    intro: 'A designed experiment is not only a set of factor settings; it is also an order and a structure. Three devices protect it. Randomizing the run order stops anything that drifts with time from being credited to a factor. Blocking takes a nuisance you know about - day, operator, raw-material lot - out of the comparison on purpose. Replication measures the noise, which is what every p-value is divided by.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-grid"><div><h4>Runs in a tidy order</h4><div data-role="s"></div></div><div><h4>Runs randomized</h4><div data-role="r"></div></div></div>' +
+        '<div class="demo-controls">' + slider('drift', 'Drift per run (units)', 0, 0.4, 0.02, 0.2) + btn('again', 'New noise', 'ghost') + '</div><p class="demo-read" data-role="read"></p>';
+      let seed = 3;
+      const draw = () => {
+        const drift = Number(q(el, 'drift').value);
+        setOut(el, 'drift', drift.toFixed(2));
+        const n = 16, TRUE = 2;
+        const est = (order, rand) => {
+          const y = order.map((lvl, pos) => 100 + TRUE * lvl + drift * pos + normal(rand) * 0.8);
+          const hi = y.filter((_, i) => order[i] > 0), lo = y.filter((_, i) => order[i] < 0);
+          return { y, eff: E.mean(hi) - E.mean(lo) };
+        };
+        const sorted = range(n).map(i => (i < n / 2 ? -1 : 1));
+        const shuffled = E.shuffle(sorted.slice(), E.rng(seed));
+        // Same noise sequence for both panels, so the only difference on screen is the run order.
+        const a = est(sorted, E.rng(seed)), b = est(shuffled, E.rng(seed));
+        const panel = (role, order, res, label) => {
+          const f = frame(300, 220, [-0.5, n - 0.5], [99, 100 + TRUE + drift * n + 2], { l: 38, b: 32, xLabel: 'Run order' });
+          q(el, role).innerHTML = svg(300, 220, label, f.axes +
+            res.y.map((v, i) => dot(f.sx(i), f.sy(v), order[i] > 0 ? 'c2' : 'c1', 4.5, (order[i] > 0 ? 'High' : 'Low') + ' setting, run ' + (i + 1), order[i] > 0 ? 'square' : 'circle')).join('')) +
+            '<p class="demo-read">Effect of the factor comes out at <b>' + fmt(res.eff) + '</b> (the truth is ' + TRUE + ').</p>';
+        };
+        panel('s', sorted, a, 'All low runs first, then all high');
+        panel('r', shuffled, b, 'Settings randomized across the run order');
+        q(el, 'read').innerHTML = 'The factor really is worth ' + TRUE + ' units. Something in the background also drifts by ' + drift.toFixed(2) +
+          ' units per run - a reagent ageing, a column fouling, an operator getting quicker. ' +
+          'Run all the low settings first and the drift lands entirely on the factor: the estimate comes out at <b>' + fmt(a.eff) + '</b>, inflated by about ' + fmt(drift * n / 2) +
+          ' units of pure confounding, and no amount of replication fixes it because the bias is in the design. ' +
+          'Randomize and the estimate comes out at <b>' + fmt(b.eff) + '</b>: the drift is still there, but it now lands on both settings about equally, so it goes into the noise rather than into the answer. Noisier, and honest.';
+      };
+      q(el, 'drift').oninput = draw;
+      q(el, 'again').onclick = () => { seed += 7; draw(); };
+      draw();
+    },
+    steps: ['Randomize the run order unless something makes it impossible, and record the order you actually ran.', 'Block what you know about and cannot avoid: run the whole design once per day, or once per lot, and let the analysis remove the block.', 'Replicate genuine runs - not repeat measurements of one run - so the noise estimate is the noise the next run will see.', 'Keep centre points sprinkled through the order: they check for both curvature and drift at once.'],
+    when: 'Every designed experiment. It costs nothing but a shuffled run sheet.',
+    watch: 'Hard-to-change factors tempt everyone into running them in blocks. That is a split-plot design and needs to be analysed as one - the easy-to-change factors get a different noise estimate from the hard-to-change ones.',
+    where: 'The run sheet the DOE tool generates is randomized, with the standard order kept beside it so you can see what was shuffled, and centre points distributed rather than bunched at the end.',
+    quiz: { q: 'Your 16-run design was executed low-setting-first because it saved two changeovers. The factor looks hugely significant. What do you actually know?', options: ['The factor has a large effect, confirmed by the p-value', 'Nothing separable: any drift over the 16 runs has been credited to the factor', 'The effect is real but smaller than estimated'], answer: 1, why: 'The design has confounded the factor with run order, so the estimate is the factor plus whatever drifted - and the data holds no way to split them. The p-value is small and meaningless. Re-running in a randomized order is the only fix, which is why the order is part of the design and not an administrative detail.' }
+  });
+
+  add({
+    id: 'response-surface', group: 'Design of experiments', title: 'Response surfaces: from "which way is uphill" to "where is the top"',
+    analogy: 'A two-level factorial is a compass: it tells you which direction improves things. A response surface design is a contour map: it shows you where the summit is and how flat the ground is around it.',
+    intro: 'A two-level design fits straight lines, so it can only ever say "more of this is better". That is the right answer while you are far from the optimum and the wrong answer once you are near it, because near a peak every slope is near zero. Adding points in the middle and beyond the edges lets a curved model be fitted, and a curved model has a top.',
+    demo(el) {
+      const DESIGNS = [['fac', '4 corners only'], ['cen', 'Corners + centre points'], ['ccd', 'Central composite (corners, stars, centre)']];
+      el.innerHTML = '<div class="demo-controls">' + DESIGNS.map((d, i) => btn(d[0], d[1], i ? 'ghost' : 'primary')).join('') + '</div><div data-role="plot"></div><p class="demo-read" data-role="read"></p>';
+      // The truth: a dome with its peak inside the design space, deliberately off centre.
+      const PEAK = [0.35, -0.45];
+      const truth = (a, b) => 92 + 6 * (1 - Math.pow(a - PEAK[0], 2) - 0.8 * Math.pow(b - PEAK[1], 2));
+      const show = sel => {
+        el.querySelectorAll('.demo-controls .btn').forEach(b => { b.className = 'btn ' + (b.getAttribute('data-role') === sel ? 'primary' : 'ghost'); });
+        const rand = E.rng(19);
+        let pts = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+        if (sel === 'cen') pts = pts.concat([[0, 0], [0, 0], [0, 0]]);
+        if (sel === 'ccd') { const a = 1.414; pts = pts.concat([[-a, 0], [a, 0], [0, -a], [0, a], [0, 0], [0, 0], [0, 0]]); }
+        const y = pts.map(p => truth(p[0], p[1]) + normal(rand) * 0.25);
+        const quad = sel === 'ccd';
+        const design = p => (quad ? [p[0], p[1], p[0] * p[0], p[1] * p[1], p[0] * p[1]] : [p[0], p[1]]);
+        const m = E.fitRidgeCore(pts.map(design), y, 1e-8);
+        const fit = (a, b) => m.predict([design([a, b])])[0];
+        // Best setting the fitted model can offer, searched on a fine grid over the studied range.
+        let best = null;
+        for (let a = -1.4; a <= 1.4; a += 0.05) for (let b = -1.4; b <= 1.4; b += 0.05) { const v = fit(a, b); if (!best || v > best[2]) best = [a, b, v]; }
+        const f = frame(420, 330, [-1.6, 1.6], [-1.6, 1.6], { l: 42, b: 36, xLabel: 'Factor A (coded)', yLabel: 'Factor B (coded)' });
+        let heat = '';
+        const g = 26, lo = 86, hi = 99;
+        for (let i = 0; i < g; i++) for (let j = 0; j < g; j++) {
+          const a = -1.6 + 3.2 * (i + 0.5) / g, b = -1.6 + 3.2 * (j + 0.5) / g;
+          const o = Math.max(0, Math.min(1, (fit(a, b) - lo) / (hi - lo)));
+          heat += '<rect class="bar" fill-opacity="' + o.toFixed(2) + '" x="' + f.sx(-1.6 + 3.2 * i / g) + '" y="' + f.sy(-1.6 + 3.2 * (j + 1) / g) + '" width="' + (f.sx(3.2 / g) - f.sx(0)) + '" height="' + (f.sy(0) - f.sy(3.2 / g)) + '"/>';
+        }
+        q(el, 'plot').innerHTML = svg(420, 330, 'Fitted surface with the design points on it', heat + f.axes +
+          pts.map(p => dot(f.sx(p[0]), f.sy(p[1]), 'c1', 5)).join('') +
+          dot(f.sx(PEAK[0]), f.sy(PEAK[1]), 'c3', 7, 'The true optimum', 'square') +
+          dot(f.sx(best[0]), f.sy(best[1]), 'c2', 6, 'Where the fitted model says to go')) +
+          C.legend([{ label: 'Runs in the design', cls: 'c1' }, { label: 'The true optimum', cls: 'c3', shape: 'square' }, { label: 'Optimum the model found', cls: 'c2' }]);
+        const miss = Math.sqrt(Math.pow(best[0] - PEAK[0], 2) + Math.pow(best[1] - PEAK[1], 2));
+        q(el, 'read').innerHTML = (quad
+          ? 'A quadratic model can be fitted, so the shaded surface has a dome and a top. The model puts the optimum <b>' + fmt(miss) +
+            ' coded units</b> from the truth, and the response it predicts there is <b>' + fmt(best[2]) + '</b> against a true best of ' + fmt(truth(PEAK[0], PEAK[1])) + '.'
+          : sel === 'cen'
+            ? 'The centre points now tell you the surface is curved - they sit well above what the straight-line fit through the corners predicts for the middle - but four corners plus a centre cannot say <i>where</i> the curve peaks. The model can detect curvature and not locate it. That is the moment to add star points.'
+            : 'Four corners can only fit a plane, so the shaded surface is a ramp and its best point sits at the edge of whatever region you search - here <b>' + fmt(miss) +
+              ' coded units</b> from the real optimum. Nothing is wrong with the arithmetic; a plane has no top, so the answer will always be "go further in that direction".') +
+          ' Box-Behnken is the same idea at three factors or more, with no run at the extreme of every factor at once - which matters when the corners are unsafe or infeasible.';
+      };
+      DESIGNS.forEach(d => { q(el, d[0]).onclick = () => show(d[0]); });
+      show('fac');
+    },
+    steps: ['Screen first: find the few factors that matter, with a two-level or definitive screening design.', 'Add centre points to ask whether the response is curved. If the centre sits off the plane through the corners, it is.', 'If it curves, augment to a response-surface design and fit the quadratic terms: a central composite, a face-centred central composite when the star points must stay inside the range you can actually run, or a Box-Behnken when no factor may sit at its extreme while another does.', 'Read the optimum off the fitted surface, then confirm it with runs at that setting. A predicted optimum is a hypothesis.'],
+    when: 'Once screening has reduced the problem to two to four factors and the goal has changed from "which factors" to "what settings".',
+    watch: 'A quadratic model is only trustworthy inside the region you studied. The maximum of a fitted parabola can sit outside the design space, where the parabola is pure extrapolation - the tool marks the studied range on every response curve for exactly this reason.',
+    where: 'The DOE tool generates central composite and Box-Behnken designs, fits the quadratic model, and reports the optimum with the desirability score when several responses have to be satisfied at once.',
+    quiz: { q: 'Your factorial says "increase both factors", you do, and yield falls. What most likely happened?', options: ['The experiment was run badly', 'You were already near the top of a curved surface, where a straight-line model always points outward', 'The factors interact'], answer: 1, why: 'A plane fitted near a peak slopes gently in whatever direction the noise favours, and its best point is always a corner. This is the standard signal to add centre and star points and fit curvature, not to repeat the factorial.' }
+  });
+
+  add({
+    id: 'multiplicity', group: 'Design of experiments', title: 'Testing twenty things at once',
+    analogy: 'Twenty slot machines, each paying out one time in twenty. Pull every lever once, expect roughly one win - and do not call it skill.',
+    intro: 'A p-value threshold of 0.05 accepts a one-in-twenty chance of crying wolf. Test one factor and that is a reasonable bargain. Test twenty, and crying wolf once is the expected outcome even when nothing whatever is going on. Every screening design and every driver ranking tests many things at once, so the correction is not optional bookkeeping.',
+    demo(el) {
+      el.innerHTML = '<div data-role="plot"></div><div class="demo-controls">' + slider('real', 'Factors that really matter', 0, 5, 1, 0) +
+        btn('again', 'Run another screen', 'primary') + '</div><p class="demo-read" data-role="read"></p>';
+      let seed = 2;
+      const draw = () => {
+        const real = Number(q(el, 'real').value);
+        setOut(el, 'real', real);
+        const m = 20, n = 24, rand = E.rng(seed);
+        const rows = range(m).map(k => {
+          const lvl = range(n).map((_, i) => (i % 2 ? 1 : -1));
+          const eff = k < real ? 1.4 : 0;
+          const y = lvl.map(l => 100 + eff * l + normal(rand) * 1.2);
+          const hi = y.filter((_, i) => lvl[i] > 0), lo = y.filter((_, i) => lvl[i] < 0);
+          const se = Math.sqrt(E.variance(hi) / hi.length + E.variance(lo) / lo.length);
+          const t = (E.mean(hi) - E.mean(lo)) / se;
+          return { k, real: k < real, p: E.tTestP(t, n - 2) };
+        }).sort((a, b) => a.p - b.p);
+        // Benjamini-Hochberg: the largest rank whose p is below (rank / m) * alpha passes, and everything above it in the ranking passes with it.
+        const alpha = 0.05;
+        let cut = -1;
+        rows.forEach((r, i) => { if (r.p <= (i + 1) / m * alpha) cut = i; });
+        const f = frame(640, 260, [0.5, m + 0.5], [0, 1], { l: 46, b: 36, xLabel: 'Factors, ranked by p-value', yLabel: 'p-value' });
+        q(el, 'plot').innerHTML = svg(640, 260, 'Twenty p-values with both thresholds', f.axes +
+          '<path class="ref" d="' + pathOf([[0.5, alpha], [m + 0.5, alpha]], f) + '"/>' +
+          '<text class="lbl-strong" x="' + f.sx(m + 0.2) + '" y="' + (f.sy(alpha) - 6) + '" text-anchor="end">0.05 for each test</text>' +
+          '<path class="line s2" d="' + pathOf(range(m).map(i => [i + 1, (i + 1) / m * alpha]), f) + '"/>' +
+          '<text class="lbl-strong" x="' + f.sx(m * 0.62) + '" y="' + (f.sy(0.62 * alpha) - 8) + '">Benjamini-Hochberg line</text>' +
+          rows.map((r, i) => dot(f.sx(i + 1), f.sy(r.p), r.real ? 'c3' : 'c2', 5, 'Factor ' + (r.k + 1) + (r.real ? ' (really matters)' : ' (nothing there)') + ', p = ' + fmt(r.p), r.real ? 'square' : 'circle')).join('')) +
+          C.legend([{ label: 'Factor with a real effect', cls: 'c3', shape: 'square' }, { label: 'Factor with no effect at all', cls: 'c2' }]);
+        const naive = rows.filter(r => r.p <= alpha), bh = rows.slice(0, cut + 1);
+        const falseNaive = naive.filter(r => !r.real).length, falseBh = bh.filter(r => !r.real).length;
+        q(el, 'read').innerHTML = 'Twenty factors screened, <b>' + real + '</b> of which really matter. ' +
+          'Take every p below 0.05 and you flag <b>' + naive.length + '</b> factors, <b>' + falseNaive + '</b> of them pure noise. ' +
+          'Benjamini-Hochberg compares the <i>k</i>th smallest p against <i>k</i>/20 &times; 0.05 instead - the sloping line - and flags <b>' + bh.length +
+          '</b>, <b>' + falseBh + '</b> of them noise. ' +
+          (real === 0 ? 'With nothing real at all, the plain threshold still finds something to chase about as often as not, and that is the whole problem: the next experiment gets spent on it. '
+            : 'It keeps the real ones and drops most of the false ones, because a genuinely tiny p-value clears even the lowest rung of the sloping line. ') +
+          'Press the button a few times and watch how often the plain threshold hands you a factor that does not exist.';
+      };
+      q(el, 'real').oninput = draw;
+      q(el, 'again').onclick = () => { seed += 11; draw(); };
+      draw();
+    },
+    steps: ['Count how many tests you are actually doing. A 20-factor screen is 20 tests, and adding interactions multiplies that.', 'Rank the p-values smallest to largest.', 'Benjamini-Hochberg: find the largest rank k whose p-value is below k/m times your level, and declare that one and everything ranked above it.', 'This controls the false discovery rate - the share of your flagged factors that are wrong - rather than the chance of any error at all, which is the trade you usually want on a screen.'],
+    when: 'Any time more than a handful of effects are tested from one dataset: screening designs, driver rankings, many-response studies.',
+    watch: 'Bonferroni - dividing 0.05 by the number of tests - controls errors more strictly and finds far less. On a screen whose purpose is to generate candidates, that is usually the wrong trade. Neither correction rescues you from testing until something passes.',
+    where: 'The DOE effect p-values are Benjamini-Hochberg corrected, and the driver ranking is checked against a shuffled-target noise floor, which is the same idea by simulation rather than by formula.',
+    quiz: { q: 'A 20-factor screen flags three factors at p < 0.05: p = 0.002, 0.031 and 0.047. Which survive Benjamini-Hochberg at 0.05?', options: ['All three', 'Only p = 0.002', 'None'], answer: 1, why: 'The thresholds are 1/20 x 0.05 = 0.0025, 2/20 x 0.05 = 0.005 and 3/20 x 0.05 = 0.0075. Only 0.002 clears its rung, so only it survives. The other two are exactly the kind of near-threshold result that twenty tests produce for free - worth a cheap confirmation run, not a process change.' }
   });
 
   add({
@@ -1470,6 +2020,332 @@
   });
 
   add({
+    id: 'attribute-agreement', group: 'Six Sigma and process control', title: 'Attribute agreement: can people agree on a judgement?',
+    analogy: 'Three referees watching the same match. Before you argue about the result, find out whether they would even agree on what happened - and whether a referee who never gives a foul looks excellent simply because fouls are rare.',
+    intro: 'Gage R&R needs a measurement. Many of the most important calls are not measurements: pass or fail, contaminated or clean, protein-like or silicone-like. For those the question is whether appraisers agree with themselves, with each other, and with the truth. Percent agreement answers it badly, and this demo shows exactly how badly.',
+    demo(el) {
+      el.innerHTML = '<div data-role="plot"></div><div class="demo-controls">' + slider('prev', 'Share of samples that really are defective (%)', 5, 50, 5, 5) +
+        slider('miss', 'How often appraiser C calls a real defect good (%)', 0, 100, 10, 100) + '</div><p class="demo-read" data-role="read"></p>';
+      const draw = () => {
+        const prev = Number(q(el, 'prev').value) / 100, miss = Number(q(el, 'miss').value) / 100;
+        setOut(el, 'prev', Math.round(prev * 100)); setOut(el, 'miss', Math.round(miss * 100));
+        const n = 20, nd = Math.max(1, Math.round(n * prev));
+        const std = range(n).map(i => (i < nd ? 'Fail' : 'Pass'));
+        const rows = [];
+        ['A', 'B', 'C'].forEach(op => {
+          std.forEach((t, i) => {
+            [1, 2].forEach(() => {
+              let call = t;
+              if (op === 'C' && t === 'Fail' && i / nd < miss) call = 'Pass';
+              if (op === 'B' && t === 'Pass' && i === n - 1) call = 'Fail';   // one honest false alarm, for contrast
+              rows.push({ part: 'P' + i, operator: op, rating: call, standard: t });
+            });
+          });
+        });
+        const r = V.attributeAgreement(rows, {});
+        const c = r.vsStandard.find(v => v.operator === 'C');
+        C.hbar(q(el, 'plot'), r.vsStandard.map(v => ({
+          label: 'Appraiser ' + v.operator, value: v.kappa, cls: v.kappa >= 0.9 ? 'hi' : v.kappa >= 0.7 ? '' : 'accent',
+          text: 'kappa ' + v.kappa.toFixed(2) + '  (agrees ' + pct(v.pct) + ')'
+        })), { min: 0, max: 1, ref: { value: 0.9, label: 'acceptable' } });
+        q(el, 'read').innerHTML = 'Appraiser C misses ' + pct(c.miss) + ' of the real defects, and still agrees with the standard <b>' + pct(c.pct) +
+          '</b> of the time - because only ' + pct(r.prevalence) + ' of the samples are defective, so calling everything good is right most of the time by default. ' +
+          'Kappa subtracts the agreement you would get by chance at this prevalence and lands at <b>' + c.kappa.toFixed(2) +
+          '</b>: against the 0.90 convention, <b>' + c.verdict + '</b>. ' +
+          'Turn the defect share up to 50% and the percent agreement collapses towards 50% while kappa barely moves, because kappa was measuring the right thing all along. ' +
+          'The miss rate - ' + pct(c.miss) + ' here against a false alarm rate of ' + pct(c.falseAlarm) + ' - is reported separately on purpose: shipping a defect and scrapping a good unit are not the same mistake and must not be averaged.';
+      };
+      q(el, 'prev').oninput = draw; q(el, 'miss').oninput = draw;
+      draw();
+    },
+    steps: ['Choose samples spanning the decision, including borderline ones, and establish the truth independently.', 'Have each appraiser rate every sample at least twice, blind and in a different order.', 'Report within-appraiser repeatability, between-appraiser agreement, and agreement against the standard - three different failures with three different fixes.', 'Judge kappa, not percent agreement, and report miss and false alarm separately for a two-way call.'],
+    when: 'Before trusting any dataset built from human or automated calls: visual inspection, deviation classification, particle typing by an image classifier.',
+    watch: 'Without a known standard you can only measure consistency, never accuracy - three appraisers who agree perfectly on the wrong answer score perfectly. And a rare defect makes percent agreement almost meaningless, which is where most of these studies live.',
+    where: 'The variance tool runs this when the ratings are categories, bootstraps the intervals over samples rather than using an asymptotic formula, and refuses to call consistency accuracy when no standard column is supplied.',
+    quiz: { q: 'An inspector agrees with the standard on 97% of samples. Defects run at 3%. What have you learned?', options: ['The inspector is excellent', 'Almost nothing: calling everything "pass" scores 97% here, so kappa and the miss rate are the only informative numbers', 'The study needs more samples'], answer: 1, why: 'At 3% prevalence the trivial strategy of passing everything scores 97%. Kappa removes that baseline, and the miss rate says directly how many real defects got through. This is the single commonest way an inspection system is declared qualified when it is blind.' }
+  });
+
+  add({
+    id: 'count-charts', group: 'Six Sigma and process control', title: 'Counting defects: c, u and p charts',
+    analogy: 'A hotel with a different number of rooms every night cannot be judged on "complaints per night". It has to be complaints per room - and the acceptable range tightens on the nights when there are more rooms to complain about.',
+    intro: 'Counts do not get a measured spread. For a Poisson count the mean fixes the standard deviation at its square root, so the limits come from the average alone. Which chart you need depends on what you counted: defects with a constant opportunity (c), defects per varying opportunity (u), or defective units out of how many were inspected (p). And real counts often cluster more than Poisson allows, which has to be measured rather than hoped away.',
+    demo(el) {
+      const MODES = [['c', 'Same opportunity every time (c)'], ['u', 'Varying opportunity (u)'], ['over', 'Counts that cluster (overdispersed)']];
+      el.innerHTML = '<div class="demo-controls">' + MODES.map((m, i) => btn(m[0], m[1], i ? 'ghost' : 'primary')).join('') + '</div><div data-role="plot"></div><p class="demo-read" data-role="read"></p>';
+      const show = sel => {
+        el.querySelectorAll('.demo-controls .btn').forEach(b => { b.className = 'btn ' + (b.getAttribute('data-role') === sel ? 'primary' : 'ghost'); });
+        const rand = E.rng(37);
+        let counts, units = null, r, n;
+        if (sel === 'c') { n = 24; counts = range(n).map(() => poisson(5, rand)); r = S.countChart(counts, { kind: 'c' }); }
+        else if (sel === 'u') {
+          n = 24;
+          units = range(n).map(() => 40 + Math.round(rand() * 160));
+          counts = units.map(u => poisson(0.06 * u, rand));
+          r = S.countChart(counts, { kind: 'u', units });
+        } else {
+          /* Clustered counts: the rate itself wanders from period to period, which is what
+             happens when particles arrive in bursts or one bad lot drives a week of
+             deviations. Note the rate wanders point by point - a rate that steps and stays
+             is a real signal, not overdispersion, and the chart should flag it rather than
+             widen for it. */
+          n = 30;
+          counts = range(n).map(() => poisson(5 * Math.exp(normal(rand) * 0.6), rand));
+          r = S.countChart(counts, { kind: 'c' });
+        }
+        // Read the limits the result says to read, and show the other pair for comparison.
+        const wide = r.overdispersed, lim = wide ? r.laney : r;
+        const up = lim.upper, dn = lim.lower, alt = wide ? r : null;
+        const plotted = r.plotted;
+        const ymax = Math.max(...plotted, ...up) * 1.12;
+        const f = frame(640, 270, [-0.5, n - 0.5], [0, ymax], { l: 48, b: 38, xLabel: 'Period', yLabel: sel === 'u' ? 'Defects per unit' : 'Defects' });
+        const step = (arr, cls) => '<path class="' + cls + '" d="' + arr.map((v, i) => 'M' + f.sx(i - 0.5) + ' ' + f.sy(v) + 'L' + f.sx(i + 0.5) + ' ' + f.sy(v)).join('') + '"/>';
+        const sig = lim.signals;
+        q(el, 'plot').innerHTML = svg(640, 270, 'Count chart', f.axes +
+          (alt ? step(alt.upper, 'diag') + step(alt.lower, 'diag') : '') +
+          step(up, 'ref') + step(dn, 'ref') +
+          '<path class="cl-line" d="' + pathOf([[-0.5, r.centre], [n - 0.5, r.centre]], f) + '"/>' +
+          plotted.map((v, i) => dot(f.sx(i), f.sy(v), sig.some(s => s.i === i) ? 'c2' : 'c1', 4.5,
+            (units ? counts[i] + ' defects in ' + units[i] + ' units' : counts[i] + ' defects') + ' | limit ' + fmt(up[i]), 'circle')).join('')) +
+          C.legend([{ label: 'Period', cls: 'c1' }, { label: 'Signal', cls: 'c2' }].concat(alt ? [{ label: 'Textbook Poisson limits (too tight here)', cls: 'bar', shape: 'square' }] : []));
+        q(el, 'read').innerHTML = (sel === 'c'
+          ? 'Constant opportunity, so one pair of limits for the whole chart: centre <b>' + fmt(r.centre) + '</b>, upper limit <b>' + fmt(up[0]) +
+            '</b>, and the lower limit sits at <b>' + fmt(dn[0]) + '</b> because a count cannot go below zero. Nothing was measured to get that width - it came from the mean, since for a Poisson count the mean is the spread.'
+          : sel === 'u'
+            ? 'The opportunity changes every period (' + Math.min(...units) + ' to ' + Math.max(...units) + ' units inspected), so the limits step: a period with few units gets a wide limit because one defect moves the rate a long way. ' +
+              'Plotting raw counts here would flag the busy periods for being busy.'
+            : 'These counts come in bursts. Dispersion - the observed scatter against what Poisson allows - measures <b>' + fmt(r.dispersion) +
+              '</b>' + (r.overdispersed
+                ? '. The textbook Poisson limits (grey) would flag <b>' + r.signals.length + ' of ' + n + '</b> periods; widened by the Laney correction for that extra spread (red), <b>' + r.laney.signals.length +
+                  '</b> remain. The correction takes the spread from the period-to-period variation instead of from the mean, which is the only honest source when the rate itself is moving. ' +
+                  'The difference between the two charts is a question about what the clusters are - lot, line, shift - not a list of signals.'
+                : ', which is close enough to Poisson that the textbook limits stand.')) +
+          ' ' + sig.length + ' point' + (sig.length === 1 ? '' : 's') + ' signalled on the chart you are reading.';
+      };
+      MODES.forEach(m => { q(el, m[0]).onclick = () => show(m[0]); });
+      show('c');
+    },
+    steps: ['Decide what one period counted: defects with a fixed opportunity (c), defects per varying opportunity (u), or defective units out of n inspected (p).', 'The centre line is the overall rate; the limits come from it, not from a measured standard deviation.', 'Check dispersion: divide the observed scatter by what the count distribution allows. Much above 1 means the counts cluster.', 'If they cluster, widen the limits from the between-period variation - the Laney u-prime and p-prime correction - rather than accepting a chart that cries wolf every week.'],
+    when: 'Deviations per month, particles per vial, failures per batch, contaminated units per run - anything you counted rather than measured.',
+    watch: 'A missing period is not zero defects. Leave it out rather than entering a zero, which drags the centre line down and tightens every limit.',
+    where: 'The capability tool offers c, u and p charts, asks for the opportunity size when the chart needs one, and reports the dispersion test with the correction applied rather than silently.',
+    quiz: { q: 'A c-chart of monthly deviations flags six of twelve months as out of control, and the process has not changed. What is the most likely explanation?', options: ['The process really is unstable', 'The counts are overdispersed - they cluster - so Poisson limits are too tight', 'The chart needs more months'], answer: 1, why: 'Half the points outside the limits is not a process signal, it is a limits problem. Real deviation counts cluster: one bad lot or one new procedure drives a whole month. Measuring the dispersion and widening the limits accordingly gives a chart that signals when something actually changes.' }
+  });
+
+  add({
+    id: 'drift-charts', group: 'Six Sigma and process control', title: 'CUSUM and EWMA: catching the drift a Shewhart chart misses',
+    analogy: 'A smoke alarm that only sounds for a blaze, next to one that notices the room slowly filling. You want both, and they are not the same device.',
+    intro: 'A three-sigma individuals chart judges each point on its own, so it is excellent at spikes and poor at small sustained shifts - a half-sigma drift takes it hundreds of points to notice, by which time a campaign is over. CUSUM adds up the deviations from target and signals when the total gets implausible; EWMA keeps a weighted average that remembers recent history. Both trade spike sensitivity for drift sensitivity.',
+    demo(el) {
+      el.innerHTML = '<div data-role="plot"></div><div class="demo-controls">' + slider('shift', 'Size of the shift, in sigmas', 0.25, 4, 0.25, 1) + '</div>' +
+        '<div data-role="race"></div><p class="demo-read" data-role="read"></p>';
+      const AT = 40, WINDOW = 50;
+      /* One realisation is a coin toss, so the headline numbers come from repeating the
+         whole thing 200 times. The chart below shows a single run so the shapes are visible;
+         the bars are what actually happens on average. */
+      const RACE = {};
+      const race = sh => {
+        if (RACE[sh]) return RACE[sh];
+        const R = 200, got = [0, 0, 0], sum = [0, 0, 0];
+        for (let rep = 0; rep < R; rep++) {
+          const rand = E.rng(1000 + rep), n = AT + WINDOW;
+          const y = range(n).map(i => 100 + (i >= AT ? sh : 0) + normal(rand));
+          const base = y.slice(0, 30), mr = [];
+          for (let i = 1; i < base.length; i++) mr.push(Math.abs(base[i] - base[i - 1]));
+          const cl = E.mean(base), sg = E.mean(mr) / 1.128;
+          const fs = y.findIndex((v, i) => i >= AT && (v > cl + 3 * sg || v < cl - 3 * sg));
+          const firsts = [fs, sigOf(S.cusum(y, { baseline: 30 })), sigOf(S.ewma(y, { baseline: 30 }))];
+          firsts.forEach((f, k) => { if (f >= 0) { got[k]++; sum[k] += f - AT + 1; } });
+        }
+        RACE[sh] = [0, 1, 2].map(k => ({ found: got[k], of: R, mean: got[k] ? sum[k] / got[k] : null }));
+        return RACE[sh];
+      };
+      const draw = () => {
+        const sh = Number(q(el, 'shift').value);
+        setOut(el, 'shift', sh.toFixed(2));
+        const rand = E.rng(53), n = AT + WINDOW;
+        const y = range(n).map(i => 100 + (i >= AT ? sh : 0) + normal(rand));
+        const base = y.slice(0, 30), mr = [];
+        for (let i = 1; i < base.length; i++) mr.push(Math.abs(base[i] - base[i - 1]));
+        const cl = E.mean(base), sg = E.mean(mr) / 1.128, ucl = cl + 3 * sg, lcl = cl - 3 * sg;
+        const fs = y.findIndex((v, i) => i >= AT && (v > ucl || v < lcl));
+        const fc = sigOf(S.cusum(y, { baseline: 30 })), fe = sigOf(S.ewma(y, { baseline: 30 }));
+        const ylo = Math.min(...y, lcl) - 0.4, yhi = Math.max(...y, ucl) + 0.4;
+        const f = frame(640, 290, [-0.5, n - 0.5], [ylo, yhi], { l: 48, b: 36, xLabel: 'Point', yLabel: 'Result', t: 56 });
+        // Labels are stacked by row so two charts that signal on the same point stay legible.
+        const flag = (idx, label, row) => (idx < 0 ? '' : '<line class="ref" x1="' + f.sx(idx) + '" x2="' + f.sx(idx) + '" y1="' + (16 + row * 13) + '" y2="' + f.sy(ylo) + '"/><text class="lbl-strong" x="' + (f.sx(idx) + 4) + '" y="' + (12 + row * 13) + '">' + label + '</text>');
+        q(el, 'plot').innerHTML = svg(640, 290, 'One run, and where each chart first noticed', f.axes +
+          '<rect class="usual" x="' + f.sx(AT) + '" y="18" width="' + (f.sx(n - 0.5) - f.sx(AT)) + '" height="' + (f.sy(ylo) - 18) + '"/>' +
+          '<path class="ref" d="' + pathOf([[-0.5, ucl], [n - 0.5, ucl]], f) + '"/>' +
+          '<path class="ref" d="' + pathOf([[-0.5, lcl], [n - 0.5, lcl]], f) + '"/>' +
+          '<path class="cl-line" d="' + pathOf([[-0.5, cl], [n - 0.5, cl]], f) + '"/>' +
+          '<path class="line thin" d="' + pathOf(y.map((v, i) => [i, v]), f) + '"/>' +
+          y.map((v, i) => dot(f.sx(i), f.sy(v), 'c1', 3)).join('') +
+          '<line class="target-line" x1="' + f.sx(AT) + '" x2="' + f.sx(AT) + '" y1="18" y2="' + f.sy(ylo) + '"/>' +
+          '<text class="lbl-strong" x="' + f.sx(AT) + '" y="14" text-anchor="middle">shift starts</text>' +
+          flag(fs, '3-sigma', 1) + flag(fc, 'CUSUM', 2) + flag(fe, 'EWMA', 3));
+        const r = race(sh), names = ['Three-sigma chart', 'CUSUM', 'EWMA'];
+        C.hbar(q(el, 'race'), r.map((v, k) => ({
+          label: names[k] + (v.mean ? ' (' + v.mean.toFixed(0) + ' pts)' : ''), value: v.found / v.of, cls: v.found === Math.max(...r.map(x => x.found)) ? 'hi' : '',
+          text: v.found + '/' + v.of
+        })), { min: 0, max: 1 });
+        const best = r[1].found >= r[0].found ? 'the memory charts' : 'the plain chart';
+        q(el, 'read').innerHTML = 'The process shifts by <b>' + sh.toFixed(2) + ' sigma</b> at point ' + (AT + 1) + ' (shaded), and each chart gets ' + WINDOW +
+          ' points to notice. The bars repeat that whole experiment 200 times, because one run is a coin toss: the bar is how often each chart caught the shift at all, and the figure in brackets is how many points it took when it did. ' +
+          'All three are tuned to the same false alarm rate - about one in 370 points when nothing is wrong - so this is a fair race. ' +
+          'At <b>1 sigma</b> CUSUM catches it in ' + race(1)[1].found + ' runs of 200 after about ' + race(1)[1].mean.toFixed(0) +
+          ' points, where the three-sigma chart catches it in only ' + race(1)[0].found + ' and takes about ' + race(1)[0].mean.toFixed(0) + ' when it does. ' +
+          'At <b>4 sigma</b> the order reverses: ' + race(4)[0].mean.toFixed(1) + ' points for the plain chart against ' + race(4)[1].mean.toFixed(1) +
+          ' for CUSUM, because the slack CUSUM subtracts from every point has to be paid back before the sum can cross. ' +
+          'Right now ' + best + ' are ahead. That is the trade, and it is why these run beside the individuals chart rather than instead of it.';
+      };
+      q(el, 'shift').oninput = draw;
+      draw();
+    },
+    steps: ['Estimate the centre and spread from a baseline window - a stable stretch, or your target - never from all the data, because a centre taken from everything absorbs the drift you are looking for.', 'CUSUM: add up each point’s deviation from target in sigmas, less a slack of half a sigma, and signal when the running total passes 4.77.', 'EWMA: carry 20% of the new point and 80% of history, with limits that widen over the first few points because the average is still filling up.', 'Keep the individuals chart too. The memory charts are slower on a large jump by construction.'],
+    when: 'Continuous processes, slow-moving attributes, and anything where a small sustained shift matters more than the occasional spike - stability trends, column performance, fill weight.',
+    watch: 'Both are only as good as the baseline. And once CUSUM signals, read the count backwards to when the sum last sat at zero: that is an estimate of when the drift began, which a Shewhart signal cannot give you.',
+    where: 'The capability tool runs CUSUM and EWMA beside the individuals chart, states where the baseline came from, and reports when the drift appears to have started.',
+    quiz: { q: 'A fill-weight process drifts up by about half a sigma and stays there. Which chart notices first, and roughly how much sooner?', options: ['The three-sigma chart, within a few points', 'CUSUM or EWMA, in about ten points against roughly forty-five', 'They are equivalent at any shift size'], answer: 1, why: 'At a one-sigma shift the memory charts signal after about ten points; the published run length for a three-sigma chart is around 45, and the gap widens sharply as the shift gets smaller. At half a sigma the plain chart is close to blind within any window you would actually look at, which is why a slow drift is usually found months later in a trend review rather than by the chart.' }
+  });
+
+  add({
+    id: 'rare-events', group: 'Six Sigma and process control', title: 'Rare events: chart the gaps, not the rate',
+    analogy: 'A hospital that has gone 300 days without an infection learns nothing from a chart of "infections per month", which reads zero, zero, zero. Charting the days between them turns the good news into data.',
+    intro: 'Once events get rare, a count chart is almost all zeros and its limits are useless - the lower limit is zero, so an improvement is invisible, and a single event in a month can breach the upper limit. The fix is to turn the question round and chart the gap between consecutive events: units made between failures, or days between deviations. That distribution is heavily skewed, so its limits cannot be three sigma.',
+    demo(el) {
+      el.innerHTML = '<div data-role="plot"></div><p class="demo-read" data-role="read"></p>';
+      const rand = E.rng(61);
+      /* Twenty gaps. The first twelve run at about one event in 25 units; after an
+         improvement the rate drops to about one in 90. The whole point is that this is
+         invisible on a chart of events per period, which reads zero either way. */
+      const BASE = 12;
+      const gaps = range(20).map(i => Math.max(1, Math.round(-Math.log(Math.max(1e-9, rand())) * (i < BASE ? 25 : 90))));
+      const r = S.rareEvents(gaps);
+      // Centre the run rule on the baseline, not on all the data: a median taken over
+      // everything moves with the improvement it is meant to detect.
+      const baseMedian = E.median(gaps.slice(0, BASE));
+      let run = 0, runEnd = -1;
+      gaps.forEach((g, i) => { if (g > baseMedian) { run++; if (run >= r.runLen && runEnd < 0) runEnd = i; } else run = 0; });
+      const n = gaps.length, ymax = Math.max(...gaps, r.ucl) * 1.1;
+      const f = frame(640, 290, [-0.5, n - 0.5], [0, ymax], { l: 52, b: 38, xLabel: 'Event number', yLabel: 'Units since the previous event' });
+      const line = (v, cls) => '<path class="' + cls + '" d="' + pathOf([[-0.5, v], [n - 0.5, v]], f) + '"/>';
+      el.querySelector('[data-role="plot"]').innerHTML = svg(640, 290, 'Gaps between rare events, with probability limits', f.axes +
+        (runEnd >= 0 ? '<rect class="usual" x="' + f.sx(runEnd - r.runLen + 0.5) + '" y="16" width="' + (f.sx(runEnd + 0.5) - f.sx(runEnd - r.runLen + 0.5)) + '" height="' + (f.sy(0) - 16) + '"/>' : '') +
+        line(r.ucl, 'ref') + (r.lclExists ? line(r.lcl, 'ref') : '') +
+        line(r.naive.upper, 'diag') + (r.naive.lower > 0 ? line(r.naive.lower, 'diag') : '') +
+        line(baseMedian, 'cl-line') +
+        '<path class="line thin" d="' + pathOf(gaps.map((v, i) => [i, v]), f) + '"/>' +
+        gaps.map((v, i) => dot(f.sx(i), f.sy(v), r.signals.some(s => s.i === i) ? 'c2' : (v > baseMedian ? 'c3' : 'c1'), 5, 'Gap of ' + v + ' units')).join('') +
+        '<text class="lbl-strong" x="' + f.sx(n - 0.6) + '" y="' + (f.sy(r.ucl) - 6) + '" text-anchor="end">Probability limit ' + fmt(r.ucl) + '</text>' +
+        '<text x="' + f.sx(n - 0.6) + '" y="' + (f.sy(r.naive.upper) - 6) + '" text-anchor="end">Three sigma would say ' + fmt(r.naive.upper) + '</text>' +
+        '<text x="' + f.sx(0.2) + '" y="' + (f.sy(baseMedian) - 6) + '">Baseline median ' + fmt(baseMedian) + '</text>') +
+        C.legend([{ label: 'Gap at or below the baseline median', cls: 'c1' }, { label: 'Gap above it', cls: 'c3' }]);
+      el.querySelector('[data-role="read"]').innerHTML = 'Twenty gaps. The first twelve average about ' + fmt(E.mean(gaps.slice(0, BASE))) +
+        ' units between events; after an improvement the later ones average <b>' + fmt(E.mean(gaps.slice(BASE))) + '</b>. ' +
+        'A chart of events per period would have read zero, zero, zero throughout and shown none of this. ' +
+        'The dashed grey lines are what three sigma would have drawn: an upper limit of <b>' + fmt(r.naive.upper) + '</b> and a lower limit of <b>' + fmt(r.naive.lower) +
+        '</b>' + (r.naive.clamped ? ', which is below zero and has to be clamped away' : '') + '. Gaps are strongly right-skewed, so symmetric limits are the wrong shape: they cry wolf on the high side and can never signal on the low side. ' +
+        'The probability limit puts the top at <b>' + fmt(r.ucl) + '</b> - the gap carrying the same tail risk a three-sigma chart carries - and ' +
+        (r.lclExists ? 'a genuine lower limit at <b>' + fmt(r.lcl) + '</b>.' : 'reports honestly that at this rate no lower limit exists: no gap is short enough to be surprising on its own.') +
+        ' So the improvement is not caught by a limit at all but by the run rule: ' +
+        (runEnd >= 0
+          ? '<b>' + r.runLen + ' consecutive gaps above the baseline median</b> (shaded), which carries a risk of ' + fmt(r.runRisk * 100) + '% by chance - that is the evidence, and it took ' + (runEnd + 1) + ' events to earn it.'
+          : 'it needs ' + r.runLen + ' consecutive gaps above the baseline median, and this run has not reached that yet - which is the honest state of the evidence.') +
+        ' Note the median comes from the baseline period, not from all the data: a median computed over everything rises with the improvement it is supposed to detect.';
+    },
+    steps: ['Count units or time between consecutive events rather than events per period.', 'Whole units between events is a g-chart; elapsed time is a t-chart.', 'Set the limits from the tail probabilities of the geometric or exponential distribution, not from three standard deviations.', 'When no lower limit exists, use the run rule at the median: a run of long gaps is how an improvement shows up.'],
+    when: 'Any event rare enough that most periods are zero: contamination excursions, sterility failures, line stoppages, serious deviations.',
+    watch: 'Charting a rate that is mostly zeros looks stable because the chart cannot move. And the upper limit alone is not a quality improvement claim - one long gap is weak evidence; a run of them is the signal.',
+    where: 'The capability tool switches to the gap chart when events are rare, prints the three-sigma limits beside the probability limits so the difference is visible, and names the run rule with its actual risk.',
+    quiz: { q: 'Your deviation rate chart has read zero for nine of twelve months. What should you chart instead?', options: ['The same chart with wider limits', 'The number of days between consecutive deviations', 'A yearly total'], answer: 1, why: 'A chart that is nine-twelfths zero has no room to show improvement or deterioration. The gaps between events use every event you have and turn a long quiet stretch into evidence - which is exactly the claim a quality improvement needs to make.' }
+  });
+
+  add({
+    id: 'box-cox', group: 'Six Sigma and process control', title: 'Box-Cox: making skewed data behave (and when it cannot)',
+    analogy: 'Changing the scale on a map. Distances look wrong in Mercator near the poles; redraw the projection and they come right. Redraw it badly and you have simply moved the distortion.',
+    intro: 'Cp and Cpk survive a failed normality test because they are ratios. PPM, Z.bench and sigma level do not, because they are normal tail probabilities. Often they can be recovered: find the power that makes the data as bell-shaped as possible, transform the specification limits the same way, and compute the tail there. The discipline is to re-test normality afterwards and stay silent if it still fails.',
+    demo(el) {
+      el.innerHTML = '<div data-role="plot"></div><div class="demo-controls">' + slider('lam', 'Power applied to the data (lambda)', -1, 2, 0.1, 1) + btn('best', 'Find the best lambda', 'primary') + '</div><p class="demo-read" data-role="read"></p>';
+      const rand = E.rng(67);
+      /* A right-skewed impurity with a one-sided specification, the usual shape for this
+         kind of result. Built as 0.15 + 0.35 x exp(0.6 Z), so the true rate beyond the
+         limit can be computed exactly and every estimate below scored against it. */
+      const LO = 0.15, SC = 0.35, SD = 0.6, USL = 2.0;
+      const raw = range(90).map(() => LO + Math.exp(normal(rand) * SD) * SC);
+      const TRUE_PPM = (1 - S.normCdf(Math.log((USL - LO) / SC) / SD)) * 1e6;
+      const tf = (v, lam) => (Math.abs(lam) < 1e-8 ? Math.log(v) : (Math.pow(v, lam) - 1) / lam);
+      const best = S.boxCoxLambda(raw);
+      const draw = () => {
+        const lam = Number(q(el, 'lam').value);
+        setOut(el, 'lam', lam.toFixed(1));
+        const t = raw.map(v => tf(v, lam)), tUsl = tf(USL, lam);
+        const ad = TL.andersonDarling(t);
+        const m = E.mean(t), s = E.sd(t);
+        const z = (tUsl - m) / s, ppm = (1 - S.normCdf(z)) * 1e6;
+        const observed = raw.filter(v => v > USL).length;
+        C.histogram(q(el, 'plot'), t, { mean: m, sd: s, usl: tUsl, xLabel: 'Result, on the transformed scale', label: 'Transformed data against the transformed specification' });
+        q(el, 'read').innerHTML = 'Lambda ' + lam.toFixed(1) + (Math.abs(lam - 1) < 1e-8 ? ' is the raw data, untransformed' : Math.abs(lam) < 1e-8 ? ' is the logarithm' : '') +
+          '. Anderson-Darling on the transformed values: p = <b>' + fmt(ad.p) + '</b>, so normality ' + (ad.normal ? '<b>holds</b>' : '<b>still fails</b>') + '. ' +
+          'The specification has been transformed with the same power, so it is still the same limit - ' + fmt(USL) + ' becomes ' + fmt(tUsl) + '. ' +
+          'The normal tail beyond it reads <b>' + Math.round(ppm).toLocaleString() + ' PPM</b>. This data was built from a known distribution, so the true rate over the limit is <b>' +
+          Math.round(TRUE_PPM).toLocaleString() + ' PPM</b>, and ' + observed + ' of ' + raw.length + ' results actually exceeded it. ' +
+          (ad.normal ? 'Normality holds on this scale, so that PPM figure is worth reporting.' : 'Normality fails on this scale, so the tool withholds the PPM rather than printing it - the number is exactly as wrong as the shape it assumes.') +
+          ' Untransformed, the figure reads about 8 PPM against a truth near ' + Math.round(TRUE_PPM / 1000) + ',000: three orders of magnitude of false comfort. ' +
+          'The logarithm (lambda 0) lands within about a fifth of the truth; the maximum-likelihood lambda for this data is <b>' + best.lambda.toFixed(2) +
+          '</b> and overshoots it by roughly two and a half times. A transform recovers the order of magnitude - the difference between a real risk and no risk at all - without making the figure exact.';
+      };
+      q(el, 'lam').oninput = draw;
+      q(el, 'best').onclick = () => { q(el, 'lam').value = Math.max(-1, Math.min(2, Math.round(best.lambda * 10) / 10)); draw(); };
+      draw();
+    },
+    steps: ['Test the shape first. If normality holds, no transform is needed and applying one only costs interpretability.', 'Search the power lambda by profile likelihood: lambda = 0 is the logarithm, 0.5 the square root, 1 no change, −1 the reciprocal.', 'Transform the specification limits with the same power. A transform applied to the data but not the limits produces a confident, meaningless number.', 'Re-test normality on the transformed values and withhold the tail figures if it still fails. No power of a two-humped variable is bell-shaped.'],
+    when: 'When a capability study on skewed data needs PPM or sigma level, and the ratios alone are not enough for the decision.',
+    watch: 'Box-Cox needs positive data. Bimodal data will not transform - that is two populations, and the fix is to find out what separates them. And the transformed Cpk is on a transformed scale: report it as such rather than comparing it with an untransformed one.',
+    where: 'The capability panel runs this automatically when normality fails, reports the lambda it found, shows the re-test, and keeps the figures withheld when the re-test fails too.',
+    quiz: { q: 'A skewed impurity fails normality. You transform with lambda = 0.3 and the re-test still fails, but the PPM now looks sensible. What should you report?', options: ['The transformed PPM, since it is more reasonable than the raw one', 'Cp and Cpk, the observed out-of-specification count, and that the tail figures cannot be computed', 'The raw PPM with a caveat'], answer: 1, why: 'A figure that looks reasonable is not the test; the test is whether the distribution it assumes fits. Cp, Cpk and the observed count need no distribution at all, so they stand. A tail probability from a shape that has twice failed its test is a guess wearing a number, and a blank with a reason attached is worth more.' }
+  });
+
+  add({
+    id: 'distribution-free', group: 'Six Sigma and process control', title: 'Distribution-free limits: what the ranking alone can prove',
+    analogy: 'Asking the tallest of ten people to stand for "taller than 99% of the country". With ten people it is a guess; with three hundred it is nearly a fact. The claim depends on the crowd size, not on anyone being measured more carefully.',
+    intro: 'A normal-theory tolerance interval is efficient and leans hard on the shape of the tails - exactly where a wrong distribution does the most damage. There is an alternative that assumes nothing at all: use the largest observed value as the limit, and ask what confidence the sample size alone buys. The arithmetic is simple, the honesty is total, and the cost is sample size.',
+    demo(el) {
+      el.innerHTML = '<div data-role="plot"></div><div class="demo-controls">' + slider('n', 'Results you have', 10, 400, 5, 30) +
+        slider('cov', 'Share of production to cover (%)', 90, 99.5, 0.5, 99) + '</div><p class="demo-read" data-role="read"></p>';
+      const draw = () => {
+        const n = Number(q(el, 'n').value), cov = Number(q(el, 'cov').value) / 100;
+        setOut(el, 'n', n); setOut(el, 'cov', (cov * 100).toFixed(1));
+        /* The largest of n results is above the coverage quantile unless every one of the n
+           fell below it, so the confidence is 1 - coverage^n. One line, no distribution. */
+        const conf = 1 - Math.pow(cov, n);
+        const need = TL.nonParametricN(cov, 0.95, 'one');
+        const f = frame(640, 250, [10, 400], [0, 1], { l: 52, b: 38, xLabel: 'Number of results', yLabel: 'Confidence the largest value covers it' });
+        const curve = range(79).map(i => { const k = 10 + i * 5; return [k, 1 - Math.pow(cov, k)]; });
+        q(el, 'plot').innerHTML = svg(640, 250, 'Confidence from the ranking alone', f.axes +
+          '<path class="ref" d="' + pathOf([[10, 0.95], [400, 0.95]], f) + '"/>' +
+          '<text class="lbl-strong" x="' + f.sx(395) + '" y="' + (f.sy(0.95) - 6) + '" text-anchor="end">95% confidence</text>' +
+          '<path class="line" d="' + pathOf(curve, f) + '"/>' +
+          dot(f.sx(n), f.sy(conf), 'c2', 6, n + ' results: ' + pct(conf)) +
+          (need <= 400 ? '<line class="target-line" x1="' + f.sx(need) + '" x2="' + f.sx(need) + '" y1="14" y2="' + f.sy(0) + '"/><text class="lbl-strong" x="' + f.sx(need) + '" y="11" text-anchor="middle">' + need + ' needed</text>' : ''));
+        q(el, 'read').innerHTML = 'With <b>' + n + '</b> results, the largest one covers ' + pct(cov) + ' of production with <b>' + pct(conf) +
+          '</b> confidence. The whole calculation is 1 &minus; ' + cov.toFixed(3) + '<sup>' + n + '</sup>: the largest value fails only if every single result landed below the ' +
+          pct(cov) + ' point. No distribution appears anywhere - which is the point. ' +
+          'For the usual claim of ' + pct(cov) + ' coverage at 95% confidence you need <b>' + need + '</b> results' +
+          (need > 400 ? ', beyond the right-hand edge of this chart.' : ', marked on the chart.') +
+          ' The normal-theory factor gets there with about ten, and that gap is the price of the assumption: ten results plus a shape you have assumed, against ' + need +
+          ' results and nothing assumed at all. Below the threshold the tool refuses the claim and states what the data does reach, rather than quietly reporting the normal figure.';
+      };
+      q(el, 'n').oninput = draw; q(el, 'cov').oninput = draw;
+      draw();
+    },
+    steps: ['Rank the results and take the largest (or smallest, for a lower limit) as the candidate limit.', 'Confidence that it covers the chosen share of production is one minus that share raised to the power n.', 'Invert it for planning: for 99% coverage at 95% confidence you need 299 results, for 95% coverage 59.', 'Report it beside the normal-theory interval, not instead of it - the gap between the two is the size of the assumption you are making.'],
+    when: 'Whenever a specification is being defended on data that fails or cannot be shown to pass a normality test, and whenever a reviewer may ask what the claim rests on.',
+    watch: 'The bound is one of your observed values, so it can never be tighter than your data and gets no credit for a tidy distribution. It also assumes the results are independent and representative - 299 results from three batches are not 299 independent results.',
+    where: 'The tolerance tool reports the distribution-free bound beside the normal factor, with the Anderson-Darling verdict and the sample size the claim would need.',
+    quiz: { q: 'You have 30 results on a right-skewed impurity and need a limit covering 99% of production at 95% confidence. What can you honestly offer?', options: ['The normal-theory interval, since 30 is a reasonable sample', 'Neither claim at this confidence: say so, report what 30 results do reach, and state that 299 would be needed distribution-free', 'The largest observed value, as a 95% limit'], answer: 1, why: 'The normal interval needs a shape the data contradicts, and the ranking of 30 results reaches only about 26% confidence for a 99% claim. The useful answer names the gap and the sample size that would close it, which is something a reviewer can act on - unlike a number that will not survive being asked about.' }
+  });
+
+  add({
     id: 'codon-optimization', group: 'Optimizing with evolution', title: 'Codon optimization: evolving a gene without changing the protein',
     analogy: 'Spelling the same word in two languages. "Colour" and "color" read the same to a person, but one is what the local reader expects. The protein is the meaning; the codons are the spelling, and each host has its own preference.',
     intro: 'Most amino acids can be written with several codons, so a protein has astronomically many possible genes. A genetic algorithm breeds a population of spellings: it keeps the ones that score well, mixes them, and mutates a codon here and there. Drag through the generations below and watch a deliberately badly-spelled gene improve, one objective at a time.',
@@ -1605,6 +2481,60 @@
     watch: 'A calibrated interval is honest about the model, not about the world. If the process behaves differently out there — a new failure mode, a biological limit — no interval computed from old runs can know. Widening is a warning that the answer rests on the shape of the fit rather than on evidence, and the right response to a very wide band is usually an experiment, not a decision.',
     where: 'Pick "Plasmid & vector selection sandbox" from the selector; the band widens as you drag a slider out of range.',
     quiz: { q: 'A model trained on plasmids of 4 to 13 kb is asked about one of 19 kb. Its ±2σ interval is the same width as for a 7 kb plasmid. What does that tell you?', options: ['The model is equally confident, so 19 kb is fine', 'Nothing about 19 kb: the band is one fixed width by construction and cannot react to being outside the data', 'The model has extrapolated correctly'], answer: 1, why: 'A fixed multiple of the residual spread is the same number everywhere. Its not widening is a property of the formula, not evidence about the prediction. Measured against fresh runs outside the training range, such a band typically delivers far less coverage than it claims.' }
+  });
+
+  add({
+    id: 'conformal', group: 'Using the results', title: 'Conformal intervals: a band that earns its coverage',
+    analogy: 'Two weather services promise 90% accuracy. One derives it from a model of the atmosphere; the other checked its last two hundred forecasts and counted. Only the second has evidence.',
+    intro: 'A prediction without an interval is unusable for a decision. The usual interval - plus or minus two standard deviations of the residuals - is normally computed on the rows the model was fitted to, which is the same mistake as quoting a training score: the model has already bent itself to those rows. Split conformal holds back a slice, looks at the errors the model actually made on it, and takes the band straight from their ranking. It assumes nothing about the shape of those errors, and its claim is measured rather than asserted.',
+    demo(el) {
+      el.innerHTML = '<div class="demo-grid"><div><h4>&plusmn;2 sigma, from the rows it learned on</h4><div data-role="a"></div></div>' +
+        '<div><h4>Conformal, from rows it never saw</h4><div data-role="b"></div></div></div>' +
+        '<div class="demo-controls">' + btn('again', 'New data', 'ghost') + '</div><p class="demo-read" data-role="read"></p>';
+      let seed = 71;
+      const draw = () => {
+        const rand = E.rng(seed), nFit = 16, nCal = 60, nTest = 120, n = nFit + nCal + nTest;
+        const xs = range(n).map(() => rand() * 10), ys = xs.map(x => 20 + 2 * x + normal(rand) * 2.5);
+        /* A flexible model on few rows: nine polynomial terms fitted to sixteen points. It
+           is deliberately overfitted, which is the normal condition of a model that has not
+           been checked - and the condition that makes in-sample residuals a lie. */
+        const feat = x => range(9).map(k => Math.pow(x / 10, k + 1));
+        const fit = range(nFit), cal = range(nCal).map(i => nFit + i), test = range(nTest).map(i => nFit + nCal + i);
+        const m = E.fitRidgeCore(fit.map(i => feat(xs[i])), fit.map(i => ys[i]), 1e-7);
+        const pr = idx => m.predict(idx.map(i => feat(xs[i])));
+        const sIn = E.sd(pr(fit).map((p, k) => ys[fit[k]] - p));
+        const calRes = pr(cal).map((p, k) => Math.abs(ys[cal[k]] - p));
+        const qc = U.conformalQuantile(calRes.slice().sort((a, b) => a - b), 0.95);
+        const tp = pr(test);
+        const covOf = w => test.filter((i, k) => Math.abs(ys[i] - tp[k]) <= w).length / test.length;
+        const covSigma = covOf(1.96 * sIn), covConf = covOf(qc);
+        const panel = (role, w, cov, label) => {
+          const f = frame(300, 230, [0, 10], [14, 48], { l: 38, b: 30, xLabel: 'Input' });
+          const curve = range(60).map(i => [i * 10 / 59, m.predict([feat(i * 10 / 59)])[0]]);
+          const clamp = p => [p[0], Math.max(13, Math.min(49, p[1]))];
+          q(el, role).innerHTML = svg(300, 230, label, f.axes +
+            '<path class="line thin" d="' + pathOf(curve.map(p => clamp([p[0], p[1] + w])), f) + '"/>' +
+            '<path class="line thin" d="' + pathOf(curve.map(p => clamp([p[0], p[1] - w])), f) + '"/>' +
+            '<path class="line" d="' + pathOf(curve.map(clamp), f) + '"/>' +
+            test.map((i, k) => { const ok = Math.abs(ys[i] - tp[k]) <= w; return dot(f.sx(xs[i]), f.sy(Math.max(14, Math.min(48, ys[i]))), ok ? 'c1' : 'c2', 3.2, ok ? 'inside the band' : 'missed', ok ? 'circle' : 'square'); }).join('')) +
+            '<p class="demo-read">Caught <b>' + pct(cov) + '</b> of 120 unseen rows. Half-width ' + fmt(w) + '.</p>';
+        };
+        panel('a', 1.96 * sIn, covSigma, 'Band from in-sample residuals');
+        panel('b', qc, covConf, 'Band from held-out residuals');
+        q(el, 'read').innerHTML = 'Both bands claim 95%. The left one takes the spread of the residuals on the sixteen rows the model was fitted to - the usual shortcut - and delivers <b>' + pct(covSigma) +
+          '</b>. The model already bent itself to those sixteen points, so their residuals describe how well it memorised, not how well it predicts, and the band inherits the optimism. ' +
+          'The right one is the 95th percentile of the errors the model made on sixty rows held back from fitting, and delivers <b>' + pct(covConf) + '</b>. ' +
+          'It is wider because the honest answer is wider. The point estimate is identical in both panels: nothing about the model improved, only the truthfulness of the band around it. ' +
+          'Press "new data" to cycle through ten datasets: across all ten the right-hand band averages 95% - exactly what it claims - while the left-hand one averages 77% and never once reaches its claim.';
+      };
+      q(el, 'again').onclick = () => { seed += 13; draw(); };
+      draw();
+    },
+    steps: ['Split the data three ways: fit the model, calibrate the interval, and test it.', 'On the calibration slice, record the absolute error of every prediction.', 'The interval is the prediction plus and minus the chosen quantile of those errors - the 90th percentile for a 90% band.', 'Measure the coverage on the test slice. A claim of 90% that delivers 72% is worse than no claim at all.'],
+    when: 'Whenever a prediction will be acted on: which construct to build, which setting to run, whether a batch will pass.',
+    watch: 'Conformal assumes the new rows look like the calibration rows. Outside the range of the data it has no mechanism to widen, so it keeps its nominal width and quietly stops being valid - which is why extrapolation needs flagging separately. Local scaling helps but does not repeal this.',
+    where: 'The plasmid tool wraps the model tournament in split conformal, reports the coverage it measured against the rate it claims, and names the ceiling the available data can support.',
+    quiz: { q: 'A model reports ±2σ intervals and, measured on held-back rows, they contain the truth 76% of the time while claiming 95%. What has gone wrong?', options: ['The model is not accurate enough', 'The sigma came from residuals on the rows the model was fitted to, so it measured memorisation rather than prediction', 'The test set is too small'], answer: 1, why: 'An in-sample residual is shrunk by the fitting itself - the more flexible the model, the more it shrinks - so a band built from it is optimistic for exactly the same reason a training R² is. Rebuilding the band from errors on rows the model never saw fixes the claim without changing the prediction at all: the point estimate is identical, the honesty of the band is not.' }
   });
 
   add({

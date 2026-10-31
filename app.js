@@ -2025,6 +2025,61 @@
       });
     });
     renderGates();
+    renderMethods();
+  }
+
+  /* The reference card. Rendered rather than written into the markup so the tool names come
+     from the selector itself and cannot drift from it, and so a method added to the data
+     file appears here without anybody remembering to edit the page. */
+  function renderMethods() {
+    const M = window.MLMethods;
+    const host = $('methods-table'), nn = $('nonnormal');
+    if (!M || !host) return;
+    const KIND = { stats: ['Statistics', 'A named procedure with assumptions you can check and an exact answer'],
+      ml: ['Machine learning', 'Fitted from your rows and judged on rows it never saw'],
+      both: ['Both', 'One is used to qualify the other'] };
+    const toolName = t => {
+      const o = document.querySelector('#tool option[value="' + t + '"]');
+      return o ? o.textContent.replace(/\s*\u2014.*$/, '').trim() : t;
+    };
+    /* Two passes over the same eight benches, because two different questions get asked.
+       The table answers "which one do I open, and what do I need to have" in a row you can
+       scan; the cards answer "what does it assume and how is it judged" for the methods
+       inside each bench. A cell is labelled rather than positional so the table can stack on
+       a phone without the columns losing their meaning. */
+    const cell = (label, text) => '<td data-label="' + h(label) + '">' + h(text) + '</td>';
+    const table = !M.TOOLS ? '' : '<div class="tool-table-wrap"><table class="tool-table">' +
+      '<caption class="sr-only">Every tool with what it is, where it is used, what data it takes and what it returns</caption>' +
+      '<thead><tr><th scope="col">Tool</th><th scope="col">What it is</th><th scope="col">Where it is used</th>' +
+      '<th scope="col">Input data</th><th scope="col">What you get out</th></tr></thead><tbody>' +
+      M.TOOLS.map(t => '<tr><th scope="row" data-label="Tool"><button class="btn ghost small" type="button" data-open-tool="' + h(t.tool) + '">' +
+        h(toolName(t.tool)) + '</button></th>' + cell('What it is', t.what) + cell('Where it is used', t.where) +
+        cell('Input data', t.inputs) + cell('What you get out', t.outputs) + '</tr>').join('') +
+      '</tbody></table></div>';
+
+    host.innerHTML = table + '<h4 class="sub-sub-head">Method by method</h4>' +
+      '<p class="hint">The same benches opened up: the named procedure inside each one, what its chart is for, and what it does when the data is not bell-shaped.</p>' +
+      '<div class="method-cards">' + M.METHODS.map(m =>
+      '<div class="mcard"><div class="mcard-head"><b>' + h(m.name) + '</b>' +
+      '<span class="kind-tag k-' + h(m.kind) + '" title="' + h(KIND[m.kind][1]) + '">' + h(KIND[m.kind][0]) + '</span>' +
+      '<button class="btn ghost small" type="button" data-open-tool="' + h(m.tool) + '">' + h(toolName(m.tool)) + '</button></div>' +
+      '<dl><dt>Method</dt><dd>' + h(m.method) + '</dd>' +
+      '<dt>Answers</dt><dd>' + h(m.answers) + '</dd>' +
+      '<dt>What the chart does</dt><dd>' + h(m.chart) + '</dd>' +
+      '<dt>Where it can be used</dt><dd>' + h(m.where) + '</dd>' +
+      '<dt>Input data</dt><dd>' + h(m.inputs) + '</dd>' +
+      '<dt>What you get out</dt><dd>' + h(m.outputs) + '</dd>' +
+      '<dt>Judged by</dt><dd>' + h(m.judged) + '</dd>' +
+      '<dt class="shape">If the data is not normal</dt><dd class="shape">' + h(m.shape) + '</dd></dl></div>').join('') + '</div>';
+    Array.prototype.forEach.call(host.querySelectorAll('[data-open-tool]'), b => {
+      b.addEventListener('click', () => { showTool(b.getAttribute('data-open-tool'), true); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+    });
+    if (nn) {
+      const N = M.NONNORMAL;
+      nn.innerHTML = '<p class="lede">' + h(N.lead) + '</p>' +
+        '<dl class="qa">' + N.rows.map(r => '<dt>' + h(r.q) + '</dt><dd>' + h(r.a) + '</dd>').join('') + '</dl>' +
+        '<p class="apps-note"><b>The pattern.</b> ' + h(N.close) + '</p>';
+    }
   }
 
   /* The three exit criteria, each either a measured verdict or a plain statement of what it
